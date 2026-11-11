@@ -1,0 +1,10 @@
+{
+  "path_to_id": {
+    "assets/diagram.svg": "4eb0fe72-8bba-4b42-88ac-88fad4ceaa52",
+    "chapters/intro.typ": "38808d4e-5f98-4341-9369-e67162f066c2",
+    "chapters/methods.typ": "7cb71cd1-e151-47f5-a1ca-1d50753c5937",
+    "main.typ": "ef869bca-d164-4f38-ab3b-c69e63fb847f",
+    "refs.bib": "6cd5d775-641c-4b24-bfbb-46b4ca64568a",
+    "template.typ": "c853a1eb-67ee-4ae4-bb63-fe653eb7c7ca"
+  }
+}

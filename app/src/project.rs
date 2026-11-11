@@ -366,6 +366,94 @@ impl DiskProject {
         Ok(rel_path)
     }
 
+    pub fn rename_file_on_disk(&mut self, old_rel: &Path, new_rel_str: &str) -> Result<PathBuf, String> {
+        let trimmed = new_rel_str.trim().trim_start_matches(['/', '\\']);
+        if trimmed.is_empty() {
+            return Err("New file name cannot be empty".to_string());
+        }
+        let new_rel = PathBuf::from(trimmed);
+        let old_abs = self.root_dir.join(old_rel);
+        let new_abs = self.root_dir.join(&new_rel);
+        if let Some(parent) = new_abs.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        if old_abs.exists() {
+            fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+        }
+        if let Some(mut buf) = self.buffers.remove(old_rel) {
+            buf.rel_path = new_rel.clone();
+            buf.abs_path = new_abs;
+            buf.kind = FileKind::from_path(&new_rel);
+            self.buffers.insert(new_rel.clone(), buf);
+        }
+        for tab in &mut self.open_tabs {
+            if tab == old_rel {
+                *tab = new_rel.clone();
+            }
+        }
+        if self.active_file == old_rel {
+            self.active_file = new_rel.clone();
+        }
+        if self.main_file == old_rel {
+            self.main_file = new_rel.clone();
+        }
+        self.rescan_tree()?;
+        self.revision = self.revision.wrapping_add(1);
+        Ok(new_rel)
+    }
+
+    pub fn delete_file_on_disk(&mut self, rel_path: &Path) -> Result<(), String> {
+        let abs = self.root_dir.join(rel_path);
+        if abs.is_file() {
+            fs::remove_file(&abs).map_err(|e| e.to_string())?;
+        }
+        self.buffers.remove(rel_path);
+        self.open_tabs.retain(|p| p != rel_path);
+        self.rescan_tree()?;
+        if self.open_tabs.is_empty() {
+            let typ_files = self.collect_typ_files();
+            if let Some(first) = typ_files.first() {
+                let _ = self.open_file(first);
+            }
+        } else if self.active_file == rel_path {
+            if let Some(first) = self.open_tabs.first() {
+                self.active_file = first.clone();
+            }
+        }
+        self.revision = self.revision.wrapping_add(1);
+        Ok(())
+    }
+
+    /// Synchronizes open in-memory buffers and disk file tree with the latest CRDT file entries.
+    pub fn sync_from_crdt_files(&mut self, entries: &[crate::collab::doc::CollabFileEntry]) {
+        for entry in entries {
+            let rel_path = PathBuf::from(&entry.resolved_path);
+            let abs_path = self.root_dir.join(&rel_path);
+            let kind = FileKind::from_path(&rel_path);
+            if let Some(buf) = self.buffers.get_mut(&rel_path) {
+                if buf.text.as_deref() != Some(entry.content.as_str()) {
+                    buf.text = Some(entry.content.clone());
+                    buf.size_bytes = entry.content.len() as u64;
+                    buf.dirty = false;
+                }
+            } else if rel_path == self.active_file {
+                self.buffers.insert(
+                    rel_path.clone(),
+                    OpenBuffer {
+                        rel_path,
+                        abs_path,
+                        kind,
+                        text: Some(entry.content.clone()),
+                        size_bytes: entry.content.len() as u64,
+                        dirty: false,
+                    },
+                );
+            }
+        }
+        let _ = self.rescan_tree();
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     pub fn set_main_file(&mut self, rel_path: PathBuf) {
         self.main_file = rel_path;
         self.revision = self.revision.wrapping_add(1);

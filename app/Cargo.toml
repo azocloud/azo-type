@@ -1,8 +1,8 @@
 [package]
 name = "typst-ide"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-description = "Native Cross-Platform Typst IDE and Live Previewer in Rust (Linux, macOS, Windows)"
+description = "Native Cross-Platform Typst IDE with P2P Real-Time Collaborative Editing"
 authors = ["Typst IDE Architect"]
 
 [dependencies]
@@ -25,6 +25,16 @@ rfd = "0.18.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 log = "0.4"
+
+# P2P Real-Time Collaboration (CRDT + Iroh QUIC transport)
+yrs = { version = "0.28.1", features = ["sync"] }
+iroh = "=1.4.1"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "io-util", "net"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.22"
+rand = "0.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.21.2", default-features = false }

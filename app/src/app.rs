@@ -2,13 +2,19 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
-use egui::text::LayoutJob;
+use egui::text::{CCursor, CCursorRange, LayoutJob};
 use egui::{
     Align, CollapsingHeader, Color32, Context, CornerRadius, FontFamily, FontId, Frame, Key,
     Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea, Sense, SidePanel, Slider, Stroke,
     StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2, Visuals, Window,
 };
 
+use crate::collab::awareness::PeerPresence;
+use crate::collab::doc::{normalize_rel_path, CharSelection};
+use crate::collab::session::{CollabSessionHandle, SessionToUiEvent, UiToSessionCmd};
+use crate::collab::ui::{
+    paint_remote_cursors_in_editor, render_collaboration_window, CollabUiState,
+};
 use crate::compiler::{
     compile_project, export_pdf_bytes, upload_page_textures, CompileSnapshot, DiagnosticItem,
     RenderedPageData, RenderedPageTexture,
@@ -26,6 +32,7 @@ pub enum MenuAction {
     SaveAll,
     ExportPdf,
     OpenSettings,
+    OpenCollab,
     ToggleSidebar,
     ToggleTheme,
     ZoomIn,
@@ -53,10 +60,15 @@ pub struct IdeSettings {
     pub auto_compile: bool,
     pub debounce_ms: u64,
     pub render_dpi_scale: f32,
+    pub user_name: String,
+    pub user_color: [u8; 3],
 }
 
 impl Default for IdeSettings {
     fn default() -> Self {
+        let default_user = std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .unwrap_or_else(|_| "Author".to_string());
         Self {
             dark_mode: true,
             editor_font_size: 13.5,
@@ -67,6 +79,8 @@ impl Default for IdeSettings {
             auto_compile: true,
             debounce_ms: 120,
             render_dpi_scale: 2.0,
+            user_name: default_user,
+            user_color: [56, 189, 248],
         }
     }
 }
@@ -87,6 +101,12 @@ pub struct TypstIdeApp {
     pub show_settings_window: bool,
     pub settings_tab: SettingsTab,
 
+    // P2P Collaboration state & background actor handle
+    pub collab_ui: CollabUiState,
+    pub collab_session: CollabSessionHandle,
+    pub pending_cursor_restore: Option<CharSelection>,
+    pub last_sent_cursor: Option<(PathBuf, CharSelection)>,
+
     // Compilation state
     pub last_compiled_revision: u64,
     pub last_compiled_dpi: f32,
@@ -98,9 +118,11 @@ pub struct TypstIdeApp {
     pub page_textures: Vec<RenderedPageTexture>,
     pub diagnostics: Vec<DiagnosticItem>,
 
-    // New file creation modal/inline state
+    // New file creation & rename modal/inline state
     pub show_new_file_input: bool,
     pub new_file_name: String,
+    pub rename_target_file: Option<PathBuf>,
+    pub rename_file_input: String,
     pub inspect_asset_mode: bool,
 
     // Status bar notification
@@ -149,6 +171,7 @@ impl TypstIdeApp {
 
         let (io_tx, io_rx) = mpsc::channel();
         let (compile_tx, compile_rx) = mpsc::channel();
+        let collab_session = CollabSessionHandle::spawn(Some(cc.egui_ctx.clone()));
 
         let status_notice = format!(
             "Opened disk project '{}' ({})",
@@ -176,8 +199,14 @@ impl TypstIdeApp {
             zoom: 1.0,
             show_settings_window: false,
             settings_tab: SettingsTab::Appearance,
+            collab_ui: CollabUiState::default(),
+            collab_session,
+            pending_cursor_restore: None,
+            last_sent_cursor: None,
             show_new_file_input: false,
             new_file_name: "chapters/appendix.typ".to_string(),
+            rename_target_file: None,
+            rename_file_input: String::new(),
             inspect_asset_mode: false,
             status_notice,
             io_tx,
@@ -277,6 +306,9 @@ impl TypstIdeApp {
             MenuAction::OpenSettings => {
                 self.show_settings_window = true;
             }
+            MenuAction::OpenCollab => {
+                self.collab_ui.show_window = true;
+            }
             MenuAction::ToggleSidebar => {
                 self.show_sidebar = !self.show_sidebar;
             }
@@ -350,6 +382,9 @@ impl TypstIdeApp {
         while let Ok(event) = self.io_rx.try_recv() {
             match event {
                 IoEvent::FolderPicked(path) => {
+                    if self.collab_ui.is_active {
+                        self.collab_session.send(UiToSessionCmd::LeaveSession);
+                    }
                     match DiskProject::open_folder(&path, self.settings.show_hidden_files) {
                         Ok(proj) => {
                             let name = proj.project_name.clone();
@@ -369,10 +404,74 @@ impl TypstIdeApp {
                 }
             }
         }
+
+        // Poll background P2P Collaboration Actor events
+        let mut need_compile = false;
+        while let Some(ev) = self.collab_session.try_recv() {
+            match ev {
+                SessionToUiEvent::SessionStarted {
+                    is_host,
+                    ticket_str,
+                    local_endpoint_id,
+                    files,
+                } => {
+                    self.collab_ui.is_active = true;
+                    self.collab_ui.is_host = is_host;
+                    self.collab_ui.host_ticket = ticket_str;
+                    self.collab_ui.local_endpoint_id = local_endpoint_id;
+                    self.collab_ui.last_error = None;
+                    if !files.is_empty() {
+                        self.project.sync_from_crdt_files(&files);
+                        need_compile = true;
+                    }
+                }
+                SessionToUiEvent::SessionStopped { reason } => {
+                    self.collab_ui.is_active = false;
+                    self.collab_ui.is_host = false;
+                    self.collab_ui.host_ticket = None;
+                    self.collab_ui.peers.clear();
+                    self.collab_ui.remote_presences.clear();
+                    self.collab_ui.status_banner = Some(reason.clone());
+                    self.status_notice = reason;
+                }
+                SessionToUiEvent::PeerListChanged { peers } => {
+                    self.collab_ui.peers = peers;
+                }
+                SessionToUiEvent::RemoteFilesUpdated {
+                    files,
+                    disk_updated_paths: _,
+                    preserved_selection,
+                } => {
+                    self.project.sync_from_crdt_files(&files);
+                    if let Some(sel) = preserved_selection {
+                        self.pending_cursor_restore = Some(sel);
+                    }
+                    need_compile = true;
+                }
+                SessionToUiEvent::RemotePresenceUpdated { presences } => {
+                    self.collab_ui.remote_presences = presences;
+                }
+                SessionToUiEvent::StatusNotice { message } => {
+                    self.collab_ui.status_banner = Some(message.clone());
+                    self.status_notice = message;
+                }
+                SessionToUiEvent::CollabError { message } => {
+                    self.collab_ui.last_error = Some(message.clone());
+                    self.status_notice = format!("Collab error: {}", message);
+                }
+            }
+        }
+
+        if need_compile {
+            self.trigger_compile_now(ctx);
+        }
     }
 
     fn handle_keyboard_shortcuts(&mut self, ctx: &Context) {
         let mut triggered = None;
+        let collab_active = self.collab_ui.is_active;
+        let active_rel = self.project.active_file.clone();
+
         ctx.input_mut(|i| {
             if i.consume_key(Modifiers::COMMAND, Key::Comma) {
                 triggered = Some(MenuAction::OpenSettings);
@@ -388,6 +487,16 @@ impl TypstIdeApp {
                 triggered = Some(MenuAction::ExportPdf);
             } else if i.consume_key(Modifiers::NONE, Key::F5) {
                 triggered = Some(MenuAction::RescanFolder);
+            } else if collab_active && i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+            {
+                self.collab_session
+                    .send(UiToSessionCmd::LocalRedo { rel_path: active_rel.clone() });
+            } else if collab_active && i.consume_key(Modifiers::COMMAND, Key::Y) {
+                self.collab_session
+                    .send(UiToSessionCmd::LocalRedo { rel_path: active_rel.clone() });
+            } else if collab_active && i.consume_key(Modifiers::COMMAND, Key::Z) {
+                self.collab_session
+                    .send(UiToSessionCmd::LocalUndo { rel_path: active_rel.clone() });
             }
         });
         if let Some(action) = triggered {
@@ -612,7 +721,12 @@ impl TypstIdeApp {
 
                     // PROJECT MENU
                     ui.menu_button(RichText::new("Project").strong(), |ui| {
-                        ui.set_min_width(210.0);
+                        ui.set_min_width(220.0);
+                        if ui.button("Collaboration (P2P)...").clicked() {
+                            pending_action = Some(MenuAction::OpenCollab);
+                            ui.close_menu();
+                        }
+                        ui.separator();
                         if ui.button("Compile Document Now").clicked() {
                             pending_action = Some(MenuAction::CompileNow);
                             ui.close_menu();
@@ -651,13 +765,22 @@ impl TypstIdeApp {
 
         if let Some(snippet) = snippet_to_insert {
             let auto_save = self.settings.auto_save_on_edit;
+            let active_rel = self.project.active_file.clone();
+            let mut updated_text = None;
             if let Some(buf) = self.project.active_buffer_mut() {
                 if let Some(ref mut text) = buf.text {
                     text.push_str(snippet);
+                    updated_text = Some(text.clone());
                     self.project.mark_active_modified(auto_save);
                     self.pending_compile = true;
                     self.last_edit_time = ctx.input(|i| i.time);
                 }
+            }
+            if let (true, Some(new_text)) = (self.collab_ui.is_active, updated_text) {
+                self.collab_session.send(UiToSessionCmd::LocalTextEdited {
+                    rel_path: active_rel,
+                    new_text,
+                });
             }
         }
 
@@ -746,6 +869,26 @@ impl TypstIdeApp {
                         pending_action = Some(MenuAction::SaveFile);
                     }
 
+                    let collab_label = if self.collab_ui.is_active {
+                        format!("P2P Live ({})", self.collab_ui.connected_peer_count() + 1)
+                    } else {
+                        "P2P Collab".to_string()
+                    };
+                    let collab_text = if self.collab_ui.is_active {
+                        RichText::new(collab_label)
+                            .strong()
+                            .color(Color32::from_rgb(52, 211, 153))
+                    } else {
+                        RichText::new(collab_label)
+                    };
+                    if ui
+                        .selectable_label(self.collab_ui.show_window, collab_text)
+                        .on_hover_text("Real-Time P2P Collaborative Editing (Project > Collaboration)")
+                        .clicked()
+                    {
+                        self.collab_ui.show_window = !self.collab_ui.show_window;
+                    }
+
                     if ui
                         .selectable_label(self.show_settings_window, "Settings")
                         .on_hover_text("Open Settings Window (File > Settings / Ctrl+,)")
@@ -829,6 +972,18 @@ impl TypstIdeApp {
                             let path_str = self.new_file_name.trim().to_string();
                             match self.project.create_file_on_disk(&path_str) {
                                 Ok(rel) => {
+                                    let initial_text = self
+                                        .project
+                                        .read_source_text(&rel)
+                                        .unwrap_or_default();
+                                    if self.collab_ui.is_active {
+                                        self.collab_session.send(
+                                            UiToSessionCmd::LocalFileCreated {
+                                                rel_path: rel.clone(),
+                                                initial_text,
+                                            },
+                                        );
+                                    }
                                     self.status_notice = format!(
                                         "Created '{}' on disk",
                                         self.project.root_dir.join(&rel).display()
@@ -843,6 +998,50 @@ impl TypstIdeApp {
                         }
                         if ui.button("Cancel").clicked() {
                             self.show_new_file_input = false;
+                        }
+                    });
+                }
+
+                // Inline File Rename bar on disk
+                if let Some(old_rel) = self.rename_target_file.clone() {
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("Rename '{}' to:", old_rel.display())).strong(),
+                        );
+                        let resp = ui.add(
+                            TextEdit::singleline(&mut self.rename_file_input)
+                                .desired_width(240.0),
+                        );
+                        let enter_pressed =
+                            resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        if ui.button("Rename on Disk").clicked() || enter_pressed {
+                            let new_str = self.rename_file_input.trim().to_string();
+                            match self.project.rename_file_on_disk(&old_rel, &new_str) {
+                                Ok(new_rel) => {
+                                    if self.collab_ui.is_active {
+                                        self.collab_session.send(
+                                            UiToSessionCmd::LocalFileRenamed {
+                                                old_rel_path: old_rel.clone(),
+                                                new_rel_path: new_rel.clone(),
+                                            },
+                                        );
+                                    }
+                                    self.status_notice = format!(
+                                        "Renamed '{}' -> '{}'",
+                                        old_rel.display(),
+                                        new_rel.display()
+                                    );
+                                    self.rename_target_file = None;
+                                    self.trigger_compile_now(ctx);
+                                }
+                                Err(e) => {
+                                    self.status_notice = format!("Rename failed: {}", e);
+                                }
+                            }
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.rename_target_file = None;
                         }
                     });
                 }
@@ -1111,6 +1310,21 @@ impl TypstIdeApp {
                     );
 
                     ui.separator();
+                    if self.collab_ui.is_active {
+                        let role = if self.collab_ui.is_host {
+                            "Host"
+                        } else {
+                            "Peer"
+                        };
+                        let n_peers = self.collab_ui.connected_peer_count();
+                        ui.label(
+                            RichText::new(format!("P2P {}: {} peer(s)", role, n_peers))
+                                .small()
+                                .strong()
+                                .color(Color32::from_rgb(56, 189, 248)),
+                        );
+                        ui.separator();
+                    }
                     ui.label(RichText::new(&self.status_notice).small().weak());
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1193,11 +1407,14 @@ impl TypstIdeApp {
 
                 let mut clicked_path: Option<PathBuf> = None;
                 let mut new_main_path: Option<PathBuf> = None;
+                let mut rename_req: Option<PathBuf> = None;
+                let mut delete_req: Option<PathBuf> = None;
 
                 let active_path = self.project.active_file.clone();
                 let main_path = self.project.main_file.clone();
                 let project_title = format!("Folder: {}", self.project.project_name);
                 let tree_snapshot = self.project.tree.clone();
+                let presences_snapshot = self.collab_ui.remote_presences.clone();
 
                 ScrollArea::vertical()
                     .id_salt("file_tree_scroll")
@@ -1212,8 +1429,11 @@ impl TypstIdeApp {
                                         &self.project,
                                         &active_path,
                                         &main_path,
+                                        &presences_snapshot,
                                         &mut clicked_path,
                                         &mut new_main_path,
+                                        &mut rename_req,
+                                        &mut delete_req,
                                     );
                                 }
                             });
@@ -1287,17 +1507,44 @@ impl TypstIdeApp {
                         format!("Set '{}' as main Typst file", main_p.display());
                     self.trigger_compile_now(ctx);
                 }
+                if let Some(rel_to_rename) = rename_req {
+                    self.rename_file_input = rel_to_rename.to_string_lossy().to_string();
+                    self.rename_target_file = Some(rel_to_rename);
+                }
+                if let Some(rel_to_delete) = delete_req {
+                    match self.project.delete_file_on_disk(&rel_to_delete) {
+                        Ok(()) => {
+                            if self.collab_ui.is_active {
+                                self.collab_session.send(
+                                    UiToSessionCmd::LocalFileDeleted {
+                                        rel_path: rel_to_delete.clone(),
+                                    },
+                                );
+                            }
+                            self.status_notice =
+                                format!("Deleted '{}' from disk", rel_to_delete.display());
+                            self.trigger_compile_now(ctx);
+                        }
+                        Err(e) => {
+                            self.status_notice = format!("Delete failed: {}", e);
+                        }
+                    }
+                }
             });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_fs_tree_node(
         ui: &mut Ui,
         node: &FsTreeNode,
         project: &DiskProject,
         active_path: &Path,
         main_path: &Path,
+        remote_presences: &[PeerPresence],
         clicked_path: &mut Option<PathBuf>,
         new_main_path: &mut Option<PathBuf>,
+        rename_req: &mut Option<PathBuf>,
+        delete_req: &mut Option<PathBuf>,
     ) {
         match node {
             FsTreeNode::Directory {
@@ -1316,8 +1563,11 @@ impl TypstIdeApp {
                                 project,
                                 active_path,
                                 main_path,
+                                remote_presences,
                                 clicked_path,
                                 new_main_path,
+                                rename_req,
+                                delete_req,
                             );
                         }
                     });
@@ -1337,6 +1587,8 @@ impl TypstIdeApp {
                     .map(|b| b.dirty)
                     .unwrap_or(false);
 
+                let norm_rel = normalize_rel_path(&rel_path.to_string_lossy());
+
                 ui.horizontal(|ui| {
                     let dirty_mark = if dirty { " *" } else { "" };
                     let main_badge = if is_main { " ★" } else { "" };
@@ -1352,6 +1604,25 @@ impl TypstIdeApp {
                     if resp.clicked() {
                         *clicked_path = Some(rel_path.clone());
                     }
+
+                    // Show colored badges for remote peers currently viewing/editing this file
+                    for peer in remote_presences {
+                        if peer.active_path.as_deref() == Some(norm_rel.as_str()) {
+                            let c = Color32::from_rgb(
+                                peer.color_rgb[0],
+                                peer.color_rgb[1],
+                                peer.color_rgb[2],
+                            );
+                            ui.label(
+                                RichText::new(format!("● {}", peer.name))
+                                    .size(10.5)
+                                    .color(c)
+                                    .strong(),
+                            )
+                            .on_hover_text(format!("{} is editing {}", peer.name, norm_rel));
+                        }
+                    }
+
                     resp.context_menu(|ui| {
                         ui.label(
                             RichText::new(abs_path.display().to_string())
@@ -1364,6 +1635,14 @@ impl TypstIdeApp {
                             && ui.button("Set as Main File").clicked()
                         {
                             *new_main_path = Some(rel_path.clone());
+                            ui.close_menu();
+                        }
+                        if ui.button("Rename File...").clicked() {
+                            *rename_req = Some(rel_path.clone());
+                            ui.close_menu();
+                        }
+                        if !is_main && ui.button("Delete File").clicked() {
+                            *delete_req = Some(rel_path.clone());
                             ui.close_menu();
                         }
                     });
@@ -1500,13 +1779,21 @@ impl TypstIdeApp {
 
             if let Some(snippet) = snippet_to_insert {
                 let auto_save = self.settings.auto_save_on_edit;
+                let mut updated_text = None;
                 if let Some(file) = self.project.active_buffer_mut() {
                     if let Some(ref mut text) = file.text {
                         text.push_str(snippet);
+                        updated_text = Some(text.clone());
                         self.project.mark_active_modified(auto_save);
                         self.pending_compile = true;
                         self.last_edit_time = ctx.input(|i| i.time);
                     }
+                }
+                if let (true, Some(new_text)) = (self.collab_ui.is_active, updated_text) {
+                    self.collab_session.send(UiToSessionCmd::LocalTextEdited {
+                        rel_path: active_path.clone(),
+                        new_text,
+                    });
                 }
             }
 
@@ -1544,6 +1831,13 @@ impl TypstIdeApp {
         let show_line_numbers = self.settings.show_line_numbers;
         let use_syntax_highlight = self.settings.syntax_highlighting;
         let inspect_asset_mode = self.inspect_asset_mode;
+        let peers_in_active_file: Vec<PeerPresence> = self
+            .collab_ui
+            .peers_in_file(&active_path)
+            .into_iter()
+            .cloned()
+            .collect();
+        let restore_cursor = self.pending_cursor_restore.take();
 
         let Some(file) = self.project.active_buffer_mut() else {
             ui.centered_and_justified(|ui| {
@@ -1590,6 +1884,8 @@ impl TypstIdeApp {
 
         let is_typst = file.kind == FileKind::Typst && use_syntax_highlight;
         let mut text_changed = false;
+        let mut edited_text_snapshot: Option<String> = None;
+        let mut observed_cursor: Option<CharSelection> = None;
 
         let editor_bg = if dark_mode {
             Color32::from_rgb(11, 15, 25)
@@ -1666,19 +1962,53 @@ impl TypstIdeApp {
                                 .fill(editor_bg)
                                 .inner_margin(Margin::symmetric(10, 8))
                                 .show(ui, |ui| {
-                                    let resp = ui.add_sized(
-                                        ui.available_size(),
-                                        TextEdit::multiline(text_ref)
-                                            .id_salt("typst_code_editor")
-                                            .code_editor()
-                                            .desired_width(f32::INFINITY)
-                                            .desired_rows(34)
-                                            .frame(false)
-                                            .font(FontId::new(font_size, FontFamily::Monospace))
-                                            .layouter(&mut layouter),
-                                    );
-                                    if resp.changed() {
+                                    let mut output = TextEdit::multiline(text_ref)
+                                        .id_salt("typst_code_editor")
+                                        .code_editor()
+                                        .desired_width(f32::INFINITY)
+                                        .desired_rows(34)
+                                        .frame(false)
+                                        .font(FontId::new(font_size, FontFamily::Monospace))
+                                        .layouter(&mut layouter)
+                                        .show(ui);
+
+                                    // Restore StickyIndex-preserved cursor after a remote CRDT update
+                                    if let Some(sel) = restore_cursor {
+                                        output.state.cursor.set_char_range(Some(
+                                            CCursorRange::two(
+                                                CCursor::new(sel.secondary_char),
+                                                CCursor::new(sel.primary_char),
+                                            ),
+                                        ));
+                                        output.state.clone().store(ctx, output.response.id);
+                                    }
+
+                                    if let Some(range) = output.cursor_range {
+                                        observed_cursor = Some(CharSelection {
+                                            primary_char: range.primary.ccursor.index,
+                                            secondary_char: range.secondary.ccursor.index,
+                                        });
+                                    }
+
+                                    // Render remote collaborators' colored cursors, selections, and name tags
+                                    if !peers_in_active_file.is_empty() {
+                                        let peer_refs: Vec<&PeerPresence> =
+                                            peers_in_active_file.iter().collect();
+                                        paint_remote_cursors_in_editor(ui, &output, &peer_refs);
+                                    }
+
+                                    let ime_in_progress = ctx.input(|i| {
+                                        i.events.iter().any(|ev| {
+                                            matches!(
+                                                ev,
+                                                egui::Event::Ime(egui::ImeEvent::Preedit(_))
+                                            )
+                                        })
+                                    });
+
+                                    if output.response.changed() && !ime_in_progress {
                                         text_changed = true;
+                                        edited_text_snapshot = Some(text_ref.clone());
                                     }
                                 });
                         });
@@ -1688,9 +2018,29 @@ impl TypstIdeApp {
         if text_changed {
             let auto_save = self.settings.auto_save_on_edit;
             self.project.mark_active_modified(auto_save);
+            if let (true, Some(new_text)) = (self.collab_ui.is_active, edited_text_snapshot) {
+                self.collab_session.send(UiToSessionCmd::LocalTextEdited {
+                    rel_path: active_path.clone(),
+                    new_text,
+                });
+            }
             if self.settings.auto_compile {
                 self.pending_compile = true;
                 self.last_edit_time = ctx.input(|i| i.time);
+            }
+        }
+
+        if self.collab_ui.is_active {
+            if let Some(sel) = observed_cursor {
+                let candidate = (active_path.clone(), sel);
+                if self.last_sent_cursor.as_ref() != Some(&candidate) {
+                    self.last_sent_cursor = Some(candidate);
+                    self.collab_session
+                        .send(UiToSessionCmd::LocalCursorUpdated {
+                            active_rel_path: Some(active_path),
+                            selection: Some(sel),
+                        });
+                }
             }
         }
     }
@@ -2076,6 +2426,17 @@ impl eframe::App for TypstIdeApp {
         // Settings Sub-Window (opened via File > Settings)
         self.render_settings_subwindow(ctx);
 
+        // P2P Collaboration Sub-Window (opened via Project > Collaboration (P2P)...)
+        render_collaboration_window(
+            ctx,
+            self.settings.dark_mode,
+            &self.project.root_dir,
+            &mut self.settings.user_name,
+            &mut self.settings.user_color,
+            &mut self.collab_ui,
+            &self.collab_session,
+        );
+
         self.handle_screenshot_lifecycle(ctx);
     }
 }
@@ -2096,6 +2457,7 @@ mod macos_native_menu {
         id_save_all: MenuId,
         id_export_pdf: MenuId,
         id_settings: MenuId,
+        id_collab: MenuId,
         id_quit: MenuId,
         id_toggle_sidebar: MenuId,
         id_toggle_theme: MenuId,
@@ -2149,8 +2511,13 @@ mod macos_native_menu {
             ]);
 
             let project_menu = Submenu::new("Project", true);
+            let item_collab = MenuItem::new("Collaboration (P2P)...", true, None);
             let item_compile = MenuItem::new("Compile Document Now", true, None);
-            let _ = project_menu.append(&item_compile);
+            let _ = project_menu.append_items(&[
+                &item_collab,
+                &PredefinedMenuItem::separator(),
+                &item_compile,
+            ]);
 
             let _ = menu.append_items(&[&file_menu, &view_menu, &project_menu]);
             menu.init_for_nsapp();
@@ -2164,6 +2531,7 @@ mod macos_native_menu {
                 id_save_all: item_save_all.id().clone(),
                 id_export_pdf: item_export_pdf.id().clone(),
                 id_settings: item_settings.id().clone(),
+                id_collab: item_collab.id().clone(),
                 id_quit: item_quit.id().clone(),
                 id_toggle_sidebar: item_toggle_sidebar.id().clone(),
                 id_toggle_theme: item_toggle_theme.id().clone(),
@@ -2191,6 +2559,8 @@ mod macos_native_menu {
                 Some(MenuAction::ExportPdf)
             } else if *id == self.id_settings {
                 Some(MenuAction::OpenSettings)
+            } else if *id == self.id_collab {
+                Some(MenuAction::OpenCollab)
             } else if *id == self.id_quit {
                 Some(MenuAction::Quit)
             } else if *id == self.id_toggle_sidebar {

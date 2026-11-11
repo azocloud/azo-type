@@ -1,4 +1,5 @@
 pub mod app;
+pub mod collab;
 pub mod compiler;
 pub mod highlight;
 pub mod project;
