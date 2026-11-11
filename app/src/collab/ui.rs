@@ -3,8 +3,9 @@ use std::path::Path;
 use egui::text::CCursor;
 use egui::text_edit::TextEditOutput;
 use egui::{
-    Align, Color32, Context, CornerRadius, FontFamily, FontId, Frame, Layout, Margin, Pos2, Rect,
-    RichText, ScrollArea, Stroke, TextEdit, Ui, Vec2, Window,
+    Align, CentralPanel, Color32, Context, CornerRadius, FontFamily, FontId, Frame, Layout, Margin,
+    Pos2, Rect, RichText, ScrollArea, Stroke, TextEdit, Ui, Vec2, ViewportBuilder, ViewportClass,
+    ViewportId, Window,
 };
 
 use crate::collab::awareness::PeerPresence;
@@ -66,7 +67,7 @@ impl CollabUiState {
     }
 }
 
-/// Renders the P2P Collaboration window (`Project > Collaboration (P2P)...`).
+/// Renders the P2P Collaboration window (`Project > Collaboration (P2P)...`) as a native OS sub-window.
 #[allow(clippy::too_many_arguments)]
 pub fn render_collaboration_window(
     ctx: &Context,
@@ -93,14 +94,20 @@ pub fn render_collaboration_window(
     } else {
         Color32::from_rgb(241, 245, 249)
     };
+    let win_bg = if dark_mode {
+        Color32::from_rgb(24, 33, 50)
+    } else {
+        Color32::from_rgb(255, 255, 255)
+    };
 
-    Window::new("P2P Collaboration — Real-Time Project Sync")
-        .open(&mut open)
-        .resizable(true)
-        .collapsible(false)
-        .default_width(540.0)
-        .default_height(470.0)
-        .show(ctx, |ui| {
+    let viewport_id = ViewportId::from_hash_of("typst_studio_p2p_collab_os_window");
+    let builder = ViewportBuilder::default()
+        .with_title("P2P Collaboration — Real-Time Project Sync")
+        .with_inner_size([560.0, 500.0])
+        .with_min_inner_size([440.0, 360.0]);
+
+    ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
+        let mut render_body = |ui: &mut Ui| {
             // 1. Non-blocking Error / Status Banners
             if let Some(err) = state.last_error.clone() {
                 Frame::new()
@@ -462,7 +469,37 @@ pub fn render_collaboration_window(
                     }
                 });
             });
-        });
+        };
+
+        if class == ViewportClass::Embedded {
+            Window::new("P2P Collaboration — Real-Time Project Sync")
+                .open(&mut open)
+                .resizable(true)
+                .collapsible(false)
+                .default_width(540.0)
+                .default_height(470.0)
+                .show(ctx, |ui| {
+                    render_body(ui);
+                });
+        } else {
+            CentralPanel::default()
+                .frame(
+                    Frame::new()
+                        .fill(win_bg)
+                        .inner_margin(Margin::symmetric(14, 12)),
+                )
+                .show(ctx, |ui| {
+                    ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            render_body(ui);
+                        });
+                });
+            if ctx.input(|i| i.viewport().close_requested()) {
+                close_clicked = true;
+            }
+        }
+    });
 
     state.show_window = open && !close_clicked;
 }

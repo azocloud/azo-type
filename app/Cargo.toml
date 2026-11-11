@@ -31,6 +31,7 @@ typst-kit = { version = "0.15.1", features = [
 comemo = "0.5"
 ecow = "0.2"
 reqwest = { version = "0.13", default-features = false }
+arboard = "3.7"
 rfd = "0.18.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

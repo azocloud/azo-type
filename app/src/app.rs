@@ -4,9 +4,10 @@ use std::sync::Arc;
 
 use egui::text::{CCursor, CCursorRange, LayoutJob};
 use egui::{
-    Align, CollapsingHeader, Color32, Context, CornerRadius, FontFamily, FontId, Frame, Key,
-    Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea, Sense, SidePanel, Slider, Stroke,
-    StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2, Visuals, Window,
+    Align, CentralPanel, CollapsingHeader, Color32, Context, CornerRadius, FontFamily, FontId,
+    Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea, Sense, SidePanel,
+    Slider, Stroke, StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2, ViewportBuilder,
+    ViewportClass, ViewportId, Visuals, Window,
 };
 
 use crate::collab::awareness::PeerPresence;
@@ -41,6 +42,20 @@ pub enum MenuAction {
     ZoomReset,
     CompileNow,
     Quit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditorContextAction {
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+    WrapOrInsert(&'static str, &'static str, &'static str),
+    InsertSnippet(&'static str),
+    Menu(MenuAction),
+    SetActiveAsMain,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +146,11 @@ pub struct TypstIdeApp {
     pub rename_file_input: String,
     pub inspect_asset_mode: bool,
 
+    // Editor right-click context menu & selection preservation state
+    pub last_editor_selection: Option<CharSelection>,
+    pub clipboard_fallback: String,
+    pub pending_editor_context_action: Option<EditorContextAction>,
+
     // Status bar notification
     pub status_notice: String,
 
@@ -217,6 +237,9 @@ impl TypstIdeApp {
             rename_target_file: None,
             rename_file_input: String::new(),
             inspect_asset_mode: false,
+            last_editor_selection: None,
+            clipboard_fallback: String::new(),
+            pending_editor_context_action: None,
             status_notice,
             io_tx,
             io_rx,
@@ -608,7 +631,7 @@ impl TypstIdeApp {
         }
     }
 
-    /// Renders the Export PDF Dialog window allowing the user to select the PDF version
+    /// Renders the Export PDF Dialog as a real OS sub-window allowing the user to select the PDF version
     /// (1.4, 1.5, 1.6, 1.7, 2.0) and PDF standard(s) (PDF/A-1b, PDF/A-1a, PDF/A-2b, PDF/A-2u,
     /// PDF/A-2a, PDF/A-3b, PDF/A-3u, PDF/A-3a, PDF/A-4, PDF/UA-1).
     fn render_export_pdf_dialog(&mut self, ctx: &Context) {
@@ -621,6 +644,11 @@ impl TypstIdeApp {
         let mut trigger_export = false;
 
         let dark_mode = self.settings.dark_mode;
+        let window_bg = if dark_mode {
+            Color32::from_rgb(17, 24, 39)
+        } else {
+            Color32::from_rgb(248, 250, 252)
+        };
         let card_bg = if dark_mode {
             Color32::from_rgb(15, 23, 42)
         } else {
@@ -633,292 +661,335 @@ impl TypstIdeApp {
         };
 
         let entry_file = self.project.effective_compile_entrypoint();
+        let viewport_id = ViewportId::from_hash_of("typst_studio_export_pdf_os_window");
+        let builder = ViewportBuilder::default()
+            .with_title("Export PDF — Version & Standards")
+            .with_inner_size([560.0, 480.0])
+            .with_min_inner_size([460.0, 380.0]);
 
-        Window::new("Export PDF — Version & Standards")
-            .open(&mut open)
-            .resizable(true)
-            .collapsible(false)
-            .default_width(520.0)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Target Document:").strong());
-                    ui.code(entry_file.display().to_string());
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(self.pdf_export_config.summary_badge())
-                                .strong()
-                                .color(Color32::from_rgb(56, 189, 248)),
-                        );
-                    });
-                });
-
-                ui.add_space(6.0);
-
-                // Section 1: PDF Version Selection (1.4, 1.5, 1.6, 1.7, 2.0)
-                Frame::new()
-                    .fill(card_bg)
-                    .stroke(Stroke::new(1.0_f32, border_col))
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::symmetric(12, 10))
+        ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
+            let mut render_body = |ui: &mut Ui| {
+                ScrollArea::vertical()
+                    .id_salt("export_pdf_os_window_scroll")
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.label(RichText::new("1. PDF Version").strong().size(13.0));
-                        ui.label(
-                            RichText::new(
-                                "Choose the target PDF specification version for the exported document:",
-                            )
-                            .small()
-                            .weak(),
-                        );
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Target Document:").strong());
+                            ui.code(entry_file.display().to_string());
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.label(
+                                    RichText::new(self.pdf_export_config.summary_badge())
+                                        .strong()
+                                        .color(Color32::from_rgb(56, 189, 248)),
+                                );
+                            });
+                        });
+
                         ui.add_space(6.0);
-                        ui.horizontal_wrapped(|ui| {
-                            for &ver in PdfVersionChoice::ALL {
-                                let selected = self.pdf_export_config.version == ver;
-                                if ui
-                                    .selectable_label(
-                                        selected,
-                                        RichText::new(format!("PDF {}", ver.short_label()))
-                                            .strong(),
+
+                        // Section 1: PDF Version Selection (1.4, 1.5, 1.6, 1.7, 2.0)
+                        Frame::new()
+                            .fill(card_bg)
+                            .stroke(Stroke::new(1.0_f32, border_col))
+                            .corner_radius(CornerRadius::same(6))
+                            .inner_margin(Margin::symmetric(12, 10))
+                            .show(ui, |ui| {
+                                ui.label(RichText::new("1. PDF Version").strong().size(13.0));
+                                ui.label(
+                                    RichText::new(
+                                        "Choose the target PDF specification version for the exported document:",
                                     )
-                                    .on_hover_text(ver.label())
-                                    .clicked()
-                                {
-                                    self.pdf_export_config.version = ver;
-                                    self.export_pdf_error = None;
-                                }
-                            }
-                        });
-                    });
-
-                ui.add_space(8.0);
-
-                // Section 2: PDF Standard(s) Selection (PDF/A-2a, PDF/A-3a, etc.)
-                Frame::new()
-                    .fill(card_bg)
-                    .stroke(Stroke::new(1.0_f32, border_col))
-                    .corner_radius(CornerRadius::same(6))
-                    .inner_margin(Margin::symmetric(12, 10))
-                    .show(ui, |ui| {
-                        ui.label(
-                            RichText::new("2. PDF Archival & Conformance Standard (PDF/A)")
-                                .strong()
-                                .size(13.0),
-                        );
-                        ui.label(
-                            RichText::new(
-                                "Select an ISO 19005 archival standard (such as PDF/A-2a, PDF/A-2b, or PDF/A-3a):",
-                            )
-                            .small()
-                            .weak(),
-                        );
-                        ui.add_space(6.0);
-
-                        // Quick Preset Buttons for common standards
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("Quick Presets:").small());
-                            let presets = [
-                                PdfArchivalStandard::None,
-                                PdfArchivalStandard::A2b,
-                                PdfArchivalStandard::A2a,
-                                PdfArchivalStandard::A3b,
-                                PdfArchivalStandard::A3a,
-                                PdfArchivalStandard::A1b,
-                                PdfArchivalStandard::A1a,
-                            ];
-                            for std_choice in presets {
-                                let is_sel = self.pdf_export_config.archival_standard == std_choice;
-                                if ui
-                                    .selectable_label(is_sel, std_choice.code_label())
-                                    .on_hover_text(std_choice.label())
-                                    .clicked()
-                                {
-                                    self.pdf_export_config.archival_standard = std_choice;
-                                    self.export_pdf_error = None;
-                                    if self.pdf_export_config.build_standards().is_err() {
-                                        if let Some(rec) = std_choice.recommended_version() {
-                                            self.pdf_export_config.version = rec;
+                                    .small()
+                                    .weak(),
+                                );
+                                ui.add_space(6.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    for &ver in PdfVersionChoice::ALL {
+                                        let selected = self.pdf_export_config.version == ver;
+                                        if ui
+                                            .selectable_label(
+                                                selected,
+                                                RichText::new(format!("PDF {}", ver.short_label()))
+                                                    .strong(),
+                                            )
+                                            .on_hover_text(ver.label())
+                                            .clicked()
+                                        {
+                                            self.pdf_export_config.version = ver;
+                                            self.export_pdf_error = None;
                                         }
                                     }
-                                }
-                            }
-                        });
-
-                        ui.add_space(6.0);
-
-                        egui::ComboBox::from_id_salt("pdf_archival_standard_combo")
-                            .width(460.0)
-                            .selected_text(self.pdf_export_config.archival_standard.label())
-                            .show_ui(ui, |ui| {
-                                for &std_item in PdfArchivalStandard::ALL {
-                                    let is_selected =
-                                        self.pdf_export_config.archival_standard == std_item;
-                                    if ui
-                                        .selectable_label(is_selected, std_item.label())
-                                        .clicked()
-                                    {
-                                        self.pdf_export_config.archival_standard = std_item;
-                                        self.export_pdf_error = None;
-                                        if self.pdf_export_config.build_standards().is_err() {
-                                            if let Some(rec) = std_item.recommended_version() {
-                                                self.pdf_export_config.version = rec;
-                                            }
-                                        }
-                                    }
-                                }
+                                });
                             });
 
                         ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(4.0);
 
-                        if ui
-                            .checkbox(
-                                &mut self.pdf_export_config.pdf_ua1,
-                                "Also enforce PDF/UA-1 (Universal Accessibility — ISO 14289-1)",
-                            )
-                            .changed()
-                        {
-                            self.export_pdf_error = None;
-                            if self.pdf_export_config.pdf_ua1 {
-                                self.pdf_export_config.tagged = true;
-                                if self.pdf_export_config.build_standards().is_err() {
-                                    self.pdf_export_config.version = PdfVersionChoice::V1_7;
+                        // Section 2: PDF Standard(s) Selection (PDF/A-2a, PDF/A-3a, etc.)
+                        Frame::new()
+                            .fill(card_bg)
+                            .stroke(Stroke::new(1.0_f32, border_col))
+                            .corner_radius(CornerRadius::same(6))
+                            .inner_margin(Margin::symmetric(12, 10))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new("2. PDF Archival & Conformance Standard (PDF/A)")
+                                        .strong()
+                                        .size(13.0),
+                                );
+                                ui.label(
+                                    RichText::new(
+                                        "Select an ISO 19005 archival standard (such as PDF/A-2a, PDF/A-2b, or PDF/A-3a):",
+                                    )
+                                    .small()
+                                    .weak(),
+                                );
+                                ui.add_space(6.0);
+
+                                // Quick Preset Buttons for common standards
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(RichText::new("Quick Presets:").small());
+                                    let presets = [
+                                        PdfArchivalStandard::None,
+                                        PdfArchivalStandard::A2b,
+                                        PdfArchivalStandard::A2a,
+                                        PdfArchivalStandard::A3b,
+                                        PdfArchivalStandard::A3a,
+                                        PdfArchivalStandard::A1b,
+                                        PdfArchivalStandard::A1a,
+                                    ];
+                                    for std_choice in presets {
+                                        let is_sel =
+                                            self.pdf_export_config.archival_standard == std_choice;
+                                        if ui
+                                            .selectable_label(is_sel, std_choice.code_label())
+                                            .on_hover_text(std_choice.label())
+                                            .clicked()
+                                        {
+                                            self.pdf_export_config.archival_standard = std_choice;
+                                            self.export_pdf_error = None;
+                                            if self.pdf_export_config.build_standards().is_err() {
+                                                if let Some(rec) = std_choice.recommended_version()
+                                                {
+                                                    self.pdf_export_config.version = rec;
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+
+                                ui.add_space(6.0);
+
+                                egui::ComboBox::from_id_salt("pdf_archival_standard_combo")
+                                    .width(460.0)
+                                    .selected_text(self.pdf_export_config.archival_standard.label())
+                                    .show_ui(ui, |ui| {
+                                        for &std_item in PdfArchivalStandard::ALL {
+                                            let is_selected = self
+                                                .pdf_export_config
+                                                .archival_standard
+                                                == std_item;
+                                            if ui
+                                                .selectable_label(is_selected, std_item.label())
+                                                .clicked()
+                                            {
+                                                self.pdf_export_config.archival_standard = std_item;
+                                                self.export_pdf_error = None;
+                                                if self.pdf_export_config.build_standards().is_err()
+                                                {
+                                                    if let Some(rec) =
+                                                        std_item.recommended_version()
+                                                    {
+                                                        self.pdf_export_config.version = rec;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    });
+
+                                ui.add_space(8.0);
+                                ui.separator();
+                                ui.add_space(4.0);
+
+                                if ui
+                                    .checkbox(
+                                        &mut self.pdf_export_config.pdf_ua1,
+                                        "Also enforce PDF/UA-1 (Universal Accessibility — ISO 14289-1)",
+                                    )
+                                    .changed()
+                                {
+                                    self.export_pdf_error = None;
+                                    if self.pdf_export_config.pdf_ua1 {
+                                        self.pdf_export_config.tagged = true;
+                                        if self.pdf_export_config.build_standards().is_err() {
+                                            self.pdf_export_config.version = PdfVersionChoice::V1_7;
+                                        }
+                                    }
                                 }
+
+                                let requires_tagged = self.pdf_export_config.pdf_ua1
+                                    || matches!(
+                                        self.pdf_export_config.archival_standard,
+                                        PdfArchivalStandard::A1a
+                                            | PdfArchivalStandard::A2a
+                                            | PdfArchivalStandard::A3a
+                                    );
+                                if requires_tagged {
+                                    self.pdf_export_config.tagged = true;
+                                }
+                                ui.add_enabled(
+                                    !requires_tagged,
+                                    egui::Checkbox::new(
+                                        &mut self.pdf_export_config.tagged,
+                                        "Generate Tagged PDF (Document Accessibility Structure Tree)",
+                                    ),
+                                );
+                            });
+
+                        ui.add_space(8.0);
+
+                        // Validation status & CLI preview
+                        match self.pdf_export_config.build_standards() {
+                            Ok(_) => {
+                                let mut std_flags =
+                                    vec![self.pdf_export_config.version.short_label().to_string()];
+                                if self.pdf_export_config.archival_standard
+                                    != PdfArchivalStandard::None
+                                {
+                                    std_flags.push(
+                                        self.pdf_export_config
+                                            .archival_standard
+                                            .code_label()
+                                            .trim_start_matches("PDF/")
+                                            .to_ascii_lowercase(),
+                                    );
+                                }
+                                if self.pdf_export_config.pdf_ua1 {
+                                    std_flags.push("ua-1".to_string());
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(
+                                        RichText::new("✓ Valid Standard Configuration")
+                                            .color(Color32::from_rgb(52, 211, 153))
+                                            .strong()
+                                            .small(),
+                                    );
+                                    ui.separator();
+                                    ui.code(format!(
+                                        "typst compile --pdf-standard {} {}",
+                                        std_flags.join(","),
+                                        entry_file.display()
+                                    ));
+                                });
+                            }
+                            Err(validation_err) => {
+                                Frame::new()
+                                    .fill(if dark_mode {
+                                        Color32::from_rgb(45, 24, 18)
+                                    } else {
+                                        Color32::from_rgb(254, 242, 242)
+                                    })
+                                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(248, 113, 113)))
+                                    .corner_radius(CornerRadius::same(5))
+                                    .inner_margin(Margin::symmetric(10, 6))
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "Incompatible Version & Standard: {}",
+                                                validation_err
+                                            ))
+                                            .color(Color32::from_rgb(248, 113, 113))
+                                            .strong()
+                                            .small(),
+                                        );
+                                        if let Some(rec) = self
+                                            .pdf_export_config
+                                            .archival_standard
+                                            .recommended_version()
+                                        {
+                                            if ui
+                                                .small_button(format!(
+                                                    "Switch to compatible {}",
+                                                    rec.label()
+                                                ))
+                                                .clicked()
+                                            {
+                                                self.pdf_export_config.version = rec;
+                                                self.export_pdf_error = None;
+                                            }
+                                        }
+                                    });
                             }
                         }
 
-                        let requires_tagged = self.pdf_export_config.pdf_ua1
-                            || matches!(
-                                self.pdf_export_config.archival_standard,
-                                PdfArchivalStandard::A1a
-                                    | PdfArchivalStandard::A2a
-                                    | PdfArchivalStandard::A3a
-                            );
-                        if requires_tagged {
-                            self.pdf_export_config.tagged = true;
-                        }
-                        ui.add_enabled(
-                            !requires_tagged,
-                            egui::Checkbox::new(
-                                &mut self.pdf_export_config.tagged,
-                                "Generate Tagged PDF (Document Accessibility Structure Tree)",
-                            ),
-                        );
-                    });
-
-                ui.add_space(8.0);
-
-                // Validation status & CLI preview
-                match self.pdf_export_config.build_standards() {
-                    Ok(_) => {
-                        let mut std_flags =
-                            vec![self.pdf_export_config.version.short_label().to_string()];
-                        if self.pdf_export_config.archival_standard != PdfArchivalStandard::None {
-                            std_flags.push(
-                                self.pdf_export_config
-                                    .archival_standard
-                                    .code_label()
-                                    .trim_start_matches("PDF/")
-                                    .to_ascii_lowercase(),
-                            );
-                        }
-                        if self.pdf_export_config.pdf_ua1 {
-                            std_flags.push("ua-1".to_string());
-                        }
-                        ui.horizontal_wrapped(|ui| {
+                        if let Some(ref err_msg) = self.export_pdf_error {
+                            ui.add_space(4.0);
                             ui.label(
-                                RichText::new("✓ Valid Standard Configuration")
-                                    .color(Color32::from_rgb(52, 211, 153))
-                                    .strong()
-                                    .small(),
-                            );
-                            ui.separator();
-                            ui.code(format!(
-                                "typst compile --pdf-standard {} {}",
-                                std_flags.join(","),
-                                entry_file.display()
-                            ));
-                        });
-                    }
-                    Err(validation_err) => {
-                        Frame::new()
-                            .fill(if dark_mode {
-                                Color32::from_rgb(45, 24, 18)
-                            } else {
-                                Color32::from_rgb(254, 242, 242)
-                            })
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(248, 113, 113)))
-                            .corner_radius(CornerRadius::same(5))
-                            .inner_margin(Margin::symmetric(10, 6))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new(format!(
-                                        "Incompatible Version & Standard: {}",
-                                        validation_err
-                                    ))
+                                RichText::new(format!("Export Error: {}", err_msg))
                                     .color(Color32::from_rgb(248, 113, 113))
                                     .strong()
                                     .small(),
-                                );
-                                if let Some(rec) =
-                                    self.pdf_export_config.archival_standard.recommended_version()
-                                {
-                                    if ui
-                                        .small_button(format!(
-                                            "Switch to compatible {}",
-                                            rec.label()
-                                        ))
-                                        .clicked()
-                                    {
-                                        self.pdf_export_config.version = rec;
-                                        self.export_pdf_error = None;
-                                    }
+                            );
+                        }
+
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        let is_valid = self.pdf_export_config.build_standards().is_ok();
+                        ui.horizontal(|ui| {
+                            if ui.button("Reset Defaults").clicked() {
+                                self.pdf_export_config = PdfExportConfig::default();
+                                self.export_pdf_error = None;
+                            }
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let export_btn = egui::Button::new(
+                                    RichText::new("Export PDF to Disk...")
+                                        .strong()
+                                        .color(Color32::WHITE),
+                                )
+                                .fill(if is_valid {
+                                    Color32::from_rgb(37, 99, 235)
+                                } else {
+                                    Color32::from_rgb(100, 116, 139)
+                                })
+                                .corner_radius(CornerRadius::same(5));
+
+                                if ui.add_enabled(is_valid, export_btn).clicked() {
+                                    trigger_export = true;
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    close_clicked = true;
                                 }
                             });
-                    }
-                }
-
-                if let Some(ref err_msg) = self.export_pdf_error {
-                    ui.add_space(4.0);
-                    ui.label(
-                        RichText::new(format!("Export Error: {}", err_msg))
-                            .color(Color32::from_rgb(248, 113, 113))
-                            .strong()
-                            .small(),
-                    );
-                }
-
-                ui.add_space(10.0);
-                ui.separator();
-                ui.add_space(4.0);
-
-                let is_valid = self.pdf_export_config.build_standards().is_ok();
-                ui.horizontal(|ui| {
-                    if ui.button("Reset Defaults").clicked() {
-                        self.pdf_export_config = PdfExportConfig::default();
-                        self.export_pdf_error = None;
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let export_btn = egui::Button::new(
-                            RichText::new("Export PDF to Disk...")
-                                .strong()
-                                .color(Color32::WHITE),
-                        )
-                        .fill(if is_valid {
-                            Color32::from_rgb(37, 99, 235)
-                        } else {
-                            Color32::from_rgb(100, 116, 139)
-                        })
-                        .corner_radius(CornerRadius::same(5));
-
-                        if ui.add_enabled(is_valid, export_btn).clicked() {
-                            trigger_export = true;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            close_clicked = true;
-                        }
+                        });
                     });
-                });
-            });
+            };
+
+            if class == ViewportClass::Embedded {
+                Window::new("Export PDF — Version & Standards")
+                    .open(&mut open)
+                    .resizable(true)
+                    .collapsible(false)
+                    .default_width(520.0)
+                    .show(ctx, |ui| {
+                        render_body(ui);
+                    });
+            } else {
+                Self::apply_theme(ctx, dark_mode);
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    open = false;
+                }
+                CentralPanel::default()
+                    .frame(
+                        Frame::new()
+                            .fill(window_bg)
+                            .inner_margin(Margin::symmetric(14, 12)),
+                    )
+                    .show(ctx, |ui| {
+                        render_body(ui);
+                    });
+            }
+        });
 
         self.show_export_pdf_dialog = open && !close_clicked;
         if trigger_export {
@@ -943,6 +1014,7 @@ impl TypstIdeApp {
 
         let mut pending_action: Option<MenuAction> = None;
         let mut snippet_to_insert: Option<&'static str> = None;
+        let mut editor_action: Option<EditorContextAction> = None;
 
         TopBottomPanel::top("desktop_os_menu_bar")
             .frame(
@@ -997,7 +1069,33 @@ impl TypstIdeApp {
 
                     // EDIT MENU
                     ui.menu_button(RichText::new("Edit").strong(), |ui| {
-                        ui.set_min_width(200.0);
+                        ui.set_min_width(210.0);
+                        if ui.button("Undo  (Ctrl+Z)").clicked() {
+                            editor_action = Some(EditorContextAction::Undo);
+                            ui.close_menu();
+                        }
+                        if ui.button("Redo  (Ctrl+Y)").clicked() {
+                            editor_action = Some(EditorContextAction::Redo);
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button("Cut  (Ctrl+X)").clicked() {
+                            editor_action = Some(EditorContextAction::Cut);
+                            ui.close_menu();
+                        }
+                        if ui.button("Copy  (Ctrl+C)").clicked() {
+                            editor_action = Some(EditorContextAction::Copy);
+                            ui.close_menu();
+                        }
+                        if ui.button("Paste  (Ctrl+V)").clicked() {
+                            editor_action = Some(EditorContextAction::Paste);
+                            ui.close_menu();
+                        }
+                        if ui.button("Select All  (Ctrl+A)").clicked() {
+                            editor_action = Some(EditorContextAction::SelectAll);
+                            ui.close_menu();
+                        }
+                        ui.separator();
                         if ui.button("Insert Section Heading").clicked() {
                             snippet_to_insert = Some("\n\n== New Section\n");
                             ui.close_menu();
@@ -1100,6 +1198,10 @@ impl TypstIdeApp {
                 });
             });
 
+        if let Some(act) = editor_action {
+            self.pending_editor_context_action = Some(act);
+        }
+
         if let Some(snippet) = snippet_to_insert {
             let auto_save = self.settings.auto_save_on_edit;
             let active_rel = self.project.active_file.clone();
@@ -1126,272 +1228,216 @@ impl TypstIdeApp {
         }
     }
 
-    fn render_top_toolbar(&mut self, ctx: &Context) {
-        let bar_bg = if self.settings.dark_mode {
-            Color32::from_rgb(15, 23, 42)
+    /// Renders the New File and Rename File dialogs as real OS sub-windows.
+    fn render_file_dialogs_subwindows(&mut self, ctx: &Context) {
+        let dark_mode = self.settings.dark_mode;
+        let window_bg = if dark_mode {
+            Color32::from_rgb(17, 24, 39)
         } else {
-            Color32::from_rgb(241, 245, 249)
-        };
-        let border_col = if self.settings.dark_mode {
-            Color32::from_rgb(30, 41, 59)
-        } else {
-            Color32::from_rgb(203, 213, 225)
+            Color32::from_rgb(248, 250, 252)
         };
 
-        let mut pending_action: Option<MenuAction> = None;
+        // 1. New File OS sub-window
+        if self.show_new_file_input {
+            let mut open = self.show_new_file_input;
+            let mut close_clicked = false;
+            let mut trigger_create = false;
 
-        TopBottomPanel::top("top_action_toolbar")
-            .frame(
-                Frame::new()
-                    .fill(bar_bg)
-                    .inner_margin(Margin::symmetric(12, 7))
-                    .stroke(Stroke::new(1.0_f32, border_col)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
+            let viewport_id = ViewportId::from_hash_of("typst_studio_new_file_os_window");
+            let builder = ViewportBuilder::default()
+                .with_title("New File in Project — Typst Studio")
+                .with_inner_size([440.0, 160.0])
+                .with_min_inner_size([360.0, 140.0]);
 
-                    let sidebar_label = if self.show_sidebar {
-                        "Hide Tree"
-                    } else {
-                        "Show Tree"
-                    };
-                    if ui
-                        .selectable_label(
-                            self.show_sidebar,
-                            RichText::new(sidebar_label).strong(),
-                        )
-                        .on_hover_text("Toggle Left Project File Tree (Ctrl+B)")
-                        .clicked()
-                    {
-                        pending_action = Some(MenuAction::ToggleSidebar);
-                    }
-
-                    ui.separator();
-
+            ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
+                let mut render_body = |ui: &mut Ui| {
                     ui.label(
-                        RichText::new("TYPST STUDIO")
-                            .strong()
-                            .size(13.5)
-                            .color(if self.settings.dark_mode {
-                                Color32::from_rgb(56, 189, 248)
-                            } else {
-                                Color32::from_rgb(2, 132, 199)
-                            }),
+                        RichText::new("Create a new file inside the active project folder:")
+                            .strong(),
                     );
-
+                    ui.add_space(6.0);
+                    let resp = ui.add(
+                        TextEdit::singleline(&mut self.new_file_name)
+                            .desired_width(f32::INFINITY)
+                            .hint_text("e.g. chapters/results.typ"),
+                    );
+                    let enter_pressed =
+                        resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                    if enter_pressed {
+                        trigger_create = true;
+                    }
+                    ui.add_space(10.0);
                     ui.separator();
-
-                    if ui
-                        .button("Open Project Folder...")
-                        .on_hover_text("Open a Typst project directory from disk (Ctrl+O)")
-                        .clicked()
-                    {
-                        pending_action = Some(MenuAction::OpenFolder);
-                    }
-
-                    if ui
-                        .button("+ New File")
-                        .on_hover_text("Create a new file on disk inside this project (Ctrl+N)")
-                        .clicked()
-                    {
-                        pending_action = Some(MenuAction::NewFile);
-                    }
-
-                    if ui
-                        .button("Save")
-                        .on_hover_text("Write active buffer to disk (Ctrl+S)")
-                        .clicked()
-                    {
-                        pending_action = Some(MenuAction::SaveFile);
-                    }
-
-                    let collab_label = if self.collab_ui.is_active {
-                        format!("P2P Live ({})", self.collab_ui.connected_peer_count() + 1)
-                    } else {
-                        "P2P Collab".to_string()
-                    };
-                    let collab_text = if self.collab_ui.is_active {
-                        RichText::new(collab_label)
-                            .strong()
-                            .color(Color32::from_rgb(52, 211, 153))
-                    } else {
-                        RichText::new(collab_label)
-                    };
-                    if ui
-                        .selectable_label(self.collab_ui.show_window, collab_text)
-                        .on_hover_text("Real-Time P2P Collaborative Editing (Project > Collaboration)")
-                        .clicked()
-                    {
-                        self.collab_ui.show_window = !self.collab_ui.show_window;
-                    }
-
-                    if ui
-                        .selectable_label(self.show_settings_window, "Settings")
-                        .on_hover_text("Open Settings Window (File > Settings / Ctrl+,)")
-                        .clicked()
-                    {
-                        self.show_settings_window = !self.show_settings_window;
-                    }
-
-                    ui.separator();
-
-                    ui.label(RichText::new("Zoom:").small());
-                    if ui.small_button("-").clicked() {
-                        pending_action = Some(MenuAction::ZoomOut);
-                    }
-                    if ui
-                        .small_button(format!("{:.0}%", self.zoom * 100.0))
-                        .on_hover_text("Click to reset zoom to 100%")
-                        .clicked()
-                    {
-                        pending_action = Some(MenuAction::ZoomReset);
-                    }
-                    if ui.small_button("+").clicked() {
-                        pending_action = Some(MenuAction::ZoomIn);
-                    }
-
+                    ui.add_space(4.0);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let export_btn = egui::Button::new(
-                            RichText::new("Export PDF...")
+                        let create_btn = egui::Button::new(
+                            RichText::new("Create on Disk")
                                 .strong()
                                 .color(Color32::WHITE),
                         )
                         .fill(Color32::from_rgb(37, 99, 235))
                         .corner_radius(CornerRadius::same(5));
-
-                        if ui
-                            .add(export_btn)
-                            .on_hover_text(
-                                "Open Export PDF dialog to choose PDF version (1.4–2.0) and PDF/A standards (Ctrl+E)",
-                            )
-                            .clicked()
-                        {
-                            pending_action = Some(MenuAction::ExportPdf);
-                        }
-
-                        ui.add_space(4.0);
-
-                        let theme_label = if self.settings.dark_mode {
-                            "Light Theme"
-                        } else {
-                            "Dark Theme"
-                        };
-                        if ui
-                            .button(theme_label)
-                            .on_hover_text("Switch between Light and Dark editor themes")
-                            .clicked()
-                        {
-                            pending_action = Some(MenuAction::ToggleTheme);
-                        }
-
-                        if ui
-                            .button("Compile")
-                            .on_hover_text("Force immediate Typst compilation")
-                            .clicked()
-                        {
-                            pending_action = Some(MenuAction::CompileNow);
-                        }
-                    });
-                });
-
-                // Inline New File creation bar on disk
-                if self.show_new_file_input {
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("New file path on disk:").strong());
-                        let resp = ui.add(
-                            TextEdit::singleline(&mut self.new_file_name)
-                                .desired_width(240.0)
-                                .hint_text("e.g. chapters/results.typ"),
-                        );
-                        let enter_pressed =
-                            resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        if ui.button("Create on Disk").clicked() || enter_pressed {
-                            let path_str = self.new_file_name.trim().to_string();
-                            match self.project.create_file_on_disk(&path_str) {
-                                Ok(rel) => {
-                                    let initial_text = self
-                                        .project
-                                        .read_source_text(&rel)
-                                        .unwrap_or_default();
-                                    if self.collab_ui.is_active {
-                                        self.collab_session.send(
-                                            UiToSessionCmd::LocalFileCreated {
-                                                rel_path: rel.clone(),
-                                                initial_text,
-                                            },
-                                        );
-                                    }
-                                    self.status_notice = format!(
-                                        "Created '{}' on disk",
-                                        self.project.root_dir.join(&rel).display()
-                                    );
-                                    self.show_new_file_input = false;
-                                    self.trigger_compile_now(ctx);
-                                }
-                                Err(e) => {
-                                    self.status_notice = format!("Create file failed: {}", e);
-                                }
-                            }
+                        if ui.add(create_btn).clicked() {
+                            trigger_create = true;
                         }
                         if ui.button("Cancel").clicked() {
-                            self.show_new_file_input = false;
+                            close_clicked = true;
                         }
                     });
-                }
+                };
 
-                // Inline File Rename bar on disk
-                if let Some(old_rel) = self.rename_target_file.clone() {
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(format!("Rename '{}' to:", old_rel.display())).strong(),
-                        );
-                        let resp = ui.add(
-                            TextEdit::singleline(&mut self.rename_file_input)
-                                .desired_width(240.0),
-                        );
-                        let enter_pressed =
-                            resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                        if ui.button("Rename on Disk").clicked() || enter_pressed {
-                            let new_str = self.rename_file_input.trim().to_string();
-                            match self.project.rename_file_on_disk(&old_rel, &new_str) {
-                                Ok(new_rel) => {
-                                    if self.collab_ui.is_active {
-                                        self.collab_session.send(
-                                            UiToSessionCmd::LocalFileRenamed {
-                                                old_rel_path: old_rel.clone(),
-                                                new_rel_path: new_rel.clone(),
-                                            },
-                                        );
-                                    }
-                                    self.status_notice = format!(
-                                        "Renamed '{}' -> '{}'",
-                                        old_rel.display(),
-                                        new_rel.display()
-                                    );
-                                    self.rename_target_file = None;
-                                    self.trigger_compile_now(ctx);
-                                }
-                                Err(e) => {
-                                    self.status_notice = format!("Rename failed: {}", e);
-                                }
-                            }
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.rename_target_file = None;
-                        }
-                    });
+                if class == ViewportClass::Embedded {
+                    Window::new("New File in Project")
+                        .open(&mut open)
+                        .resizable(false)
+                        .collapsible(false)
+                        .default_width(400.0)
+                        .show(ctx, |ui| render_body(ui));
+                } else {
+                    Self::apply_theme(ctx, dark_mode);
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        open = false;
+                    }
+                    CentralPanel::default()
+                        .frame(
+                            Frame::new()
+                                .fill(window_bg)
+                                .inner_margin(Margin::symmetric(14, 12)),
+                        )
+                        .show(ctx, |ui| render_body(ui));
                 }
             });
 
-        if let Some(act) = pending_action {
-            self.dispatch_menu_action(ctx, act);
+            if trigger_create {
+                let path_str = self.new_file_name.trim().to_string();
+                match self.project.create_file_on_disk(&path_str) {
+                    Ok(rel) => {
+                        let initial_text = self
+                            .project
+                            .read_source_text(&rel)
+                            .unwrap_or_default();
+                        if self.collab_ui.is_active {
+                            self.collab_session.send(UiToSessionCmd::LocalFileCreated {
+                                rel_path: rel.clone(),
+                                initial_text,
+                            });
+                        }
+                        self.status_notice = format!(
+                            "Created '{}' on disk",
+                            self.project.root_dir.join(&rel).display()
+                        );
+                        open = false;
+                        self.trigger_compile_now(ctx);
+                    }
+                    Err(e) => {
+                        self.status_notice = format!("Create file failed: {}", e);
+                    }
+                }
+            }
+
+            self.show_new_file_input = open && !close_clicked;
+        }
+
+        // 2. Rename File OS sub-window
+        if let Some(old_rel) = self.rename_target_file.clone() {
+            let mut open = true;
+            let mut close_clicked = false;
+            let mut trigger_rename = false;
+
+            let viewport_id = ViewportId::from_hash_of("typst_studio_rename_file_os_window");
+            let builder = ViewportBuilder::default()
+                .with_title("Rename File — Typst Studio")
+                .with_inner_size([440.0, 160.0])
+                .with_min_inner_size([360.0, 140.0]);
+
+            ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
+                let mut render_body = |ui: &mut Ui| {
+                    ui.label(
+                        RichText::new(format!("Rename '{}' to:", old_rel.display())).strong(),
+                    );
+                    ui.add_space(6.0);
+                    let resp = ui.add(
+                        TextEdit::singleline(&mut self.rename_file_input)
+                            .desired_width(f32::INFINITY),
+                    );
+                    let enter_pressed =
+                        resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                    if enter_pressed {
+                        trigger_rename = true;
+                    }
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let rename_btn = egui::Button::new(
+                            RichText::new("Rename on Disk")
+                                .strong()
+                                .color(Color32::WHITE),
+                        )
+                        .fill(Color32::from_rgb(37, 99, 235))
+                        .corner_radius(CornerRadius::same(5));
+                        if ui.add(rename_btn).clicked() {
+                            trigger_rename = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close_clicked = true;
+                        }
+                    });
+                };
+
+                if class == ViewportClass::Embedded {
+                    Window::new("Rename File")
+                        .open(&mut open)
+                        .resizable(false)
+                        .collapsible(false)
+                        .default_width(400.0)
+                        .show(ctx, |ui| render_body(ui));
+                } else {
+                    Self::apply_theme(ctx, dark_mode);
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        open = false;
+                    }
+                    CentralPanel::default()
+                        .frame(
+                            Frame::new()
+                                .fill(window_bg)
+                                .inner_margin(Margin::symmetric(14, 12)),
+                        )
+                        .show(ctx, |ui| render_body(ui));
+                }
+            });
+
+            if trigger_rename {
+                let new_str = self.rename_file_input.trim().to_string();
+                match self.project.rename_file_on_disk(&old_rel, &new_str) {
+                    Ok(new_rel) => {
+                        if self.collab_ui.is_active {
+                            self.collab_session.send(UiToSessionCmd::LocalFileRenamed {
+                                old_rel_path: old_rel.clone(),
+                                new_rel_path: new_rel.clone(),
+                            });
+                        }
+                        self.status_notice = format!(
+                            "Renamed '{}' -> '{}'",
+                            old_rel.display(),
+                            new_rel.display()
+                        );
+                        open = false;
+                        self.trigger_compile_now(ctx);
+                    }
+                    Err(e) => {
+                        self.status_notice = format!("Rename failed: {}", e);
+                    }
+                }
+            }
+
+            if !open || close_clicked {
+                self.rename_target_file = None;
+            }
         }
     }
 
-    /// Renders the Settings sub-window (`File > Settings`).
+    /// Renders the Settings sub-window (`File > Settings`) as a real OS sub-window.
     fn render_settings_subwindow(&mut self, ctx: &Context) {
         if !self.show_settings_window {
             return;
@@ -1402,14 +1448,23 @@ impl TypstIdeApp {
         let mut theme_changed = false;
         let mut dpi_changed = false;
         let mut rescan_needed = false;
+        let mut trigger_open_folder = false;
 
-        Window::new("Settings — Typst Studio")
-            .open(&mut open)
-            .resizable(true)
-            .collapsible(false)
-            .default_width(480.0)
-            .default_height(360.0)
-            .show(ctx, |ui| {
+        let dark_mode = self.settings.dark_mode;
+        let window_bg = if dark_mode {
+            Color32::from_rgb(17, 24, 39)
+        } else {
+            Color32::from_rgb(248, 250, 252)
+        };
+
+        let viewport_id = ViewportId::from_hash_of("typst_studio_settings_os_window");
+        let builder = ViewportBuilder::default()
+            .with_title("Settings — Typst Studio")
+            .with_inner_size([520.0, 400.0])
+            .with_min_inner_size([420.0, 320.0]);
+
+        ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
+            let mut render_body = |ui: &mut Ui| {
                 ui.horizontal(|ui| {
                     ui.selectable_value(
                         &mut self.settings_tab,
@@ -1497,7 +1552,7 @@ impl TypstIdeApp {
                         }
                         ui.add_space(8.0);
                         if ui.button("Open Another Project Folder...").clicked() {
-                            self.open_folder_dialog(ctx);
+                            trigger_open_folder = true;
                         }
                     }
                     SettingsTab::CompilerAndPreview => {
@@ -1569,10 +1624,36 @@ impl TypstIdeApp {
                         }
                     });
                 });
-            });
+            };
+
+            if class == ViewportClass::Embedded {
+                Window::new("Settings — Typst Studio")
+                    .open(&mut open)
+                    .resizable(true)
+                    .collapsible(false)
+                    .default_width(480.0)
+                    .default_height(360.0)
+                    .show(ctx, |ui| render_body(ui));
+            } else {
+                Self::apply_theme(ctx, dark_mode);
+                if ctx.input(|i| i.viewport().close_requested()) {
+                    open = false;
+                }
+                CentralPanel::default()
+                    .frame(
+                        Frame::new()
+                            .fill(window_bg)
+                            .inner_margin(Margin::symmetric(14, 12)),
+                    )
+                    .show(ctx, |ui| render_body(ui));
+            }
+        });
 
         self.show_settings_window = open && !close_clicked;
 
+        if trigger_open_folder {
+            self.open_folder_dialog(ctx);
+        }
         if theme_changed {
             Self::apply_theme(ctx, self.settings.dark_mode);
         }
@@ -2233,9 +2314,13 @@ impl TypstIdeApp {
         }
 
         let is_typst = file.kind == FileKind::Typst && use_syntax_highlight;
+        let file_kind = file.kind;
         let mut text_changed = false;
         let mut edited_text_snapshot: Option<String> = None;
         let mut observed_cursor: Option<CharSelection> = None;
+        let mut context_action: Option<EditorContextAction> =
+            self.pending_editor_context_action.take();
+        let prev_selection = self.last_editor_selection;
 
         let editor_bg = if dark_mode {
             Color32::from_rgb(11, 15, 25)
@@ -2312,10 +2397,12 @@ impl TypstIdeApp {
                                 .fill(editor_bg)
                                 .inner_margin(Margin::symmetric(10, 8))
                                 .show(ui, |ui| {
+                                    let avail_editor_size = ui.available_size();
                                     let mut output = TextEdit::multiline(text_ref)
                                         .id_salt("typst_code_editor")
                                         .code_editor()
                                         .desired_width(f32::INFINITY)
+                                        .min_size(avail_editor_size)
                                         .desired_rows(34)
                                         .frame(false)
                                         .font(FontId::new(font_size, FontFamily::Monospace))
@@ -2331,12 +2418,464 @@ impl TypstIdeApp {
                                             ),
                                         ));
                                         output.state.clone().store(ctx, output.response.id);
+                                    } else if ctx.input(|i| i.pointer.secondary_pressed())
+                                        && output.response.hovered()
+                                    {
+                                        // Preserve existing text selection when right-clicking inside the editor
+                                        if let Some(prev) = prev_selection {
+                                            if prev.primary_char != prev.secondary_char {
+                                                let restored = CCursorRange::two(
+                                                    CCursor::new(prev.secondary_char),
+                                                    CCursor::new(prev.primary_char),
+                                                );
+                                                output.state.cursor.set_char_range(Some(restored));
+                                                output.state.clone().store(ctx, output.response.id);
+                                            }
+                                        }
                                     }
 
-                                    if let Some(range) = output.cursor_range {
+                                    let current_range = output
+                                        .state
+                                        .cursor
+                                        .char_range()
+                                        .or_else(|| output.cursor_range.map(|cr| cr.as_ccursor_range()));
+                                    let has_selection = current_range
+                                        .map(|r| r.primary.index != r.secondary.index)
+                                        .unwrap_or(false);
+                                    let cur_undo_state =
+                                        (current_range.unwrap_or_default(), text_ref.clone());
+                                    let can_undo = output.state.undoer().has_undo(&cur_undo_state);
+                                    let can_redo = output.state.undoer().has_redo(&cur_undo_state);
+
+                                    // Right-click context menu inside the text editor
+                                    output.response.context_menu(|ui| {
+                                        ui.set_min_width(220.0);
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "Editor — {}",
+                                                active_path.display()
+                                            ))
+                                            .small()
+                                            .strong()
+                                            .weak(),
+                                        );
+                                        ui.separator();
+
+                                        if ui
+                                            .add_enabled(
+                                                can_undo,
+                                                egui::Button::new("Undo  (Ctrl+Z)"),
+                                            )
+                                            .clicked()
+                                        {
+                                            context_action = Some(EditorContextAction::Undo);
+                                            ui.close_menu();
+                                        }
+                                        if ui
+                                            .add_enabled(
+                                                can_redo,
+                                                egui::Button::new("Redo  (Ctrl+Y)"),
+                                            )
+                                            .clicked()
+                                        {
+                                            context_action = Some(EditorContextAction::Redo);
+                                            ui.close_menu();
+                                        }
+
+                                        ui.separator();
+
+                                        if ui
+                                            .add_enabled(
+                                                has_selection,
+                                                egui::Button::new("Cut  (Ctrl+X)"),
+                                            )
+                                            .clicked()
+                                        {
+                                            context_action = Some(EditorContextAction::Cut);
+                                            ui.close_menu();
+                                        }
+                                        if ui
+                                            .add_enabled(
+                                                has_selection,
+                                                egui::Button::new("Copy  (Ctrl+C)"),
+                                            )
+                                            .clicked()
+                                        {
+                                            context_action = Some(EditorContextAction::Copy);
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Paste  (Ctrl+V)").clicked() {
+                                            context_action = Some(EditorContextAction::Paste);
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Select All  (Ctrl+A)").clicked() {
+                                            context_action = Some(EditorContextAction::SelectAll);
+                                            ui.close_menu();
+                                        }
+
+                                        ui.separator();
+
+                                        if ui.button("Bold  (*...*)").clicked() {
+                                            context_action =
+                                                Some(EditorContextAction::WrapOrInsert(
+                                                    "*bold*",
+                                                    "*",
+                                                    "*",
+                                                ));
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Italic  (_..._)").clicked() {
+                                            context_action =
+                                                Some(EditorContextAction::WrapOrInsert(
+                                                    "_italic_",
+                                                    "_",
+                                                    "_",
+                                                ));
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Inline Code  (`...`)").clicked() {
+                                            context_action =
+                                                Some(EditorContextAction::WrapOrInsert(
+                                                    "`code`",
+                                                    "`",
+                                                    "`",
+                                                ));
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Inline Math  ($...$)").clicked() {
+                                            context_action =
+                                                Some(EditorContextAction::WrapOrInsert(
+                                                    "$x$",
+                                                    "$",
+                                                    "$",
+                                                ));
+                                            ui.close_menu();
+                                        }
+
+                                        ui.menu_button("Insert Typst Element", |ui| {
+                                            ui.set_min_width(210.0);
+                                            if ui.button("Section Heading (== ...)").clicked() {
+                                                context_action =
+                                                    Some(EditorContextAction::InsertSnippet(
+                                                        "\n== New Section\n",
+                                                    ));
+                                                ui.close_menu();
+                                            }
+                                            if ui.button("Display Math Block ($ ... $)").clicked() {
+                                                context_action =
+                                                    Some(EditorContextAction::InsertSnippet(
+                                                        "\n$ f(x) = integral_0^x e^(-t^2) dif t $\n",
+                                                    ));
+                                                ui.close_menu();
+                                            }
+                                            if ui.button("Formatted Table (#table)").clicked() {
+                                                context_action =
+                                                    Some(EditorContextAction::InsertSnippet(
+                                                        "\n#table(\n  columns: (1fr, 1fr),\n  [*Column A*], [*Column B*],\n  [Item 1], [Value 1],\n)\n",
+                                                    ));
+                                                ui.close_menu();
+                                            }
+                                            if ui.button("Figure / Image (#figure)").clicked() {
+                                                context_action =
+                                                    Some(EditorContextAction::InsertSnippet(
+                                                        "\n#figure(\n  image(\"assets/diagram.svg\", width: 80%),\n  caption: [Figure caption],\n)\n",
+                                                    ));
+                                                ui.close_menu();
+                                            }
+                                            if ui.button("Code Block (```rust ... ```)").clicked() {
+                                                context_action =
+                                                    Some(EditorContextAction::InsertSnippet(
+                                                        "\n```rust\nfn main() {\n    println!(\"Hello, Typst!\");\n}\n```\n",
+                                                    ));
+                                                ui.close_menu();
+                                            }
+                                        });
+
+                                        ui.separator();
+
+                                        if ui.button("Save File  (Ctrl+S)").clicked() {
+                                            context_action =
+                                                Some(EditorContextAction::Menu(MenuAction::SaveFile));
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Compile Document Now").clicked() {
+                                            context_action = Some(EditorContextAction::Menu(
+                                                MenuAction::CompileNow,
+                                            ));
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Export PDF...  (Ctrl+E)").clicked() {
+                                            context_action = Some(EditorContextAction::Menu(
+                                                MenuAction::ExportPdf,
+                                            ));
+                                            ui.close_menu();
+                                        }
+                                        if file_kind == FileKind::Typst
+                                            && ui.button("Set as Main Entrypoint").clicked()
+                                        {
+                                            context_action =
+                                                Some(EditorContextAction::SetActiveAsMain);
+                                            ui.close_menu();
+                                        }
+                                    });
+
+                                    // Apply any triggered editor context menu or Edit menu action
+                                    if let Some(ref act) = context_action {
+                                        let total_chars = text_ref.chars().count();
+                                        let (start_char, end_char, cursor_char) =
+                                            if let Some(r) = current_range {
+                                                let a = r.primary.index.min(total_chars);
+                                                let b = r.secondary.index.min(total_chars);
+                                                (a.min(b), a.max(b), a)
+                                            } else {
+                                                (total_chars, total_chars, total_chars)
+                                            };
+
+                                        let char_to_byte = |s: &str, char_idx: usize| -> usize {
+                                            s.char_indices()
+                                                .nth(char_idx)
+                                                .map(|(i, _)| i)
+                                                .unwrap_or(s.len())
+                                        };
+
+                                        let ccursor_range = current_range.unwrap_or_default();
+
+                                        match *act {
+                                            EditorContextAction::Undo => {
+                                                let mut undoer = output.state.undoer();
+                                                undoer.feed_state(
+                                                    ctx.input(|i| i.time),
+                                                    &(ccursor_range, text_ref.clone()),
+                                                );
+                                                if let Some((undo_range, undo_txt)) =
+                                                    undoer.undo(&(
+                                                        ccursor_range,
+                                                        text_ref.clone(),
+                                                    ))
+                                                {
+                                                    *text_ref = undo_txt.clone();
+                                                    output.state.cursor.set_char_range(Some(*undo_range));
+                                                    output.state.set_undoer(undoer);
+                                                    output
+                                                        .state
+                                                        .clone()
+                                                        .store(ctx, output.response.id);
+                                                    text_changed = true;
+                                                    edited_text_snapshot = Some(text_ref.clone());
+                                                }
+                                                output.response.request_focus();
+                                            }
+                                            EditorContextAction::Redo => {
+                                                let mut undoer = output.state.undoer();
+                                                if let Some((redo_range, redo_txt)) =
+                                                    undoer.redo(&(
+                                                        ccursor_range,
+                                                        text_ref.clone(),
+                                                    ))
+                                                {
+                                                    *text_ref = redo_txt.clone();
+                                                    output.state.cursor.set_char_range(Some(*redo_range));
+                                                    output.state.set_undoer(undoer);
+                                                    output
+                                                        .state
+                                                        .clone()
+                                                        .store(ctx, output.response.id);
+                                                    text_changed = true;
+                                                    edited_text_snapshot = Some(text_ref.clone());
+                                                }
+                                                output.response.request_focus();
+                                            }
+                                            EditorContextAction::Copy => {
+                                                if start_char < end_char {
+                                                    let start_b =
+                                                        char_to_byte(text_ref, start_char);
+                                                    let end_b = char_to_byte(text_ref, end_char);
+                                                    let selected_str =
+                                                        text_ref[start_b..end_b].to_string();
+                                                    ctx.copy_text(selected_str.clone());
+                                                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                                                        let _ = cb.set_text(selected_str.clone());
+                                                    }
+                                                    self.clipboard_fallback = selected_str;
+                                                }
+                                                output.response.request_focus();
+                                            }
+                                            EditorContextAction::Cut => {
+                                                if start_char < end_char {
+                                                    let mut undoer = output.state.undoer();
+                                                    undoer.feed_state(
+                                                        ctx.input(|i| i.time),
+                                                        &(ccursor_range, text_ref.clone()),
+                                                    );
+                                                    let start_b =
+                                                        char_to_byte(text_ref, start_char);
+                                                    let end_b = char_to_byte(text_ref, end_char);
+                                                    let selected_str =
+                                                        text_ref[start_b..end_b].to_string();
+                                                    ctx.copy_text(selected_str.clone());
+                                                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                                                        let _ = cb.set_text(selected_str.clone());
+                                                    }
+                                                    self.clipboard_fallback = selected_str;
+
+                                                    text_ref.replace_range(start_b..end_b, "");
+                                                    let new_range =
+                                                        CCursorRange::one(CCursor::new(start_char));
+                                                    output.state.cursor.set_char_range(Some(new_range));
+                                                    undoer.feed_state(
+                                                        ctx.input(|i| i.time),
+                                                        &(new_range, text_ref.clone()),
+                                                    );
+                                                    output.state.set_undoer(undoer);
+                                                    output
+                                                        .state
+                                                        .clone()
+                                                        .store(ctx, output.response.id);
+                                                    text_changed = true;
+                                                    edited_text_snapshot = Some(text_ref.clone());
+                                                }
+                                                output.response.request_focus();
+                                            }
+                                            EditorContextAction::Paste => {
+                                                let clip_text = arboard::Clipboard::new()
+                                                    .and_then(|mut cb| cb.get_text())
+                                                    .ok()
+                                                    .filter(|s| !s.is_empty())
+                                                    .unwrap_or_else(|| {
+                                                        self.clipboard_fallback.clone()
+                                                    });
+                                                if !clip_text.is_empty() {
+                                                    let mut undoer = output.state.undoer();
+                                                    undoer.feed_state(
+                                                        ctx.input(|i| i.time),
+                                                        &(ccursor_range, text_ref.clone()),
+                                                    );
+                                                    let start_b =
+                                                        char_to_byte(text_ref, start_char);
+                                                    let end_b = char_to_byte(text_ref, end_char);
+                                                    text_ref
+                                                        .replace_range(start_b..end_b, &clip_text);
+                                                    let pasted_chars = clip_text.chars().count();
+                                                    let new_pos = start_char + pasted_chars;
+                                                    let new_range =
+                                                        CCursorRange::one(CCursor::new(new_pos));
+                                                    output
+                                                        .state
+                                                        .cursor
+                                                        .set_char_range(Some(new_range));
+                                                    undoer.feed_state(
+                                                        ctx.input(|i| i.time),
+                                                        &(new_range, text_ref.clone()),
+                                                    );
+                                                    output.state.set_undoer(undoer);
+                                                    output
+                                                        .state
+                                                        .clone()
+                                                        .store(ctx, output.response.id);
+                                                    text_changed = true;
+                                                    edited_text_snapshot = Some(text_ref.clone());
+                                                }
+                                                output.response.request_focus();
+                                            }
+                                            EditorContextAction::SelectAll => {
+                                                let full_len = text_ref.chars().count();
+                                                let all_range = CCursorRange::two(
+                                                    CCursor::new(0),
+                                                    CCursor::new(full_len),
+                                                );
+                                                output.state.cursor.set_char_range(Some(all_range));
+                                                output
+                                                    .state
+                                                    .clone()
+                                                    .store(ctx, output.response.id);
+                                                output.response.request_focus();
+                                            }
+                                            EditorContextAction::WrapOrInsert(
+                                                default_snippet,
+                                                prefix,
+                                                suffix,
+                                            ) => {
+                                                let mut undoer = output.state.undoer();
+                                                undoer.feed_state(
+                                                    ctx.input(|i| i.time),
+                                                    &(ccursor_range, text_ref.clone()),
+                                                );
+                                                if start_char < end_char {
+                                                    let start_b =
+                                                        char_to_byte(text_ref, start_char);
+                                                    let end_b = char_to_byte(text_ref, end_char);
+                                                    let inner = text_ref[start_b..end_b].to_string();
+                                                    let wrapped =
+                                                        format!("{}{}{}", prefix, inner, suffix);
+                                                    let wrapped_chars = wrapped.chars().count();
+                                                    text_ref
+                                                        .replace_range(start_b..end_b, &wrapped);
+                                                    let new_range = CCursorRange::two(
+                                                        CCursor::new(start_char),
+                                                        CCursor::new(start_char + wrapped_chars),
+                                                    );
+                                                    output
+                                                        .state
+                                                        .cursor
+                                                        .set_char_range(Some(new_range));
+                                                } else {
+                                                    let ins_b = char_to_byte(text_ref, cursor_char);
+                                                    text_ref.insert_str(ins_b, default_snippet);
+                                                    let ins_chars = default_snippet.chars().count();
+                                                    let new_range = CCursorRange::one(CCursor::new(
+                                                        cursor_char + ins_chars,
+                                                    ));
+                                                    output
+                                                        .state
+                                                        .cursor
+                                                        .set_char_range(Some(new_range));
+                                                }
+                                                output.state.set_undoer(undoer);
+                                                output
+                                                    .state
+                                                    .clone()
+                                                    .store(ctx, output.response.id);
+                                                text_changed = true;
+                                                edited_text_snapshot = Some(text_ref.clone());
+                                                output.response.request_focus();
+                                            }
+                                            EditorContextAction::InsertSnippet(snippet) => {
+                                                let mut undoer = output.state.undoer();
+                                                undoer.feed_state(
+                                                    ctx.input(|i| i.time),
+                                                    &(ccursor_range, text_ref.clone()),
+                                                );
+                                                let start_b = char_to_byte(text_ref, start_char);
+                                                let end_b = char_to_byte(text_ref, end_char);
+                                                text_ref.replace_range(start_b..end_b, snippet);
+                                                let ins_chars = snippet.chars().count();
+                                                let new_range = CCursorRange::one(CCursor::new(
+                                                    start_char + ins_chars,
+                                                ));
+                                                output.state.cursor.set_char_range(Some(new_range));
+                                                output.state.set_undoer(undoer);
+                                                output
+                                                    .state
+                                                    .clone()
+                                                    .store(ctx, output.response.id);
+                                                text_changed = true;
+                                                edited_text_snapshot = Some(text_ref.clone());
+                                                output.response.request_focus();
+                                            }
+                                            EditorContextAction::Menu(_)
+                                            | EditorContextAction::SetActiveAsMain => {}
+                                        }
+                                    }
+
+                                    if let Some(range) = output
+                                        .state
+                                        .cursor
+                                        .char_range()
+                                        .or_else(|| output.cursor_range.map(|cr| cr.as_ccursor_range()))
+                                    {
                                         observed_cursor = Some(CharSelection {
-                                            primary_char: range.primary.ccursor.index,
-                                            secondary_char: range.secondary.ccursor.index,
+                                            primary_char: range.primary.index,
+                                            secondary_char: range.secondary.index,
                                         });
                                     }
 
@@ -2365,6 +2904,10 @@ impl TypstIdeApp {
                     });
             });
 
+        if let Some(sel) = observed_cursor {
+            self.last_editor_selection = Some(sel);
+        }
+
         if text_changed {
             let auto_save = self.settings.auto_save_on_edit;
             self.project.mark_active_modified(auto_save);
@@ -2377,6 +2920,23 @@ impl TypstIdeApp {
             if self.settings.auto_compile {
                 self.pending_compile = true;
                 self.last_edit_time = ctx.input(|i| i.time);
+            }
+        }
+
+        if let Some(act) = context_action {
+            match act {
+                EditorContextAction::Menu(menu_act) => {
+                    self.dispatch_menu_action(ctx, menu_act);
+                }
+                EditorContextAction::SetActiveAsMain => {
+                    if file_kind == FileKind::Typst {
+                        self.project.set_main_file(active_path.clone());
+                        self.status_notice =
+                            format!("Set '{}' as Main Entrypoint", active_path.display());
+                        self.trigger_compile_now(ctx);
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -2701,12 +3261,9 @@ impl eframe::App for TypstIdeApp {
             }
         }
 
-        // Desktop Menu Bar on Linux & Windows (on macOS, menu bar is rendered by the OS at the top of the screen)
+        // Desktop Menu Bar on Linux & Windows (on macOS, menu bar is part of the OS at the top of the screen)
         #[cfg(not(target_os = "macos"))]
         self.render_desktop_menu_bar(ctx);
-
-        // Top Action Toolbar
-        self.render_top_toolbar(ctx);
 
         // Bottom Status Bar
         self.render_bottom_status_bar(ctx);
@@ -2773,13 +3330,11 @@ impl eframe::App for TypstIdeApp {
                 ui.advance_cursor_after_rect(total_rect);
             });
 
-        // Settings Sub-Window (opened via File > Settings)
+        // Native OS Sub-Windows (Settings, Export PDF, New/Rename File, P2P Collaboration)
         self.render_settings_subwindow(ctx);
-
-        // Export PDF Dialog (opened via Export PDF... button or File > Export PDF...)
         self.render_export_pdf_dialog(ctx);
+        self.render_file_dialogs_subwindows(ctx);
 
-        // P2P Collaboration Sub-Window (opened via Project > Collaboration (P2P)...)
         render_collaboration_window(
             ctx,
             self.settings.dark_mode,
