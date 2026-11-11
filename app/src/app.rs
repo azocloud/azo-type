@@ -21,7 +21,7 @@ use crate::compiler::{
     DiagnosticItem, PdfArchivalStandard, PdfExportConfig, PdfVersionChoice, RenderedPageData,
     RenderedPageTexture,
 };
-use crate::highlight::highlight_typst_code;
+use crate::highlight::{highlight_typst_code, ThemePalette, DESIGN_SYSTEM_CSS_TOKENS};
 use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind, FsTreeNode};
 use crate::world::SharedWorldResources;
 
@@ -254,41 +254,70 @@ impl TypstIdeApp {
     }
 
     pub fn apply_theme(ctx: &Context, dark_mode: bool) {
+        let palette = ThemePalette::for_mode(dark_mode);
         let mut visuals = if dark_mode {
             Visuals::dark()
         } else {
             Visuals::light()
         };
 
-        if dark_mode {
-            visuals.panel_fill = Color32::from_rgb(17, 24, 39);
-            visuals.window_fill = Color32::from_rgb(24, 33, 50);
-            visuals.extreme_bg_color = Color32::from_rgb(11, 15, 25);
-            visuals.faint_bg_color = Color32::from_rgb(24, 33, 47);
-            visuals.code_bg_color = Color32::from_rgb(15, 23, 42);
-            visuals.selection.bg_fill = Color32::from_rgb(37, 99, 235);
-            visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(191, 219, 254));
-            visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(24, 33, 50);
-            visuals.widgets.noninteractive.bg_stroke =
-                Stroke::new(1.0_f32, Color32::from_rgb(45, 55, 72));
-            visuals.widgets.inactive.bg_fill = Color32::from_rgb(30, 41, 59);
-            visuals.widgets.hovered.bg_fill = Color32::from_rgb(51, 65, 85);
-            visuals.widgets.active.bg_fill = Color32::from_rgb(37, 99, 235);
-        } else {
-            visuals.panel_fill = Color32::from_rgb(248, 250, 252);
-            visuals.window_fill = Color32::from_rgb(255, 255, 255);
-            visuals.extreme_bg_color = Color32::from_rgb(255, 255, 255);
-            visuals.faint_bg_color = Color32::from_rgb(241, 245, 249);
-            visuals.code_bg_color = Color32::from_rgb(241, 245, 249);
-            visuals.selection.bg_fill = Color32::from_rgb(59, 130, 246);
-            visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(255, 255, 255));
-            visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(241, 245, 249);
-            visuals.widgets.noninteractive.bg_stroke =
-                Stroke::new(1.0_f32, Color32::from_rgb(203, 213, 225));
-            visuals.widgets.inactive.bg_fill = Color32::from_rgb(226, 232, 240);
-            visuals.widgets.hovered.bg_fill = Color32::from_rgb(203, 213, 225);
-            visuals.widgets.active.bg_fill = Color32::from_rgb(37, 99, 235);
-        }
+        // Surface & Structural Tokens
+        visuals.panel_fill = palette.chrome_sidebar;
+        visuals.window_fill = palette.chrome_sidebar;
+        visuals.window_stroke = Stroke::new(1.0_f32, palette.panel_border);
+        visuals.window_corner_radius = CornerRadius::same(6);
+        visuals.menu_corner_radius = CornerRadius::same(5);
+        visuals.extreme_bg_color = palette.editor_canvas;
+        visuals.faint_bg_color = palette.active_line_highlight;
+        visuals.code_bg_color = palette.editor_canvas;
+
+        // Subtle Layered Depth (minimal shadow instead of heavy drop shadows)
+        visuals.window_shadow = egui::epaint::Shadow {
+            offset: [0, 2],
+            blur: 8,
+            spread: 0,
+            color: Color32::from_black_alpha(if dark_mode { 60 } else { 25 }),
+        };
+        visuals.popup_shadow = visuals.window_shadow;
+
+        // Selection & Accents
+        visuals.selection.bg_fill = palette.selection_bg;
+        visuals.selection.stroke = Stroke::new(1.0_f32, palette.selection_stroke);
+
+        // Widgets: 4px curvature, 1px hairline border, instant surface background shift (0px expansion)
+        visuals.widgets.noninteractive.bg_fill = palette.chrome_sidebar;
+        visuals.widgets.noninteractive.weak_bg_fill = palette.chrome_sidebar;
+        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, palette.panel_border);
+        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
+        visuals.widgets.noninteractive.corner_radius = CornerRadius::same(4);
+
+        visuals.widgets.inactive.bg_fill = palette.widget_inactive_bg;
+        visuals.widgets.inactive.weak_bg_fill = palette.widget_inactive_bg;
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, palette.panel_border);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
+        visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
+        visuals.widgets.inactive.expansion = 0.0;
+
+        visuals.widgets.hovered.bg_fill = palette.widget_hovered_bg;
+        visuals.widgets.hovered.weak_bg_fill = palette.widget_hovered_bg;
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, palette.panel_border);
+        visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
+        visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
+        visuals.widgets.hovered.expansion = 0.0;
+
+        visuals.widgets.active.bg_fill = palette.widget_active_bg;
+        visuals.widgets.active.weak_bg_fill = palette.widget_active_bg;
+        visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, palette.selection_stroke);
+        visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
+        visuals.widgets.active.corner_radius = CornerRadius::same(4);
+        visuals.widgets.active.expansion = 0.0;
+
+        visuals.widgets.open.bg_fill = palette.widget_hovered_bg;
+        visuals.widgets.open.weak_bg_fill = palette.widget_hovered_bg;
+        visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, palette.panel_border);
+        visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
+        visuals.widgets.open.corner_radius = CornerRadius::same(4);
+        visuals.widgets.open.expansion = 0.0;
 
         ctx.set_visuals(visuals);
     }
@@ -644,21 +673,10 @@ impl TypstIdeApp {
         let mut trigger_export = false;
 
         let dark_mode = self.settings.dark_mode;
-        let window_bg = if dark_mode {
-            Color32::from_rgb(17, 24, 39)
-        } else {
-            Color32::from_rgb(248, 250, 252)
-        };
-        let card_bg = if dark_mode {
-            Color32::from_rgb(15, 23, 42)
-        } else {
-            Color32::from_rgb(241, 245, 249)
-        };
-        let border_col = if dark_mode {
-            Color32::from_rgb(45, 55, 72)
-        } else {
-            Color32::from_rgb(203, 213, 225)
-        };
+        let palette = ThemePalette::for_mode(dark_mode);
+        let window_bg = palette.chrome_sidebar;
+        let card_bg = palette.editor_canvas;
+        let border_col = palette.panel_border;
 
         let entry_file = self.project.effective_compile_entrypoint();
         let viewport_id = ViewportId::from_hash_of("typst_studio_export_pdf_os_window");
@@ -1001,16 +1019,9 @@ impl TypstIdeApp {
     /// On macOS, the menu bar is part of the OS at the top of the screen via `muda` and is NOT rendered in-window.
     #[cfg(not(target_os = "macos"))]
     fn render_desktop_menu_bar(&mut self, ctx: &Context) {
-        let menu_bg = if self.settings.dark_mode {
-            Color32::from_rgb(11, 15, 25)
-        } else {
-            Color32::from_rgb(226, 232, 240)
-        };
-        let border_col = if self.settings.dark_mode {
-            Color32::from_rgb(30, 41, 59)
-        } else {
-            Color32::from_rgb(203, 213, 225)
-        };
+        let palette = ThemePalette::for_mode(self.settings.dark_mode);
+        let menu_bg = palette.chrome_sidebar;
+        let border_col = palette.panel_border;
 
         let mut pending_action: Option<MenuAction> = None;
         let mut snippet_to_insert: Option<&'static str> = None;
@@ -1020,6 +1031,7 @@ impl TypstIdeApp {
             .frame(
                 Frame::new()
                     .fill(menu_bg)
+                    .corner_radius(CornerRadius::ZERO)
                     .inner_margin(Margin::symmetric(10, 4))
                     .stroke(Stroke::new(1.0_f32, border_col)),
             )
@@ -1231,11 +1243,7 @@ impl TypstIdeApp {
     /// Renders the New File and Rename File dialogs as real OS sub-windows.
     fn render_file_dialogs_subwindows(&mut self, ctx: &Context) {
         let dark_mode = self.settings.dark_mode;
-        let window_bg = if dark_mode {
-            Color32::from_rgb(17, 24, 39)
-        } else {
-            Color32::from_rgb(248, 250, 252)
-        };
+        let window_bg = ThemePalette::for_mode(dark_mode).chrome_sidebar;
 
         // 1. New File OS sub-window
         if self.show_new_file_input {
@@ -1451,17 +1459,14 @@ impl TypstIdeApp {
         let mut trigger_open_folder = false;
 
         let dark_mode = self.settings.dark_mode;
-        let window_bg = if dark_mode {
-            Color32::from_rgb(17, 24, 39)
-        } else {
-            Color32::from_rgb(248, 250, 252)
-        };
+        let palette = ThemePalette::for_mode(dark_mode);
+        let window_bg = palette.chrome_sidebar;
 
         let viewport_id = ViewportId::from_hash_of("typst_studio_settings_os_window");
         let builder = ViewportBuilder::default()
             .with_title("Settings — Typst Studio")
-            .with_inner_size([520.0, 400.0])
-            .with_min_inner_size([420.0, 320.0]);
+            .with_inner_size([540.0, 440.0])
+            .with_min_inner_size([440.0, 340.0]);
 
         ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
             let mut render_body = |ui: &mut Ui| {
@@ -1492,13 +1497,13 @@ impl TypstIdeApp {
                         ui.horizontal(|ui| {
                             ui.label("Color Theme:");
                             if ui
-                                .radio_value(&mut self.settings.dark_mode, true, "Dark Mode")
+                                .radio_value(&mut self.settings.dark_mode, true, "Dark Mode (#1C1B22)")
                                 .changed()
                             {
                                 theme_changed = true;
                             }
                             if ui
-                                .radio_value(&mut self.settings.dark_mode, false, "Light Mode")
+                                .radio_value(&mut self.settings.dark_mode, false, "Light Mode (#FFFFFF)")
                                 .changed()
                             {
                                 theme_changed = true;
@@ -1523,6 +1528,65 @@ impl TypstIdeApp {
                             &mut self.settings.syntax_highlighting,
                             "Enable real-time Typst syntax highlighting",
                         );
+
+                        ui.add_space(8.0);
+                        Frame::new()
+                            .fill(palette.editor_canvas)
+                            .stroke(Stroke::new(1.0_f32, palette.panel_border))
+                            .corner_radius(CornerRadius::same(5))
+                            .inner_margin(Margin::symmetric(10, 8))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new("Design System Tokens")
+                                            .small()
+                                            .strong()
+                                            .color(palette.text_primary),
+                                    );
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        if ui
+                                            .small_button("Copy CSS Tokens")
+                                            .on_hover_text(
+                                                "Copy standardized :root and [data-theme=\"dark\"] CSS variables",
+                                            )
+                                            .clicked()
+                                        {
+                                            ctx.copy_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
+                                            if let Ok(mut cb) = arboard::Clipboard::new() {
+                                                let _ = cb.set_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
+                                            }
+                                        }
+                                    });
+                                });
+                                ui.add_space(4.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    let swatches = [
+                                        ("Canvas", palette.editor_canvas),
+                                        ("Chrome", palette.chrome_sidebar),
+                                        ("Workspace", palette.preview_workspace),
+                                        ("Line", palette.active_line_highlight),
+                                        ("Keyword", palette.syn_keyword),
+                                        ("String", palette.syn_string),
+                                        ("Prop/Fn", palette.syn_property_or_func),
+                                        ("Number", palette.syn_number),
+                                    ];
+                                    for (name, col) in swatches {
+                                        Frame::new()
+                                            .fill(col)
+                                            .stroke(Stroke::new(1.0_f32, palette.panel_border))
+                                            .corner_radius(CornerRadius::same(4))
+                                            .inner_margin(Margin::symmetric(6, 3))
+                                            .show(ui, |ui| {
+                                                ui.label(
+                                                    RichText::new(name)
+                                                        .size(10.5)
+                                                        .monospace()
+                                                        .color(palette.text_primary),
+                                                );
+                                            });
+                                    }
+                                });
+                            });
                     }
                     SettingsTab::EditorAndDisk => {
                         ui.heading("Filesystem & Project Behavior");
@@ -1666,16 +1730,9 @@ impl TypstIdeApp {
     }
 
     fn render_bottom_status_bar(&mut self, ctx: &Context) {
-        let bar_bg = if self.settings.dark_mode {
-            Color32::from_rgb(11, 15, 25)
-        } else {
-            Color32::from_rgb(226, 232, 240)
-        };
-        let border_col = if self.settings.dark_mode {
-            Color32::from_rgb(30, 41, 59)
-        } else {
-            Color32::from_rgb(203, 213, 225)
-        };
+        let palette = ThemePalette::for_mode(self.settings.dark_mode);
+        let bar_bg = palette.chrome_sidebar;
+        let border_col = palette.panel_border;
 
         let error_count = self.diagnostics.iter().filter(|d| d.is_error).count();
         let warn_count = self.diagnostics.iter().filter(|d| !d.is_error).count();
@@ -1684,6 +1741,7 @@ impl TypstIdeApp {
             .frame(
                 Frame::new()
                     .fill(bar_bg)
+                    .corner_radius(CornerRadius::ZERO)
                     .inner_margin(Margin::symmetric(12, 5))
                     .stroke(Stroke::new(1.0_f32, border_col)),
             )
@@ -1691,15 +1749,15 @@ impl TypstIdeApp {
                 ui.horizontal(|ui| {
                     let (dot_color, status_text) = if self.compile_in_progress || self.pending_compile
                     {
-                        (Color32::from_rgb(251, 191, 36), "Compiling...".to_string())
+                        (palette.syn_operator, "Compiling...".to_string())
                     } else if error_count > 0 {
                         (
-                            Color32::from_rgb(248, 113, 113),
+                            palette.syn_number,
                             format!("{} Error(s)", error_count),
                         )
                     } else {
                         (
-                            Color32::from_rgb(52, 211, 153),
+                            Color32::from_rgb(0x44, 0x8C, 0x6B),
                             format!("Compiled ({:.1} ms)", self.compile_duration_ms),
                         )
                     };
@@ -1710,7 +1768,7 @@ impl TypstIdeApp {
                         ui.separator();
                         ui.label(
                             RichText::new(format!("{} Warning(s)", warn_count))
-                                .color(Color32::from_rgb(251, 191, 36))
+                                .color(palette.syn_operator)
                                 .small(),
                         );
                     }
@@ -1721,12 +1779,15 @@ impl TypstIdeApp {
                             "Main: {}",
                             self.project.main_file.display()
                         ))
+                        .color(palette.text_primary)
                         .small(),
                     );
 
                     ui.separator();
                     ui.label(
-                        RichText::new(format!("Pages: {}", self.page_textures.len())).small(),
+                        RichText::new(format!("Pages: {}", self.page_textures.len()))
+                            .color(palette.text_primary)
+                            .small(),
                     );
 
                     ui.separator();
@@ -1741,11 +1802,15 @@ impl TypstIdeApp {
                             RichText::new(format!("P2P {}: {} peer(s)", role, n_peers))
                                 .small()
                                 .strong()
-                                .color(Color32::from_rgb(56, 189, 248)),
+                                .color(palette.syn_keyword),
                         );
                         ui.separator();
                     }
-                    ui.label(RichText::new(&self.status_notice).small().weak());
+                    ui.label(
+                        RichText::new(&self.status_notice)
+                            .small()
+                            .color(palette.text_muted),
+                    );
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if let Some(active) = self.project.active_buffer() {
@@ -1759,7 +1824,8 @@ impl TypstIdeApp {
                                     active.size_bytes
                                 ))
                                 .small()
-                                .monospace(),
+                                .monospace()
+                                .color(palette.text_muted),
                             );
                         }
                     });
@@ -1772,16 +1838,9 @@ impl TypstIdeApp {
             return;
         }
 
-        let panel_bg = if self.settings.dark_mode {
-            Color32::from_rgb(15, 23, 42)
-        } else {
-            Color32::from_rgb(241, 245, 249)
-        };
-        let border_col = if self.settings.dark_mode {
-            Color32::from_rgb(30, 41, 59)
-        } else {
-            Color32::from_rgb(203, 213, 225)
-        };
+        let palette = ThemePalette::for_mode(self.settings.dark_mode);
+        let panel_bg = palette.chrome_sidebar;
+        let border_col = palette.panel_border;
 
         SidePanel::left("left_file_tree_panel")
             .resizable(true)
@@ -1790,6 +1849,7 @@ impl TypstIdeApp {
             .frame(
                 Frame::new()
                     .fill(panel_bg)
+                    .corner_radius(CornerRadius::ZERO)
                     .inner_margin(Margin::symmetric(10, 10))
                     .stroke(Stroke::new(1.0_f32, border_col)),
             )
@@ -1799,11 +1859,7 @@ impl TypstIdeApp {
                         RichText::new("DISK PROJECT TREE")
                             .size(11.5)
                             .strong()
-                            .color(if self.settings.dark_mode {
-                                Color32::from_rgb(148, 163, 184)
-                            } else {
-                                Color32::from_rgb(71, 85, 105)
-                            }),
+                            .color(palette.text_muted),
                     );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui
@@ -1839,24 +1895,29 @@ impl TypstIdeApp {
                 ScrollArea::vertical()
                     .id_salt("file_tree_scroll")
                     .show(ui, |ui| {
-                        CollapsingHeader::new(RichText::new(project_title).strong())
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                for node in &tree_snapshot {
-                                    Self::render_fs_tree_node(
-                                        ui,
-                                        node,
-                                        &self.project,
-                                        &active_path,
-                                        &main_path,
-                                        &presences_snapshot,
-                                        &mut clicked_path,
-                                        &mut new_main_path,
-                                        &mut rename_req,
-                                        &mut delete_req,
-                                    );
-                                }
-                            });
+                        CollapsingHeader::new(
+                            RichText::new(project_title)
+                                .strong()
+                                .color(palette.text_primary),
+                        )
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            for node in &tree_snapshot {
+                                Self::render_fs_tree_node(
+                                    ui,
+                                    node,
+                                    &self.project,
+                                    &palette,
+                                    &active_path,
+                                    &main_path,
+                                    &presences_snapshot,
+                                    &mut clicked_path,
+                                    &mut new_main_path,
+                                    &mut rename_req,
+                                    &mut delete_req,
+                                );
+                            }
+                        });
 
                         ui.add_space(12.0);
                         ui.separator();
@@ -1867,15 +1928,11 @@ impl TypstIdeApp {
                                 RichText::new("DISK FILE DETAILS")
                                     .size(10.5)
                                     .strong()
-                                    .color(Color32::from_rgb(100, 116, 139)),
+                                    .color(palette.text_muted),
                             );
                             ui.add_space(4.0);
                             Frame::new()
-                                .fill(if self.settings.dark_mode {
-                                    Color32::from_rgb(24, 33, 50)
-                                } else {
-                                    Color32::from_rgb(255, 255, 255)
-                                })
+                                .fill(palette.editor_canvas)
                                 .corner_radius(CornerRadius::same(5))
                                 .inner_margin(Margin::symmetric(8, 8))
                                 .stroke(Stroke::new(1.0_f32, border_col))
@@ -1887,12 +1944,18 @@ impl TypstIdeApp {
                                             active.rel_path.display()
                                         ))
                                         .strong()
+                                        .color(palette.text_primary)
                                         .size(12.0),
                                     );
-                                    ui.label(RichText::new(active.kind.label()).small().weak());
+                                    ui.label(
+                                        RichText::new(active.kind.label())
+                                            .small()
+                                            .color(palette.text_muted),
+                                    );
                                     ui.label(
                                         RichText::new(format!("Size: {} bytes", active.size_bytes))
-                                            .small(),
+                                            .small()
+                                            .color(palette.text_muted),
                                     );
                                     if active.kind == FileKind::Typst {
                                         let is_main = active.rel_path == self.project.main_file;
@@ -1900,7 +1963,7 @@ impl TypstIdeApp {
                                             ui.label(
                                                 RichText::new("★ Main Compiler Entrypoint")
                                                     .small()
-                                                    .color(Color32::from_rgb(56, 189, 248)),
+                                                    .color(palette.syn_keyword),
                                             );
                                         } else if ui
                                             .small_button("Set as Main Entrypoint")
@@ -1963,6 +2026,7 @@ impl TypstIdeApp {
         ui: &mut Ui,
         node: &FsTreeNode,
         project: &DiskProject,
+        palette: &ThemePalette,
         active_path: &Path,
         main_path: &Path,
         remote_presences: &[PeerPresence],
@@ -1978,24 +2042,29 @@ impl TypstIdeApp {
                 children,
             } => {
                 let header = format!("{}/", name);
-                CollapsingHeader::new(RichText::new(header).strong())
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        for child in children {
-                            Self::render_fs_tree_node(
-                                ui,
-                                child,
-                                project,
-                                active_path,
-                                main_path,
-                                remote_presences,
-                                clicked_path,
-                                new_main_path,
-                                rename_req,
-                                delete_req,
-                            );
-                        }
-                    });
+                CollapsingHeader::new(
+                    RichText::new(header)
+                        .strong()
+                        .color(palette.text_primary),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    for child in children {
+                        Self::render_fs_tree_node(
+                            ui,
+                            child,
+                            project,
+                            palette,
+                            active_path,
+                            main_path,
+                            remote_presences,
+                            clicked_path,
+                            new_main_path,
+                            rename_req,
+                            delete_req,
+                        );
+                    }
+                });
             }
             FsTreeNode::File {
                 name,
@@ -2019,7 +2088,11 @@ impl TypstIdeApp {
                     let main_badge = if is_main { " ★" } else { "" };
                     let label_text =
                         format!("{} {}{}{}", kind.icon(), name, main_badge, dirty_mark);
-                    let mut rich = RichText::new(label_text).size(12.5);
+                    let mut rich = RichText::new(label_text).size(12.5).color(if is_active {
+                        palette.text_primary
+                    } else {
+                        palette.text_muted
+                    });
                     if is_active {
                         rich = rich.strong();
                     }
@@ -2077,187 +2150,195 @@ impl TypstIdeApp {
     }
 
     fn render_editor_pane(&mut self, ctx: &Context, ui: &mut Ui) {
-        let border_col = if self.settings.dark_mode {
-            Color32::from_rgb(30, 41, 59)
-        } else {
-            Color32::from_rgb(203, 213, 225)
-        };
-
-        // 1. Open File Tabs Bar
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            let tabs = self.project.open_tabs.clone();
-            let active_path = self.project.active_file.clone();
-            let mut select_tab = None;
-            let mut close_tab = None;
-
-            for tab_path in &tabs {
-                let is_active = *tab_path == active_path;
-                let short_name = tab_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("file");
-                let icon = FileKind::from_path(tab_path).icon();
-                let dirty = self
-                    .project
-                    .buffers
-                    .get(tab_path)
-                    .map(|b| b.dirty)
-                    .unwrap_or(false);
-                let dirty_suffix = if dirty { " *" } else { "" };
-                let tab_label = format!("{} {}{}", icon, short_name, dirty_suffix);
-
-                if ui
-                    .selectable_label(is_active, RichText::new(tab_label).size(12.0))
-                    .on_hover_text(self.project.root_dir.join(tab_path).display().to_string())
-                    .clicked()
-                {
-                    select_tab = Some(tab_path.clone());
-                }
-                if tabs.len() > 1
-                    && ui
-                        .small_button("×")
-                        .on_hover_text(format!("Close tab {}", short_name))
-                        .clicked()
-                {
-                    close_tab = Some(tab_path.clone());
-                }
-                ui.separator();
-            }
-
-            if let Some(p) = select_tab {
-                let _ = self.project.open_file(&p);
-                if self.settings.auto_compile {
-                    self.trigger_compile_now(ctx);
-                }
-            }
-            if let Some(p) = close_tab {
-                self.project.close_tab(&p);
-                if self.settings.auto_compile {
-                    self.trigger_compile_now(ctx);
-                }
-            }
-        });
-
-        ui.separator();
-
-        // 2. Quick Formatting & Snippet Toolbar
+        let dark_mode = self.settings.dark_mode;
+        let palette = ThemePalette::for_mode(dark_mode);
+        let border_col = palette.panel_border;
         let active_path = self.project.active_file.clone();
         let active_kind = FileKind::from_path(&active_path);
 
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 5.0;
-            let mut snippet_to_insert: Option<&'static str> = None;
+        // Docked Chrome Header for Open File Tabs & Quick Formatting Toolbar
+        Frame::new()
+            .fill(palette.chrome_sidebar)
+            .stroke(Stroke::new(1.0_f32, border_col))
+            .corner_radius(CornerRadius::ZERO)
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                // 1. Open File Tabs Bar
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let tabs = self.project.open_tabs.clone();
+                    let mut select_tab = None;
+                    let mut close_tab = None;
 
-            if active_kind == FileKind::Typst {
-                if ui
-                    .small_button("= Heading")
-                    .on_hover_text("Append a section heading")
-                    .clicked()
-                {
-                    snippet_to_insert = Some("\n\n== New Section\n");
-                }
-                if ui
-                    .small_button("*Bold*")
-                    .on_hover_text("Insert bold markup")
-                    .clicked()
-                {
-                    snippet_to_insert = Some(" *bold text* ");
-                }
-                if ui
-                    .small_button("_Italic_")
-                    .on_hover_text("Insert italic markup")
-                    .clicked()
-                {
-                    snippet_to_insert = Some(" _emphasized_ ");
-                }
-                if ui
-                    .small_button("$ Math $")
-                    .on_hover_text("Insert a display math equation block")
-                    .clicked()
-                {
-                    snippet_to_insert =
-                        Some("\n$ f(x) = integral_0^x e^(-t^2) dif t $\n");
-                }
-                if ui
-                    .small_button("+ Table")
-                    .on_hover_text("Insert a formatted table snippet")
-                    .clicked()
-                {
-                    snippet_to_insert = Some(
-                        "\n#table(\n  columns: (1fr, 1fr),\n  [*Metric*], [*Value*],\n  [Throughput], [60 FPS],\n)\n",
-                    );
-                }
-                if ui
-                    .small_button("+ Figure")
-                    .on_hover_text("Insert figure with assets/diagram.svg")
-                    .clicked()
-                {
-                    snippet_to_insert = Some(
-                        "\n#figure(\n  image(\"assets/diagram.svg\", width: 85%),\n  caption: [Architecture diagram.],\n)\n",
-                    );
-                }
-            } else if active_kind == FileKind::Svg {
-                let mode_text = if self.inspect_asset_mode {
-                    "Edit SVG XML"
-                } else {
-                    "Asset Metadata"
-                };
-                if ui.small_button(mode_text).clicked() {
-                    self.inspect_asset_mode = !self.inspect_asset_mode;
-                }
-            }
+                    for tab_path in &tabs {
+                        let is_active = *tab_path == active_path;
+                        let short_name = tab_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file");
+                        let icon = FileKind::from_path(tab_path).icon();
+                        let dirty = self
+                            .project
+                            .buffers
+                            .get(tab_path)
+                            .map(|b| b.dirty)
+                            .unwrap_or(false);
+                        let dirty_suffix = if dirty { " *" } else { "" };
+                        let tab_label = format!("{} {}{}", icon, short_name, dirty_suffix);
+                        let tab_text = RichText::new(tab_label).size(12.0).color(if is_active {
+                            palette.text_primary
+                        } else {
+                            palette.text_muted
+                        });
 
-            if let Some(snippet) = snippet_to_insert {
-                let auto_save = self.settings.auto_save_on_edit;
-                let mut updated_text = None;
-                if let Some(file) = self.project.active_buffer_mut() {
-                    if let Some(ref mut text) = file.text {
-                        text.push_str(snippet);
-                        updated_text = Some(text.clone());
-                        self.project.mark_active_modified(auto_save);
-                        self.pending_compile = true;
-                        self.last_edit_time = ctx.input(|i| i.time);
+                        if ui
+                            .selectable_label(is_active, tab_text)
+                            .on_hover_text(
+                                self.project.root_dir.join(tab_path).display().to_string(),
+                            )
+                            .clicked()
+                        {
+                            select_tab = Some(tab_path.clone());
+                        }
+                        if tabs.len() > 1
+                            && ui
+                                .small_button(RichText::new("×").color(palette.text_muted))
+                                .on_hover_text(format!("Close tab {}", short_name))
+                                .clicked()
+                        {
+                            close_tab = Some(tab_path.clone());
+                        }
+                        ui.separator();
                     }
-                }
-                if let (true, Some(new_text)) = (self.collab_ui.is_active, updated_text) {
-                    self.collab_session.send(UiToSessionCmd::LocalTextEdited {
-                        rel_path: active_path.clone(),
-                        new_text,
+
+                    if let Some(p) = select_tab {
+                        let _ = self.project.open_file(&p);
+                        if self.settings.auto_compile {
+                            self.trigger_compile_now(ctx);
+                        }
+                    }
+                    if let Some(p) = close_tab {
+                        self.project.close_tab(&p);
+                        if self.settings.auto_compile {
+                            self.trigger_compile_now(ctx);
+                        }
+                    }
+                });
+
+                ui.separator();
+
+                // 2. Quick Formatting & Snippet Toolbar
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 5.0;
+                    let mut snippet_to_insert: Option<&'static str> = None;
+
+                    if active_kind == FileKind::Typst {
+                        if ui
+                            .small_button("= Heading")
+                            .on_hover_text("Append a section heading")
+                            .clicked()
+                        {
+                            snippet_to_insert = Some("\n\n== New Section\n");
+                        }
+                        if ui
+                            .small_button("*Bold*")
+                            .on_hover_text("Insert bold markup")
+                            .clicked()
+                        {
+                            snippet_to_insert = Some(" *bold text* ");
+                        }
+                        if ui
+                            .small_button("_Italic_")
+                            .on_hover_text("Insert italic markup")
+                            .clicked()
+                        {
+                            snippet_to_insert = Some(" _emphasized_ ");
+                        }
+                        if ui
+                            .small_button("$ Math $")
+                            .on_hover_text("Insert a display math equation block")
+                            .clicked()
+                        {
+                            snippet_to_insert =
+                                Some("\n$ f(x) = integral_0^x e^(-t^2) dif t $\n");
+                        }
+                        if ui
+                            .small_button("+ Table")
+                            .on_hover_text("Insert a formatted table snippet")
+                            .clicked()
+                        {
+                            snippet_to_insert = Some(
+                                "\n#table(\n  columns: (1fr, 1fr),\n  [*Metric*], [*Value*],\n  [Throughput], [60 FPS],\n)\n",
+                            );
+                        }
+                        if ui
+                            .small_button("+ Figure")
+                            .on_hover_text("Insert figure with assets/diagram.svg")
+                            .clicked()
+                        {
+                            snippet_to_insert = Some(
+                                "\n#figure(\n  image(\"assets/diagram.svg\", width: 85%),\n  caption: [Architecture diagram.],\n)\n",
+                            );
+                        }
+                    } else if active_kind == FileKind::Svg {
+                        let mode_text = if self.inspect_asset_mode {
+                            "Edit SVG XML"
+                        } else {
+                            "Asset Metadata"
+                        };
+                        if ui.small_button(mode_text).clicked() {
+                            self.inspect_asset_mode = !self.inspect_asset_mode;
+                        }
+                    }
+
+                    if let Some(snippet) = snippet_to_insert {
+                        let auto_save = self.settings.auto_save_on_edit;
+                        let mut updated_text = None;
+                        if let Some(file) = self.project.active_buffer_mut() {
+                            if let Some(ref mut text) = file.text {
+                                text.push_str(snippet);
+                                updated_text = Some(text.clone());
+                                self.project.mark_active_modified(auto_save);
+                                self.pending_compile = true;
+                                self.last_edit_time = ctx.input(|i| i.time);
+                            }
+                        }
+                        if let (true, Some(new_text)) = (self.collab_ui.is_active, updated_text) {
+                            self.collab_session.send(UiToSessionCmd::LocalTextEdited {
+                                rel_path: active_path.clone(),
+                                new_text,
+                            });
+                        }
+                    }
+
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui
+                            .small_button("A+")
+                            .on_hover_text("Increase editor font size")
+                            .clicked()
+                        {
+                            self.settings.editor_font_size =
+                                (self.settings.editor_font_size + 1.0).clamp(10.0, 22.0);
+                        }
+                        if ui
+                            .small_button("A-")
+                            .on_hover_text("Decrease editor font size")
+                            .clicked()
+                        {
+                            self.settings.editor_font_size =
+                                (self.settings.editor_font_size - 1.0).clamp(10.0, 22.0);
+                        }
+                        ui.label(
+                            RichText::new(format!("FILE: {}", active_path.display()))
+                                .size(11.0)
+                                .monospace()
+                                .color(palette.text_muted),
+                        );
                     });
-                }
-            }
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui
-                    .small_button("A+")
-                    .on_hover_text("Increase editor font size")
-                    .clicked()
-                {
-                    self.settings.editor_font_size =
-                        (self.settings.editor_font_size + 1.0).clamp(10.0, 22.0);
-                }
-                if ui
-                    .small_button("A-")
-                    .on_hover_text("Decrease editor font size")
-                    .clicked()
-                {
-                    self.settings.editor_font_size =
-                        (self.settings.editor_font_size - 1.0).clamp(10.0, 22.0);
-                }
-                ui.label(
-                    RichText::new(format!("FILE: {}", active_path.display()))
-                        .size(11.0)
-                        .monospace()
-                        .weak(),
-                );
+                });
             });
-        });
-
-        ui.separator();
 
         // 3. Editor Area or Asset Inspector
-        let dark_mode = self.settings.dark_mode;
         let font_size = self.settings.editor_font_size;
         let show_line_numbers = self.settings.show_line_numbers;
         let use_syntax_highlight = self.settings.syntax_highlighting;
@@ -2280,13 +2361,9 @@ impl TypstIdeApp {
         if file.text.is_none() || inspect_asset_mode {
             let mut exit_inspect = false;
             Frame::new()
-                .fill(if dark_mode {
-                    Color32::from_rgb(15, 23, 42)
-                } else {
-                    Color32::from_rgb(248, 250, 252)
-                })
+                .fill(palette.editor_canvas)
                 .inner_margin(Margin::same(16))
-                .corner_radius(CornerRadius::same(6))
+                .corner_radius(CornerRadius::ZERO)
                 .stroke(Stroke::new(1.0_f32, border_col))
                 .show(ui, |ui| {
                     ui.heading(format!("{} {}", file.kind.icon(), file.rel_path.display()));
@@ -2322,26 +2399,14 @@ impl TypstIdeApp {
             self.pending_editor_context_action.take();
         let prev_selection = self.last_editor_selection;
 
-        let editor_bg = if dark_mode {
-            Color32::from_rgb(11, 15, 25)
-        } else {
-            Color32::from_rgb(255, 255, 255)
-        };
-        let gutter_bg = if dark_mode {
-            Color32::from_rgb(17, 24, 39)
-        } else {
-            Color32::from_rgb(241, 245, 249)
-        };
-        let gutter_fg = if dark_mode {
-            Color32::from_rgb(100, 116, 139)
-        } else {
-            Color32::from_rgb(148, 163, 184)
-        };
+        let editor_bg = palette.editor_canvas;
+        let gutter_bg = palette.editor_canvas;
+        let gutter_fg = palette.text_muted;
 
         Frame::new()
             .fill(editor_bg)
             .stroke(Stroke::new(1.0_f32, border_col))
-            .corner_radius(CornerRadius::same(4))
+            .corner_radius(CornerRadius::ZERO)
             .show(ui, |ui| {
                 ScrollArea::both()
                     .id_salt("code_editor_scroll_area")
@@ -2356,7 +2421,7 @@ impl TypstIdeApp {
                             ui.spacing_mut().item_spacing.x = 0.0;
 
                             if show_line_numbers {
-                                Frame::new()
+                                let gutter_resp = Frame::new()
                                     .fill(gutter_bg)
                                     .inner_margin(Margin::symmetric(8, 8))
                                     .show(ui, |ui| {
@@ -2372,6 +2437,12 @@ impl TypstIdeApp {
                                             .selectable(false),
                                         );
                                     });
+                                // 1px hairline border between gutter and code editing surface
+                                let gr = gutter_resp.response.rect;
+                                ui.painter().line_segment(
+                                    [Pos2::new(gr.max.x, gr.min.y), Pos2::new(gr.max.x, gr.max.y)],
+                                    Stroke::new(1.0_f32, border_col),
+                                );
                             }
 
                             let mut layouter = |ui: &Ui, string: &str, wrap_width: f32| {
@@ -2381,11 +2452,7 @@ impl TypstIdeApp {
                                     LayoutJob::simple(
                                         string.to_owned(),
                                         FontId::new(font_size, FontFamily::Monospace),
-                                        if dark_mode {
-                                            Color32::from_rgb(226, 232, 240)
-                                        } else {
-                                            Color32::from_rgb(30, 41, 59)
-                                        },
+                                        palette.syn_default,
                                         wrap_width,
                                     )
                                 };
@@ -2398,6 +2465,11 @@ impl TypstIdeApp {
                                 .inner_margin(Margin::symmetric(10, 8))
                                 .show(ui, |ui| {
                                     let avail_editor_size = ui.available_size();
+                                    // Reserve shape slot before TextEdit so the Active Line Highlight
+                                    // (#262530 dark / #EBF3FE light) renders behind the active cursor line
+                                    let active_line_shape_idx =
+                                        ui.painter().add(egui::Shape::Noop);
+
                                     let mut output = TextEdit::multiline(text_ref)
                                         .id_salt("typst_code_editor")
                                         .code_editor()
@@ -2439,6 +2511,29 @@ impl TypstIdeApp {
                                         .cursor
                                         .char_range()
                                         .or_else(|| output.cursor_range.map(|cr| cr.as_ccursor_range()));
+
+                                    // Paint full-width Active Line Highlight (#262530 Dark / #EBF3FE Light)
+                                    let active_ccursor = current_range
+                                        .map(|r| r.primary)
+                                        .unwrap_or_else(|| CCursor::new(0));
+                                    let active_cursor_obj =
+                                        output.galley.from_ccursor(active_ccursor);
+                                    let cursor_local_rect =
+                                        output.galley.pos_from_cursor(&active_cursor_obj);
+                                    let line_min_y = output.galley_pos.y + cursor_local_rect.min.y;
+                                    let line_max_y = output.galley_pos.y + cursor_local_rect.max.y;
+                                    let full_line_rect = Rect::from_min_max(
+                                        Pos2::new(output.response.rect.min.x - 10.0, line_min_y),
+                                        Pos2::new(output.response.rect.max.x + 10.0, line_max_y),
+                                    );
+                                    ui.painter().set(
+                                        active_line_shape_idx,
+                                        egui::Shape::rect_filled(
+                                            full_line_rect,
+                                            CornerRadius::ZERO,
+                                            palette.active_line_highlight,
+                                        ),
+                                    );
                                     let has_selection = current_range
                                         .map(|r| r.primary.index != r.secondary.index)
                                         .unwrap_or(false);
@@ -2956,53 +3051,49 @@ impl TypstIdeApp {
     }
 
     fn render_preview_pane(&mut self, _ctx: &Context, ui: &mut Ui) {
-        let canvas_bg = if self.settings.dark_mode {
-            Color32::from_rgb(30, 41, 59)
-        } else {
-            Color32::from_rgb(226, 232, 240)
-        };
-        let border_col = if self.settings.dark_mode {
-            Color32::from_rgb(51, 65, 85)
-        } else {
-            Color32::from_rgb(203, 213, 225)
-        };
+        let palette = ThemePalette::for_mode(self.settings.dark_mode);
+        let canvas_bg = palette.preview_workspace;
+        let border_col = palette.panel_border;
 
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new("LIVE DOCUMENT PREVIEW")
-                    .size(12.0)
-                    .strong()
-                    .color(if self.settings.dark_mode {
-                        Color32::from_rgb(148, 163, 184)
-                    } else {
-                        Color32::from_rgb(71, 85, 105)
-                    }),
-            );
+        Frame::new()
+            .fill(palette.chrome_sidebar)
+            .stroke(Stroke::new(1.0_f32, border_col))
+            .corner_radius(CornerRadius::ZERO)
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("LIVE DOCUMENT PREVIEW")
+                            .size(11.5)
+                            .strong()
+                            .color(palette.text_muted),
+                    );
 
-            ui.separator();
-            ui.label(
-                RichText::new(format!("{} Page(s)", self.page_textures.len()))
-                    .size(12.0)
-                    .strong(),
-            );
+                    ui.separator();
+                    ui.label(
+                        RichText::new(format!("{} Page(s)", self.page_textures.len()))
+                            .size(12.0)
+                            .strong()
+                            .color(palette.text_primary),
+                    );
 
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui
-                    .small_button("Fit Width")
-                    .on_hover_text("Reset preview zoom to 100%")
-                    .clicked()
-                {
-                    self.zoom = 1.0;
-                }
-                ui.label(
-                    RichText::new(format!("Scale: {:.0}%", self.zoom * 100.0))
-                        .size(11.5)
-                        .monospace(),
-                );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui
+                            .small_button("Fit Width")
+                            .on_hover_text("Reset preview zoom to 100%")
+                            .clicked()
+                        {
+                            self.zoom = 1.0;
+                        }
+                        ui.label(
+                            RichText::new(format!("Scale: {:.0}%", self.zoom * 100.0))
+                                .size(11.5)
+                                .monospace()
+                                .color(palette.text_muted),
+                        );
+                    });
+                });
             });
-        });
-
-        ui.separator();
 
         let has_diagnostics = !self.diagnostics.is_empty();
         let available_height = ui.available_height();
@@ -3011,13 +3102,13 @@ impl TypstIdeApp {
         } else {
             0.0
         };
-        let preview_height = (available_height - banner_height - 4.0).max(120.0);
+        let preview_height = (available_height - banner_height).max(120.0);
 
         ui.allocate_ui(Vec2::new(ui.available_width(), preview_height), |ui| {
             Frame::new()
                 .fill(canvas_bg)
                 .stroke(Stroke::new(1.0_f32, border_col))
-                .corner_radius(CornerRadius::same(4))
+                .corner_radius(CornerRadius::ZERO)
                 .show(ui, |ui| {
                     if ui.ui_contains_pointer() {
                         let zoom_delta = ui.input(|i| i.zoom_delta());
@@ -3038,7 +3129,7 @@ impl TypstIdeApp {
                                     ui.label(
                                         RichText::new("No rendered pages available.")
                                             .size(14.0)
-                                            .weak(),
+                                            .color(palette.text_muted),
                                     );
                                 } else {
                                     let avail_w = (ui.available_width() - 36.0).max(200.0);
@@ -3054,19 +3145,17 @@ impl TypstIdeApp {
                                             ui.allocate_exact_size(page_size, Sense::hover());
 
                                         let painter = ui.painter();
-                                        let shadow_rect_outer =
-                                            rect.translate(Vec2::new(0.0, 5.0)).expand(3.0);
-                                        painter.rect_filled(
-                                            shadow_rect_outer,
-                                            CornerRadius::same(3),
-                                            Color32::from_black_alpha(55),
-                                        );
-                                        let shadow_rect_inner =
+                                        // Subtle layered depth (1px border + minimal soft shadow)
+                                        let shadow_rect =
                                             rect.translate(Vec2::new(0.0, 2.0)).expand(1.0);
                                         painter.rect_filled(
-                                            shadow_rect_inner,
-                                            CornerRadius::same(2),
-                                            Color32::from_black_alpha(85),
+                                            shadow_rect,
+                                            CornerRadius::ZERO,
+                                            Color32::from_black_alpha(if self.settings.dark_mode {
+                                                45
+                                            } else {
+                                                22
+                                            }),
                                         );
 
                                         painter.rect_filled(
@@ -3086,7 +3175,7 @@ impl TypstIdeApp {
                                         painter.rect_stroke(
                                             rect,
                                             CornerRadius::ZERO,
-                                            Stroke::new(1.0_f32, Color32::from_rgb(148, 163, 184)),
+                                            Stroke::new(1.0_f32, border_col),
                                             StrokeKind::Outside,
                                         );
 
@@ -3098,7 +3187,7 @@ impl TypstIdeApp {
                                                 self.page_textures.len()
                                             ))
                                             .size(11.0)
-                                            .weak(),
+                                            .color(palette.text_muted),
                                         );
                                         ui.add_space(18.0);
                                     }
@@ -3109,32 +3198,20 @@ impl TypstIdeApp {
         });
 
         if has_diagnostics {
-            ui.add_space(4.0);
             let error_count = self.diagnostics.iter().filter(|d| d.is_error).count();
-            let banner_bg = if error_count > 0 {
-                if self.settings.dark_mode {
-                    Color32::from_rgb(45, 18, 24)
-                } else {
-                    Color32::from_rgb(254, 242, 242)
-                }
-            } else if self.settings.dark_mode {
-                Color32::from_rgb(45, 34, 15)
-            } else {
-                Color32::from_rgb(255, 251, 235)
-            };
-
+            let banner_bg = palette.chrome_sidebar;
             let banner_border = if error_count > 0 {
-                Color32::from_rgb(239, 68, 68)
+                palette.syn_number
             } else {
-                Color32::from_rgb(245, 158, 11)
+                palette.syn_operator
             };
 
             let mut file_to_open: Option<PathBuf> = None;
 
             Frame::new()
                 .fill(banner_bg)
-                .stroke(Stroke::new(1.5_f32, banner_border))
-                .corner_radius(CornerRadius::same(5))
+                .stroke(Stroke::new(1.0_f32, banner_border))
+                .corner_radius(CornerRadius::ZERO)
                 .inner_margin(Margin::symmetric(10, 8))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -3159,9 +3236,9 @@ impl TypstIdeApp {
                             for diag in &self.diagnostics {
                                 ui.horizontal_wrapped(|ui| {
                                     let badge_color = if diag.is_error {
-                                        Color32::from_rgb(248, 113, 113)
+                                        palette.syn_number
                                     } else {
-                                        Color32::from_rgb(251, 191, 36)
+                                        palette.syn_operator
                                     };
                                     let loc = match (diag.line, diag.column) {
                                         (Some(l), Some(c)) => {
@@ -3179,13 +3256,19 @@ impl TypstIdeApp {
                                     {
                                         file_to_open = Some(diag.file.clone());
                                     }
-                                    ui.label(RichText::new(&diag.message).strong().size(12.0));
+                                    ui.label(
+                                        RichText::new(&diag.message)
+                                            .strong()
+                                            .size(12.0)
+                                            .color(palette.text_primary),
+                                    );
                                 });
                                 for hint in &diag.hints {
                                     ui.label(
                                         RichText::new(format!("  Hint: {}", hint))
                                             .italics()
-                                            .size(11.5),
+                                            .size(11.5)
+                                            .color(palette.text_muted),
                                     );
                                 }
                                 ui.add_space(3.0);
@@ -3272,21 +3355,19 @@ impl eframe::App for TypstIdeApp {
         self.render_left_file_panel(ctx);
 
         // Main Split View (Code Editor Left + Live Preview Right)
-        let central_bg = if self.settings.dark_mode {
-            Color32::from_rgb(17, 24, 39)
-        } else {
-            Color32::from_rgb(248, 250, 252)
-        };
+        let palette = ThemePalette::for_mode(self.settings.dark_mode);
+        let central_bg = palette.chrome_sidebar;
 
         egui::CentralPanel::default()
             .frame(
                 Frame::new()
                     .fill(central_bg)
-                    .inner_margin(Margin::symmetric(10, 8)),
+                    .corner_radius(CornerRadius::ZERO)
+                    .inner_margin(Margin::ZERO),
             )
             .show(ctx, |ui| {
                 let total_rect = ui.available_rect_before_wrap();
-                let spacing = 10.0;
+                let spacing = 1.0;
                 let half_w = ((total_rect.width() - spacing) * 0.5).max(160.0);
                 let full_h = total_rect.height();
 
@@ -3305,18 +3386,13 @@ impl eframe::App for TypstIdeApp {
                 );
                 self.render_editor_pane(ctx, &mut left_ui);
 
-                // Vertical Split Divider Line
-                let div_color = if self.settings.dark_mode {
-                    Color32::from_rgb(45, 55, 72)
-                } else {
-                    Color32::from_rgb(203, 213, 225)
-                };
+                // 1px Hairline Vertical Split Divider Line
                 ui.painter().line_segment(
                     [
                         Pos2::new(div_x, total_rect.min.y),
                         Pos2::new(div_x, total_rect.max.y),
                     ],
-                    Stroke::new(1.0_f32, div_color),
+                    Stroke::new(1.0_f32, palette.panel_border),
                 );
 
                 // Right Pane: Live Document Preview

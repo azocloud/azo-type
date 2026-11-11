@@ -13,6 +13,7 @@ use crate::collab::doc::normalize_rel_path;
 use crate::collab::session::{
     CollabSessionHandle, ConnectedPeerStatus, PeerLifecycleState, UiToSessionCmd,
 };
+use crate::highlight::ThemePalette;
 
 /// UI state for P2P collaboration held by `TypstIdeApp`.
 pub struct CollabUiState {
@@ -84,21 +85,10 @@ pub fn render_collaboration_window(
 
     let mut open = state.show_window;
     let mut close_clicked = false;
-    let border_col = if dark_mode {
-        Color32::from_rgb(45, 55, 72)
-    } else {
-        Color32::from_rgb(203, 213, 225)
-    };
-    let card_bg = if dark_mode {
-        Color32::from_rgb(15, 23, 42)
-    } else {
-        Color32::from_rgb(241, 245, 249)
-    };
-    let win_bg = if dark_mode {
-        Color32::from_rgb(24, 33, 50)
-    } else {
-        Color32::from_rgb(255, 255, 255)
-    };
+    let palette = ThemePalette::for_mode(dark_mode);
+    let border_col = palette.panel_border;
+    let card_bg = palette.editor_canvas;
+    let win_bg = palette.chrome_sidebar;
 
     let viewport_id = ViewportId::from_hash_of("typst_studio_p2p_collab_os_window");
     let builder = ViewportBuilder::default()
