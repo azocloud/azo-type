@@ -16,8 +16,9 @@ use crate::collab::ui::{
     paint_remote_cursors_in_editor, render_collaboration_window, CollabUiState,
 };
 use crate::compiler::{
-    compile_project, export_pdf_bytes, upload_page_textures, CompileSnapshot, DiagnosticItem,
-    RenderedPageData, RenderedPageTexture,
+    compile_project, export_pdf_bytes_with_config, upload_page_textures, CompileSnapshot,
+    DiagnosticItem, PdfArchivalStandard, PdfExportConfig, PdfVersionChoice, RenderedPageData,
+    RenderedPageTexture,
 };
 use crate::highlight::highlight_typst_code;
 use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind, FsTreeNode};
@@ -100,6 +101,11 @@ pub struct TypstIdeApp {
     // Settings sub-window state (opened via File > Settings)
     pub show_settings_window: bool,
     pub settings_tab: SettingsTab,
+
+    // Export PDF dialog state (opened via Export PDF button or File > Export PDF...)
+    pub show_export_pdf_dialog: bool,
+    pub pdf_export_config: PdfExportConfig,
+    pub export_pdf_error: Option<String>,
 
     // P2P Collaboration state & background actor handle
     pub collab_ui: CollabUiState,
@@ -199,6 +205,9 @@ impl TypstIdeApp {
             zoom: 1.0,
             show_settings_window: false,
             settings_tab: SettingsTab::Appearance,
+            show_export_pdf_dialog: false,
+            pdf_export_config: PdfExportConfig::default(),
+            export_pdf_error: None,
             collab_ui: CollabUiState::default(),
             collab_session,
             pending_cursor_restore: None,
@@ -301,7 +310,8 @@ impl TypstIdeApp {
                 }
             },
             MenuAction::ExportPdf => {
-                self.export_pdf_action(ctx);
+                self.show_export_pdf_dialog = true;
+                self.export_pdf_error = None;
             }
             MenuAction::OpenSettings => {
                 self.show_settings_window = true;
@@ -529,22 +539,26 @@ impl TypstIdeApp {
         let _ = self.project.save_all_files();
         let resources = Arc::clone(&self.resources);
         let project_snapshot = self.project.clone();
+        let config = self.pdf_export_config.clone();
+        let entry_file = self.project.effective_compile_entrypoint();
         let default_pdf_name = format!(
             "{}.pdf",
-            self.project
-                .main_file
+            entry_file
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("document")
         );
         let start_dir = self.project.root_dir.clone();
+        let badge = config.summary_badge();
 
-        match export_pdf_bytes(resources, &project_snapshot) {
+        match export_pdf_bytes_with_config(resources, &project_snapshot, &config) {
             Ok(pdf_bytes) => {
+                self.export_pdf_error = None;
+                self.show_export_pdf_dialog = false;
                 let size_kb = pdf_bytes.len() as f64 / 1024.0;
                 self.status_notice = format!(
-                    "Compiled PDF ({:.1} KB) — Choose destination on disk...",
-                    size_kb
+                    "Compiled {} ({:.1} KB) — Choose destination on disk...",
+                    badge, size_kb
                 );
                 let tx = self.io_tx.clone();
                 let ctx_clone = ctx.clone();
@@ -563,7 +577,8 @@ impl TypstIdeApp {
                             match std::fs::write(&out_path, &pdf_bytes) {
                                 Ok(()) => {
                                     let _ = tx.send(IoEvent::StatusMessage(format!(
-                                        "Exported PDF to '{}' ({:.1} KB)",
+                                        "Exported {} to '{}' ({:.1} KB)",
+                                        badge,
                                         out_path.display(),
                                         size_kb
                                     )));
@@ -582,10 +597,332 @@ impl TypstIdeApp {
                 });
             }
             Err(diags) => {
+                let first_err = diags
+                    .first()
+                    .map(|d| d.message.clone())
+                    .unwrap_or_else(|| "PDF compilation failed.".to_string());
+                self.export_pdf_error = Some(first_err.clone());
                 self.diagnostics = diags;
-                self.status_notice =
-                    "Cannot export PDF: fix compilation errors shown in the banner.".to_string();
+                self.status_notice = format!("Cannot export PDF: {}", first_err);
             }
+        }
+    }
+
+    /// Renders the Export PDF Dialog window allowing the user to select the PDF version
+    /// (1.4, 1.5, 1.6, 1.7, 2.0) and PDF standard(s) (PDF/A-1b, PDF/A-1a, PDF/A-2b, PDF/A-2u,
+    /// PDF/A-2a, PDF/A-3b, PDF/A-3u, PDF/A-3a, PDF/A-4, PDF/UA-1).
+    fn render_export_pdf_dialog(&mut self, ctx: &Context) {
+        if !self.show_export_pdf_dialog {
+            return;
+        }
+
+        let mut open = self.show_export_pdf_dialog;
+        let mut close_clicked = false;
+        let mut trigger_export = false;
+
+        let dark_mode = self.settings.dark_mode;
+        let card_bg = if dark_mode {
+            Color32::from_rgb(15, 23, 42)
+        } else {
+            Color32::from_rgb(241, 245, 249)
+        };
+        let border_col = if dark_mode {
+            Color32::from_rgb(45, 55, 72)
+        } else {
+            Color32::from_rgb(203, 213, 225)
+        };
+
+        let entry_file = self.project.effective_compile_entrypoint();
+
+        Window::new("Export PDF — Version & Standards")
+            .open(&mut open)
+            .resizable(true)
+            .collapsible(false)
+            .default_width(520.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Target Document:").strong());
+                    ui.code(entry_file.display().to_string());
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(self.pdf_export_config.summary_badge())
+                                .strong()
+                                .color(Color32::from_rgb(56, 189, 248)),
+                        );
+                    });
+                });
+
+                ui.add_space(6.0);
+
+                // Section 1: PDF Version Selection (1.4, 1.5, 1.6, 1.7, 2.0)
+                Frame::new()
+                    .fill(card_bg)
+                    .stroke(Stroke::new(1.0_f32, border_col))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::symmetric(12, 10))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new("1. PDF Version").strong().size(13.0));
+                        ui.label(
+                            RichText::new(
+                                "Choose the target PDF specification version for the exported document:",
+                            )
+                            .small()
+                            .weak(),
+                        );
+                        ui.add_space(6.0);
+                        ui.horizontal_wrapped(|ui| {
+                            for &ver in PdfVersionChoice::ALL {
+                                let selected = self.pdf_export_config.version == ver;
+                                if ui
+                                    .selectable_label(
+                                        selected,
+                                        RichText::new(format!("PDF {}", ver.short_label()))
+                                            .strong(),
+                                    )
+                                    .on_hover_text(ver.label())
+                                    .clicked()
+                                {
+                                    self.pdf_export_config.version = ver;
+                                    self.export_pdf_error = None;
+                                }
+                            }
+                        });
+                    });
+
+                ui.add_space(8.0);
+
+                // Section 2: PDF Standard(s) Selection (PDF/A-2a, PDF/A-3a, etc.)
+                Frame::new()
+                    .fill(card_bg)
+                    .stroke(Stroke::new(1.0_f32, border_col))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::symmetric(12, 10))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new("2. PDF Archival & Conformance Standard (PDF/A)")
+                                .strong()
+                                .size(13.0),
+                        );
+                        ui.label(
+                            RichText::new(
+                                "Select an ISO 19005 archival standard (such as PDF/A-2a, PDF/A-2b, or PDF/A-3a):",
+                            )
+                            .small()
+                            .weak(),
+                        );
+                        ui.add_space(6.0);
+
+                        // Quick Preset Buttons for common standards
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new("Quick Presets:").small());
+                            let presets = [
+                                PdfArchivalStandard::None,
+                                PdfArchivalStandard::A2b,
+                                PdfArchivalStandard::A2a,
+                                PdfArchivalStandard::A3b,
+                                PdfArchivalStandard::A3a,
+                                PdfArchivalStandard::A1b,
+                                PdfArchivalStandard::A1a,
+                            ];
+                            for std_choice in presets {
+                                let is_sel = self.pdf_export_config.archival_standard == std_choice;
+                                if ui
+                                    .selectable_label(is_sel, std_choice.code_label())
+                                    .on_hover_text(std_choice.label())
+                                    .clicked()
+                                {
+                                    self.pdf_export_config.archival_standard = std_choice;
+                                    self.export_pdf_error = None;
+                                    if self.pdf_export_config.build_standards().is_err() {
+                                        if let Some(rec) = std_choice.recommended_version() {
+                                            self.pdf_export_config.version = rec;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+
+                        ui.add_space(6.0);
+
+                        egui::ComboBox::from_id_salt("pdf_archival_standard_combo")
+                            .width(460.0)
+                            .selected_text(self.pdf_export_config.archival_standard.label())
+                            .show_ui(ui, |ui| {
+                                for &std_item in PdfArchivalStandard::ALL {
+                                    let is_selected =
+                                        self.pdf_export_config.archival_standard == std_item;
+                                    if ui
+                                        .selectable_label(is_selected, std_item.label())
+                                        .clicked()
+                                    {
+                                        self.pdf_export_config.archival_standard = std_item;
+                                        self.export_pdf_error = None;
+                                        if self.pdf_export_config.build_standards().is_err() {
+                                            if let Some(rec) = std_item.recommended_version() {
+                                                self.pdf_export_config.version = rec;
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        if ui
+                            .checkbox(
+                                &mut self.pdf_export_config.pdf_ua1,
+                                "Also enforce PDF/UA-1 (Universal Accessibility — ISO 14289-1)",
+                            )
+                            .changed()
+                        {
+                            self.export_pdf_error = None;
+                            if self.pdf_export_config.pdf_ua1 {
+                                self.pdf_export_config.tagged = true;
+                                if self.pdf_export_config.build_standards().is_err() {
+                                    self.pdf_export_config.version = PdfVersionChoice::V1_7;
+                                }
+                            }
+                        }
+
+                        let requires_tagged = self.pdf_export_config.pdf_ua1
+                            || matches!(
+                                self.pdf_export_config.archival_standard,
+                                PdfArchivalStandard::A1a
+                                    | PdfArchivalStandard::A2a
+                                    | PdfArchivalStandard::A3a
+                            );
+                        if requires_tagged {
+                            self.pdf_export_config.tagged = true;
+                        }
+                        ui.add_enabled(
+                            !requires_tagged,
+                            egui::Checkbox::new(
+                                &mut self.pdf_export_config.tagged,
+                                "Generate Tagged PDF (Document Accessibility Structure Tree)",
+                            ),
+                        );
+                    });
+
+                ui.add_space(8.0);
+
+                // Validation status & CLI preview
+                match self.pdf_export_config.build_standards() {
+                    Ok(_) => {
+                        let mut std_flags =
+                            vec![self.pdf_export_config.version.short_label().to_string()];
+                        if self.pdf_export_config.archival_standard != PdfArchivalStandard::None {
+                            std_flags.push(
+                                self.pdf_export_config
+                                    .archival_standard
+                                    .code_label()
+                                    .trim_start_matches("PDF/")
+                                    .to_ascii_lowercase(),
+                            );
+                        }
+                        if self.pdf_export_config.pdf_ua1 {
+                            std_flags.push("ua-1".to_string());
+                        }
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new("✓ Valid Standard Configuration")
+                                    .color(Color32::from_rgb(52, 211, 153))
+                                    .strong()
+                                    .small(),
+                            );
+                            ui.separator();
+                            ui.code(format!(
+                                "typst compile --pdf-standard {} {}",
+                                std_flags.join(","),
+                                entry_file.display()
+                            ));
+                        });
+                    }
+                    Err(validation_err) => {
+                        Frame::new()
+                            .fill(if dark_mode {
+                                Color32::from_rgb(45, 24, 18)
+                            } else {
+                                Color32::from_rgb(254, 242, 242)
+                            })
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(248, 113, 113)))
+                            .corner_radius(CornerRadius::same(5))
+                            .inner_margin(Margin::symmetric(10, 6))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "Incompatible Version & Standard: {}",
+                                        validation_err
+                                    ))
+                                    .color(Color32::from_rgb(248, 113, 113))
+                                    .strong()
+                                    .small(),
+                                );
+                                if let Some(rec) =
+                                    self.pdf_export_config.archival_standard.recommended_version()
+                                {
+                                    if ui
+                                        .small_button(format!(
+                                            "Switch to compatible {}",
+                                            rec.label()
+                                        ))
+                                        .clicked()
+                                    {
+                                        self.pdf_export_config.version = rec;
+                                        self.export_pdf_error = None;
+                                    }
+                                }
+                            });
+                    }
+                }
+
+                if let Some(ref err_msg) = self.export_pdf_error {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!("Export Error: {}", err_msg))
+                            .color(Color32::from_rgb(248, 113, 113))
+                            .strong()
+                            .small(),
+                    );
+                }
+
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                let is_valid = self.pdf_export_config.build_standards().is_ok();
+                ui.horizontal(|ui| {
+                    if ui.button("Reset Defaults").clicked() {
+                        self.pdf_export_config = PdfExportConfig::default();
+                        self.export_pdf_error = None;
+                    }
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let export_btn = egui::Button::new(
+                            RichText::new("Export PDF to Disk...")
+                                .strong()
+                                .color(Color32::WHITE),
+                        )
+                        .fill(if is_valid {
+                            Color32::from_rgb(37, 99, 235)
+                        } else {
+                            Color32::from_rgb(100, 116, 139)
+                        })
+                        .corner_radius(CornerRadius::same(5));
+
+                        if ui.add_enabled(is_valid, export_btn).clicked() {
+                            trigger_export = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close_clicked = true;
+                        }
+                    });
+                });
+            });
+
+        self.show_export_pdf_dialog = open && !close_clicked;
+        if trigger_export {
+            self.export_pdf_action(ctx);
         }
     }
 
@@ -916,7 +1253,7 @@ impl TypstIdeApp {
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let export_btn = egui::Button::new(
-                            RichText::new("Export PDF")
+                            RichText::new("Export PDF...")
                                 .strong()
                                 .color(Color32::WHITE),
                         )
@@ -925,7 +1262,9 @@ impl TypstIdeApp {
 
                         if ui
                             .add(export_btn)
-                            .on_hover_text("Compile document with typst-pdf and save PDF to disk")
+                            .on_hover_text(
+                                "Open Export PDF dialog to choose PDF version (1.4–2.0) and PDF/A standards (Ctrl+E)",
+                            )
                             .clicked()
                         {
                             pending_action = Some(MenuAction::ExportPdf);
@@ -1496,9 +1835,14 @@ impl TypstIdeApp {
                 if let Some(rel_path) = clicked_path {
                     if let Err(e) = self.project.open_file(&rel_path) {
                         self.status_notice = format!("Could not open file: {}", e);
-                    } else if let Some(buf) = self.project.active_buffer() {
-                        self.inspect_asset_mode =
-                            matches!(buf.kind, FileKind::Image | FileKind::Binary);
+                    } else {
+                        if let Some(buf) = self.project.active_buffer() {
+                            self.inspect_asset_mode =
+                                matches!(buf.kind, FileKind::Image | FileKind::Binary);
+                        }
+                        if self.settings.auto_compile {
+                            self.trigger_compile_now(ctx);
+                        }
                     }
                 }
                 if let Some(main_p) = new_main_path {
@@ -1702,9 +2046,15 @@ impl TypstIdeApp {
 
             if let Some(p) = select_tab {
                 let _ = self.project.open_file(&p);
+                if self.settings.auto_compile {
+                    self.trigger_compile_now(ctx);
+                }
             }
             if let Some(p) = close_tab {
                 self.project.close_tab(&p);
+                if self.settings.auto_compile {
+                    self.trigger_compile_now(ctx);
+                }
             }
         });
 
@@ -2425,6 +2775,9 @@ impl eframe::App for TypstIdeApp {
 
         // Settings Sub-Window (opened via File > Settings)
         self.render_settings_subwindow(ctx);
+
+        // Export PDF Dialog (opened via Export PDF... button or File > Export PDF...)
+        self.render_export_pdf_dialog(ctx);
 
         // P2P Collaboration Sub-Window (opened via Project > Collaboration (P2P)...)
         render_collaboration_window(

@@ -14,13 +14,23 @@ eframe = { version = "0.31.1", default-features = false, features = [
     "wayland",
     "x11",
 ] }
-typst = "0.12.0"
-typst-render = "0.12.0"
-typst-pdf = "0.12.0"
-typst-assets = { version = "0.12.0", features = ["fonts"] }
-typst-syntax = "0.12.0"
-comemo = "0.4"
+typst = "0.15.1"
+typst-layout = "0.15.1"
+typst-render = "0.15.1"
+typst-pdf = "0.15.1"
+typst-assets = { version = "0.15.1", features = ["fonts"] }
+typst-syntax = "0.15.1"
+typst-kit = { version = "0.15.1", features = [
+    "embedded-fonts",
+    "scan-fonts",
+    "system-files",
+    "system-packages",
+    "universe-packages",
+    "datetime",
+] }
+comemo = "0.5"
 ecow = "0.2"
+reqwest = { version = "0.13", default-features = false }
 rfd = "0.18.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

@@ -1,51 +1,99 @@
+use std::any::Any;
 use std::collections::HashMap;
+use std::io::{self, Cursor, Read};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use chrono::{Datelike, FixedOffset, Local, Utc};
 use typst::diag::{FileError, FileResult};
-use typst::foundations::{Bytes, Datetime};
-use typst::syntax::{FileId, Source, VirtualPath};
+use typst::foundations::{Bytes, Datetime, Duration};
+use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
-use typst::{Library, World};
+use typst::{Library, LibraryExt, World};
+use typst_kit::datetime::Time;
+use typst_kit::downloader::Downloader;
+use typst_kit::fonts::{self, FontStore};
+use typst_kit::packages::SystemPackages;
 
 use crate::project::DiskProject;
 
-/// Shared, immutable compiler resources initialized once (Standard Library + Bundled Fonts).
+/// HTTP Downloader backed by `reqwest` + `rustls` for automatically fetching missing
+/// `@preview/...` packages from the official Typst Universe registry (`packages.typst.org`).
+pub struct ReqwestDownloader;
+
+impl Downloader for ReqwestDownloader {
+    fn stream(&self, _key: &dyn Any, url: &str) -> io::Result<(Option<usize>, Box<dyn Read>)> {
+        let url_owned = url.to_string();
+        let join_res = std::thread::spawn(move || -> Result<Vec<u8>, io::Error> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(io::Error::other)?;
+            rt.block_on(async move {
+                let client = reqwest::Client::builder()
+                    .user_agent("typst-studio-ide/0.3.0")
+                    .build()
+                    .map_err(io::Error::other)?;
+                let response = client
+                    .get(&url_owned)
+                    .send()
+                    .await
+                    .map_err(io::Error::other)?;
+                let status = response.status();
+                if status == reqwest::StatusCode::NOT_FOUND {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("package archive not found at {}", url_owned),
+                    ));
+                }
+                if !status.is_success() {
+                    return Err(io::Error::other(format!(
+                        "HTTP {} while downloading {}",
+                        status, url_owned
+                    )));
+                }
+                let bytes = response.bytes().await.map_err(io::Error::other)?;
+                Ok(bytes.to_vec())
+            })
+        })
+        .join();
+
+        match join_res {
+            Ok(Ok(bytes)) => {
+                let len = bytes.len();
+                Ok((Some(len), Box::new(Cursor::new(bytes))))
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(io::Error::other("package download worker panicked")),
+        }
+    }
+}
+
+/// Shared, immutable compiler resources initialized once (Standard Library, Embedded + System Fonts,
+/// and Local + Universe Package Resolver).
 pub struct SharedWorldResources {
     pub library: LazyHash<Library>,
-    pub book: LazyHash<FontBook>,
-    pub fonts: Vec<Font>,
+    pub fonts: FontStore,
+    pub packages: SystemPackages,
 }
 
 impl SharedWorldResources {
     pub fn new() -> Self {
         let library = LazyHash::new(Library::default());
-        let mut book = FontBook::new();
-        let mut fonts = Vec::new();
-
-        for font_data in typst_assets::fonts() {
-            let buffer = Bytes::from_static(font_data);
-            for font in Font::iter(buffer) {
-                book.push(font.info().clone());
-                fonts.push(font);
-            }
-        }
+        let mut fonts = FontStore::new();
+        fonts.extend(fonts::embedded());
+        fonts.extend(fonts::system());
+        let packages = SystemPackages::new(ReqwestDownloader);
 
         Self {
             library,
-            book: LazyHash::new(book),
             fonts,
+            packages,
         }
     }
 
     pub fn font_family_count(&self) -> usize {
-        self.book.families().count()
-    }
-
-    pub fn font_face_count(&self) -> usize {
-        self.fonts.len()
+        self.fonts.book().families().count()
     }
 }
 
@@ -55,7 +103,8 @@ impl Default for SharedWorldResources {
     }
 }
 
-/// Custom `typst::World` implementation backed directly by the local OS filesystem (`DiskProject`).
+/// Custom `typst::World` implementation backed by the local OS filesystem (`DiskProject`)
+/// for project files and `SystemPackages` for local/cached/remote `@preview` Typst packages.
 pub struct EditorWorld {
     resources: Arc<SharedWorldResources>,
     project: DiskProject,
@@ -66,8 +115,12 @@ pub struct EditorWorld {
 
 impl EditorWorld {
     pub fn new(resources: Arc<SharedWorldResources>, project: DiskProject) -> Self {
-        let main_vpath = VirtualPath::new(&project.main_file);
-        let main_id = FileId::new(None, main_vpath);
+        let entry_rel = project.effective_compile_entrypoint();
+        let entry_str = entry_rel.to_string_lossy().replace('\\', "/");
+        let main_vpath = VirtualPath::new(&entry_str)
+            .or_else(|_| VirtualPath::new("main.typ"))
+            .expect("valid fallback VirtualPath");
+        let main_id = RootedPath::new(VirtualRoot::Project, main_vpath).intern();
 
         Self {
             resources,
@@ -78,8 +131,52 @@ impl EditorWorld {
         }
     }
 
-    fn resolve_rel_path(id: FileId) -> PathBuf {
-        id.vpath().as_rootless_path().to_path_buf()
+    pub fn display_path_for_id(&self, id: FileId) -> PathBuf {
+        let rel = id.vpath().get_without_slash();
+        match id.root() {
+            VirtualRoot::Project => PathBuf::from(rel),
+            VirtualRoot::Package(spec) => PathBuf::from(format!(
+                "@{}/{}:{}/{}",
+                spec.namespace, spec.name, spec.version, rel
+            )),
+        }
+    }
+
+    fn read_text_for_id(&self, id: FileId) -> FileResult<String> {
+        let vpath = id.vpath();
+        match id.root() {
+            VirtualRoot::Project => {
+                let rel_path = PathBuf::from(vpath.get_without_slash());
+                self.project
+                    .read_source_text(&rel_path)
+                    .map_err(|e| FileError::from_io(e, &rel_path))
+            }
+            VirtualRoot::Package(spec) => {
+                let pkg_root = self.resources.packages.obtain(spec)?;
+                let raw_bytes = pkg_root.load(vpath)?;
+                let s = std::str::from_utf8(raw_bytes.as_slice())
+                    .map_err(|_| FileError::InvalidUtf8)?;
+                Ok(s.to_owned())
+            }
+        }
+    }
+
+    fn read_bytes_for_id(&self, id: FileId) -> FileResult<Bytes> {
+        let vpath = id.vpath();
+        match id.root() {
+            VirtualRoot::Project => {
+                let rel_path = PathBuf::from(vpath.get_without_slash());
+                let raw = self
+                    .project
+                    .read_file_bytes(&rel_path)
+                    .map_err(|e| FileError::from_io(e, &rel_path))?;
+                Ok(Bytes::new(raw))
+            }
+            VirtualRoot::Package(spec) => {
+                let pkg_root = self.resources.packages.obtain(spec)?;
+                pkg_root.load(vpath)
+            }
+        }
     }
 }
 
@@ -89,7 +186,7 @@ impl World for EditorWorld {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        &self.resources.book
+        self.resources.fonts.book()
     }
 
     fn main(&self) -> FileId {
@@ -103,12 +200,7 @@ impl World for EditorWorld {
             }
         }
 
-        let rel_path = Self::resolve_rel_path(id);
-        let text = self
-            .project
-            .read_source_text(&rel_path)
-            .map_err(|e| FileError::from_io(e, &rel_path))?;
-
+        let text = self.read_text_for_id(id)?;
         let source = Source::new(id, text);
         if let Ok(mut cache) = self.source_cache.lock() {
             cache.insert(id, source.clone());
@@ -123,13 +215,7 @@ impl World for EditorWorld {
             }
         }
 
-        let rel_path = Self::resolve_rel_path(id);
-        let raw_bytes = self
-            .project
-            .read_file_bytes(&rel_path)
-            .map_err(|e| FileError::from_io(e, &rel_path))?;
-
-        let bytes = Bytes::from(raw_bytes);
+        let bytes = self.read_bytes_for_id(id)?;
         if let Ok(mut cache) = self.bytes_cache.lock() {
             cache.insert(id, bytes.clone());
         }
@@ -137,22 +223,10 @@ impl World for EditorWorld {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.resources.fonts.get(index).cloned()
+        self.resources.fonts.font(index)
     }
 
-    fn today(&self, offset: Option<i64>) -> Option<Datetime> {
-        let now = Utc::now();
-        let with_offset = match offset {
-            None => Local::now().fixed_offset(),
-            Some(hours) => {
-                let secs = i32::try_from(hours).ok()?.checked_mul(3600)?;
-                now.with_timezone(&FixedOffset::east_opt(secs)?)
-            }
-        };
-        Datetime::from_ymd(
-            with_offset.year(),
-            with_offset.month().try_into().ok()?,
-            with_offset.day().try_into().ok()?,
-        )
+    fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
+        Time::system().today(offset)
     }
 }

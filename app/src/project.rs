@@ -283,7 +283,10 @@ impl DiskProject {
         if !self.open_tabs.iter().any(|p| p == rel_path) {
             self.open_tabs.push(rel_path.to_path_buf());
         }
-        self.active_file = rel_path.to_path_buf();
+        if self.active_file != rel_path {
+            self.active_file = rel_path.to_path_buf();
+            self.revision = self.revision.wrapping_add(1);
+        }
         Ok(())
     }
 
@@ -457,6 +460,33 @@ impl DiskProject {
     pub fn set_main_file(&mut self, rel_path: PathBuf) {
         self.main_file = rel_path;
         self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// Returns the effective `.typ` entrypoint to compile.
+    /// If the active file is a `.typ` file that is not referenced (`#import`/`#include`) by `main_file`
+    /// (or if `main_file` does not exist), compiles `active_file` directly so standalone files
+    /// like `test.typ` preview out-of-the-box. Otherwise compiles `main_file`.
+    pub fn effective_compile_entrypoint(&self) -> PathBuf {
+        if FileKind::from_path(&self.active_file) == FileKind::Typst
+            && self.active_file != self.main_file
+        {
+            if let Ok(main_text) = self.read_source_text(&self.main_file) {
+                let active_norm = self.active_file.to_string_lossy().replace('\\', "/");
+                let active_name = self
+                    .active_file
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                let referenced_in_main = main_text.contains(&active_norm)
+                    || (!active_name.is_empty() && main_text.contains(active_name));
+                if !referenced_in_main {
+                    return self.active_file.clone();
+                }
+            } else {
+                return self.active_file.clone();
+            }
+        }
+        self.main_file.clone()
     }
 
     /// Reads the latest text for a relative path (using any unsaved in-editor buffer first,
