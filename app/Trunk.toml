@@ -1,0 +1,13 @@
+[build]
+target = "index.html"
+dist = "dist"
+public_url = "./"
+filehash = true
+
+[watch]
+ignore = ["./dist", "./target", "./shots"]
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+open = false
