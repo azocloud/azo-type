@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use egui::text::{CCursor, CCursorRange, LayoutJob};
 use egui::{
-    Align, CentralPanel, CollapsingHeader, Color32, Context, CornerRadius, FontFamily, FontId,
-    Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea, Sense, SidePanel,
-    Slider, Stroke, StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2, ViewportBuilder,
-    ViewportClass, ViewportId, Visuals, Window,
+    Align, Align2, CentralPanel, CollapsingHeader, Color32, Context, CornerRadius, CursorIcon,
+    FontFamily, FontId, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea,
+    Sense, SidePanel, Slider, Stroke, StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2,
+    ViewportBuilder, ViewportClass, ViewportId, Visuals, Window,
 };
 
 use crate::collab::awareness::PeerPresence;
@@ -36,12 +36,21 @@ pub enum MenuAction {
     OpenSettings,
     OpenCollab,
     ToggleSidebar,
+    ToggleWordWrap,
     ToggleTheme,
     ZoomIn,
     ZoomOut,
     ZoomReset,
     CompileNow,
     Quit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentOutlineItem {
+    pub level: usize,
+    pub title: String,
+    pub line_number: usize,
+    pub char_offset: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +78,7 @@ pub enum SettingsTab {
 pub struct IdeSettings {
     pub dark_mode: bool,
     pub editor_font_size: f32,
+    pub word_wrap: bool,
     pub show_line_numbers: bool,
     pub syntax_highlighting: bool,
     pub auto_save_on_edit: bool,
@@ -88,6 +98,7 @@ impl Default for IdeSettings {
         Self {
             dark_mode: true,
             editor_font_size: 13.5,
+            word_wrap: true,
             show_line_numbers: true,
             syntax_highlighting: true,
             auto_save_on_edit: true,
@@ -111,6 +122,7 @@ pub struct TypstIdeApp {
     pub project: DiskProject,
     pub settings: IdeSettings,
     pub show_sidebar: bool,
+    pub editor_split_ratio: f32,
     pub zoom: f32,
 
     // Settings sub-window state (opened via File > Settings)
@@ -126,6 +138,7 @@ pub struct TypstIdeApp {
     pub collab_ui: CollabUiState,
     pub collab_session: CollabSessionHandle,
     pub pending_cursor_restore: Option<CharSelection>,
+    pub pending_scroll_to_char: Option<usize>,
     pub last_sent_cursor: Option<(PathBuf, CharSelection)>,
 
     // Compilation state
@@ -222,6 +235,7 @@ impl TypstIdeApp {
             project,
             settings,
             show_sidebar: true,
+            editor_split_ratio: 0.5,
             zoom: 1.0,
             show_settings_window: false,
             settings_tab: SettingsTab::Appearance,
@@ -231,6 +245,7 @@ impl TypstIdeApp {
             collab_ui: CollabUiState::default(),
             collab_session,
             pending_cursor_restore: None,
+            pending_scroll_to_char: None,
             last_sent_cursor: None,
             show_new_file_input: false,
             new_file_name: "chapters/appendix.typ".to_string(),
@@ -373,6 +388,9 @@ impl TypstIdeApp {
             }
             MenuAction::ToggleSidebar => {
                 self.show_sidebar = !self.show_sidebar;
+            }
+            MenuAction::ToggleWordWrap => {
+                self.settings.word_wrap = !self.settings.word_wrap;
             }
             MenuAction::ToggleTheme => {
                 self.settings.dark_mode = !self.settings.dark_mode;
@@ -1142,6 +1160,15 @@ impl TypstIdeApp {
                             pending_action = Some(MenuAction::ToggleSidebar);
                             ui.close_menu();
                         }
+                        let wrap_txt = if self.settings.word_wrap {
+                            "Disable Automatic Line Wrapping"
+                        } else {
+                            "Enable Automatic Line Wrapping"
+                        };
+                        if ui.button(wrap_txt).clicked() {
+                            pending_action = Some(MenuAction::ToggleWordWrap);
+                            ui.close_menu();
+                        }
                         let theme_txt = if self.settings.dark_mode {
                             "Switch to Light Theme"
                         } else {
@@ -1521,6 +1548,10 @@ impl TypstIdeApp {
 
                         ui.add_space(8.0);
                         ui.checkbox(
+                            &mut self.settings.word_wrap,
+                            "Wrap long lines automatically to editor panel width (with end-of-line ↩ indicator)",
+                        );
+                        ui.checkbox(
                             &mut self.settings.show_line_numbers,
                             "Show line numbers gutter in code editor",
                         );
@@ -1600,6 +1631,10 @@ impl TypstIdeApp {
                             .small(),
                         );
                         ui.add_space(6.0);
+                        ui.checkbox(
+                            &mut self.settings.word_wrap,
+                            "Wrap long lines automatically to editor panel width (with end-of-line ↩ indicator)",
+                        );
                         ui.checkbox(
                             &mut self.settings.auto_save_on_edit,
                             "Automatically save modified buffers to disk on edit",
@@ -1833,6 +1868,117 @@ impl TypstIdeApp {
             });
     }
 
+    fn extract_document_outline(text: &str, kind: FileKind) -> Vec<DocumentOutlineItem> {
+        let mut items = Vec::new();
+        let mut in_code_fence = false;
+        let mut char_cursor = 0usize;
+
+        for (idx, raw_line) in text.split('\n').enumerate() {
+            let line_number = idx + 1;
+            let line_char_len = raw_line.chars().count();
+            let line = raw_line.trim_end_matches('\r');
+            let trimmed = line.trim_start();
+            let leading_ws_chars = line.chars().count().saturating_sub(trimmed.chars().count());
+
+            if trimmed.starts_with("```") {
+                in_code_fence = !in_code_fence;
+                char_cursor += line_char_len + 1;
+                continue;
+            }
+
+            if !in_code_fence && !trimmed.starts_with("//") {
+                match kind {
+                    FileKind::Typst => {
+                        let eq_count = trimmed.chars().take_while(|&c| c == '=').count();
+                        if eq_count >= 1 {
+                            let after_eq = &trimmed[eq_count..];
+                            if after_eq.starts_with(' ') || after_eq.starts_with('\t') {
+                                let mut title = after_eq.trim().to_string();
+                                // Strip trailing `<label>` if present
+                                if let (Some(lt), true) = (title.rfind('<'), title.ends_with('>')) {
+                                    let candidate = title[lt..].trim();
+                                    if !candidate.contains(' ') {
+                                        title = title[..lt].trim().to_string();
+                                    }
+                                }
+                                if !title.is_empty() {
+                                    let target_char = char_cursor + leading_ws_chars;
+                                    items.push(DocumentOutlineItem {
+                                        level: eq_count,
+                                        title,
+                                        line_number,
+                                        char_offset: target_char,
+                                    });
+                                }
+                            }
+                        } else if let Some(rest) = trimmed.strip_prefix("#let ") {
+                            let name: String = rest
+                                .chars()
+                                .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                                .collect();
+                            if !name.is_empty() && leading_ws_chars == 0 {
+                                items.push(DocumentOutlineItem {
+                                    level: 3,
+                                    title: format!("#let {}", name),
+                                    line_number,
+                                    char_offset: char_cursor + leading_ws_chars,
+                                });
+                            }
+                        }
+                    }
+                    FileKind::Bib => {
+                        if trimmed.starts_with('@') {
+                            if let Some(brace_idx) = trimmed.find('{') {
+                                let entry_type = &trimmed[1..brace_idx];
+                                let after_brace = &trimmed[brace_idx + 1..];
+                                let key = after_brace
+                                    .split(',')
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim();
+                                if !key.is_empty() {
+                                    items.push(DocumentOutlineItem {
+                                        level: 1,
+                                        title: format!("@{} ({})", key, entry_type),
+                                        line_number,
+                                        char_offset: char_cursor + leading_ws_chars,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        let hash_count = trimmed.chars().take_while(|&c| c == '#').count();
+                        if hash_count >= 1 {
+                            let after_hash = &trimmed[hash_count..];
+                            if after_hash.starts_with(' ') {
+                                let title = after_hash.trim().to_string();
+                                if !title.is_empty() {
+                                    items.push(DocumentOutlineItem {
+                                        level: hash_count,
+                                        title,
+                                        line_number,
+                                        char_offset: char_cursor + leading_ws_chars,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            char_cursor += line_char_len + 1;
+        }
+
+        // If a Typst file has real section headings (`= ...`), prefer showing only section headings
+        // unless there are none (e.g. a pure `#let` template file).
+        if kind == FileKind::Typst && items.iter().any(|it| !it.title.starts_with("#let ")) {
+            items.retain(|it| !it.title.starts_with("#let "));
+        }
+
+        items
+    }
+
     fn render_left_file_panel(&mut self, ctx: &Context) {
         if !self.show_sidebar {
             return;
@@ -1844,8 +1990,8 @@ impl TypstIdeApp {
 
         SidePanel::left("left_file_tree_panel")
             .resizable(true)
-            .default_width(250.0)
-            .width_range(185.0..=400.0)
+            .default_width(255.0)
+            .width_range(185.0..=440.0)
             .frame(
                 Frame::new()
                     .fill(panel_bg)
@@ -1892,8 +2038,13 @@ impl TypstIdeApp {
                 let tree_snapshot = self.project.tree.clone();
                 let presences_snapshot = self.collab_ui.remote_presences.clone();
 
+                let total_sidebar_h = ui.available_height();
+                let tree_max_h = (total_sidebar_h * 0.46).max(130.0);
+
                 ScrollArea::vertical()
                     .id_salt("file_tree_scroll")
+                    .max_height(tree_max_h)
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
                         CollapsingHeader::new(
                             RichText::new(project_title)
@@ -1918,63 +2069,170 @@ impl TypstIdeApp {
                                 );
                             }
                         });
-
-                        ui.add_space(12.0);
-                        ui.separator();
-                        ui.add_space(6.0);
-
-                        if let Some(active) = self.project.active_buffer() {
-                            ui.label(
-                                RichText::new("DISK FILE DETAILS")
-                                    .size(10.5)
-                                    .strong()
-                                    .color(palette.text_muted),
-                            );
-                            ui.add_space(4.0);
-                            Frame::new()
-                                .fill(palette.editor_canvas)
-                                .corner_radius(CornerRadius::same(5))
-                                .inner_margin(Margin::symmetric(8, 8))
-                                .stroke(Stroke::new(1.0_f32, border_col))
-                                .show(ui, |ui| {
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "{} {}",
-                                            active.kind.icon(),
-                                            active.rel_path.display()
-                                        ))
-                                        .strong()
-                                        .color(palette.text_primary)
-                                        .size(12.0),
-                                    );
-                                    ui.label(
-                                        RichText::new(active.kind.label())
-                                            .small()
-                                            .color(palette.text_muted),
-                                    );
-                                    ui.label(
-                                        RichText::new(format!("Size: {} bytes", active.size_bytes))
-                                            .small()
-                                            .color(palette.text_muted),
-                                    );
-                                    if active.kind == FileKind::Typst {
-                                        let is_main = active.rel_path == self.project.main_file;
-                                        if is_main {
-                                            ui.label(
-                                                RichText::new("★ Main Compiler Entrypoint")
-                                                    .small()
-                                                    .color(palette.syn_keyword),
-                                            );
-                                        } else if ui
-                                            .small_button("Set as Main Entrypoint")
-                                            .clicked()
-                                        {
-                                            new_main_path = Some(active.rel_path.clone());
-                                        }
-                                    }
-                                });
-                        }
                     });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                // Document Outline Panel for the currently open text editor file
+                let outline_items = self
+                    .project
+                    .active_buffer()
+                    .and_then(|buf| {
+                        buf.text
+                            .as_deref()
+                            .map(|txt| Self::extract_document_outline(txt, buf.kind))
+                    })
+                    .unwrap_or_default();
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("DOCUMENT OUTLINE")
+                            .size(11.5)
+                            .strong()
+                            .color(palette.text_muted),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{} item(s)", outline_items.len()))
+                                .size(10.5)
+                                .monospace()
+                                .color(palette.text_muted),
+                        );
+                    });
+                });
+
+                ui.add_space(4.0);
+
+                let current_cursor_char = self
+                    .last_editor_selection
+                    .map(|s| s.primary_char)
+                    .unwrap_or(0);
+                let active_outline_idx = outline_items
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find(|(_, item)| item.char_offset <= current_cursor_char)
+                    .map(|(idx, _)| idx);
+
+                let mut navigate_to_item: Option<DocumentOutlineItem> = None;
+
+                Frame::new()
+                    .fill(palette.editor_canvas)
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(Margin::symmetric(8, 8))
+                    .stroke(Stroke::new(1.0_f32, border_col))
+                    .show(ui, |ui| {
+                        ScrollArea::vertical()
+                            .id_salt("document_outline_scroll")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                if outline_items.is_empty() {
+                                    ui.label(
+                                        RichText::new(
+                                            "No headings found in active file.\nAdd `= Heading` or `== Section` to populate the outline.",
+                                        )
+                                        .small()
+                                        .color(palette.text_muted),
+                                    );
+                                } else {
+                                    for (idx, item) in outline_items.iter().enumerate() {
+                                        let is_current = active_outline_idx == Some(idx);
+                                        let indent_px =
+                                            ((item.level.saturating_sub(1)) as f32 * 12.0).min(48.0);
+                                        let prefix = match item.level {
+                                            1 => "H1",
+                                            2 => "H2",
+                                            3 => "H3",
+                                            _ => "H4",
+                                        };
+
+                                        ui.horizontal(|ui| {
+                                            if indent_px > 0.0 {
+                                                ui.add_space(indent_px);
+                                            }
+                                            ui.label(
+                                                RichText::new(prefix)
+                                                    .size(10.0)
+                                                    .monospace()
+                                                    .strong()
+                                                    .color(if item.level == 1 {
+                                                        palette.syn_keyword
+                                                    } else {
+                                                        palette.syn_property_or_func
+                                                    }),
+                                            );
+                                            let max_chars =
+                                                26usize.saturating_sub(item.level.saturating_sub(1) * 2);
+                                            let display_title =
+                                                if item.title.chars().count() > max_chars {
+                                                    let truncated: String = item
+                                                        .title
+                                                        .chars()
+                                                        .take(max_chars.saturating_sub(1))
+                                                        .collect();
+                                                    format!("{}…", truncated.trim_end())
+                                                } else {
+                                                    item.title.clone()
+                                                };
+                                            let title_rt = RichText::new(display_title)
+                                                .size(12.0)
+                                                .color(if is_current {
+                                                    palette.text_primary
+                                                } else {
+                                                    palette.text_muted
+                                                });
+                                            let title_rt = if is_current || item.level == 1 {
+                                                title_rt.strong()
+                                            } else {
+                                                title_rt
+                                            };
+
+                                            let resp = ui
+                                                .selectable_label(is_current, title_rt)
+                                                .on_hover_text(format!(
+                                                    "Click to jump cursor to '{}' (Line {})",
+                                                    item.title, item.line_number
+                                                ));
+                                            if resp.clicked() {
+                                                navigate_to_item = Some(item.clone());
+                                            }
+
+                                            ui.with_layout(
+                                                Layout::right_to_left(Align::Center),
+                                                |ui| {
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "L{}",
+                                                            item.line_number
+                                                        ))
+                                                        .size(10.0)
+                                                        .monospace()
+                                                        .color(palette.text_muted),
+                                                    );
+                                                },
+                                            );
+                                        });
+                                    }
+                                }
+                            });
+                    });
+
+                if let Some(target_item) = navigate_to_item {
+                    let sel = CharSelection {
+                        primary_char: target_item.char_offset,
+                        secondary_char: target_item.char_offset,
+                    };
+                    self.pending_cursor_restore = Some(sel);
+                    self.pending_scroll_to_char = Some(target_item.char_offset);
+                    self.last_editor_selection = Some(sel);
+                    self.inspect_asset_mode = false;
+                    self.status_notice = format!(
+                        "Navigated to '{}' (Line {})",
+                        target_item.title, target_item.line_number
+                    );
+                }
 
                 if let Some(rel_path) = clicked_path {
                     if let Err(e) = self.project.open_file(&rel_path) {
@@ -2328,18 +2586,22 @@ impl TypstIdeApp {
                             self.settings.editor_font_size =
                                 (self.settings.editor_font_size - 1.0).clamp(10.0, 22.0);
                         }
-                        ui.label(
-                            RichText::new(format!("FILE: {}", active_path.display()))
-                                .size(11.0)
-                                .monospace()
-                                .color(palette.text_muted),
-                        );
+                        if ui
+                            .selectable_label(self.settings.word_wrap, "↩ Wrap")
+                            .on_hover_text(
+                                "Toggle automatic line wrapping at editor panel width (also in File > Settings)",
+                            )
+                            .clicked()
+                        {
+                            self.settings.word_wrap = !self.settings.word_wrap;
+                        }
                     });
                 });
             });
 
         // 3. Editor Area or Asset Inspector
         let font_size = self.settings.editor_font_size;
+        let word_wrap = self.settings.word_wrap;
         let show_line_numbers = self.settings.show_line_numbers;
         let use_syntax_highlight = self.settings.syntax_highlighting;
         let inspect_asset_mode = self.inspect_asset_mode;
@@ -2350,6 +2612,7 @@ impl TypstIdeApp {
             .cloned()
             .collect();
         let restore_cursor = self.pending_cursor_restore.take();
+        let scroll_to_char = self.pending_scroll_to_char.take();
 
         let Some(file) = self.project.active_buffer_mut() else {
             ui.centered_and_justified(|ui| {
@@ -2400,7 +2663,6 @@ impl TypstIdeApp {
         let prev_selection = self.last_editor_selection;
 
         let editor_bg = palette.editor_canvas;
-        let gutter_bg = palette.editor_canvas;
         let gutter_fg = palette.text_muted;
 
         Frame::new()
@@ -2408,63 +2670,57 @@ impl TypstIdeApp {
             .stroke(Stroke::new(1.0_f32, border_col))
             .corner_radius(CornerRadius::ZERO)
             .show(ui, |ui| {
-                ScrollArea::both()
+                ScrollArea::new([!word_wrap, true])
                     .id_salt("code_editor_scroll_area")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         let text_ref = file.text.as_mut().unwrap();
                         let line_count = text_ref.lines().count().max(1);
-                        let line_numbers_str: String =
-                            (1..=line_count).map(|i| format!("{:>3}\n", i)).collect();
+                        let digits = line_count.to_string().len().max(3);
+                        let gutter_w = if show_line_numbers {
+                            (digits as f32 * (font_size * 0.62) + 18.0).max(40.0)
+                        } else {
+                            0.0
+                        };
 
                         ui.horizontal_top(|ui| {
                             ui.spacing_mut().item_spacing.x = 0.0;
 
+                            let gutter_x_min = ui.cursor().min.x;
                             if show_line_numbers {
-                                let gutter_resp = Frame::new()
-                                    .fill(gutter_bg)
-                                    .inner_margin(Margin::symmetric(8, 8))
-                                    .show(ui, |ui| {
-                                        ui.add(
-                                            egui::Label::new(
-                                                RichText::new(line_numbers_str.trim_end())
-                                                    .font(FontId::new(
-                                                        font_size,
-                                                        FontFamily::Monospace,
-                                                    ))
-                                                    .color(gutter_fg),
-                                            )
-                                            .selectable(false),
-                                        );
-                                    });
-                                // 1px hairline border between gutter and code editing surface
-                                let gr = gutter_resp.response.rect;
-                                ui.painter().line_segment(
-                                    [Pos2::new(gr.max.x, gr.min.y), Pos2::new(gr.max.x, gr.max.y)],
-                                    Stroke::new(1.0_f32, border_col),
-                                );
+                                ui.add_space(gutter_w);
                             }
-
-                            let mut layouter = |ui: &Ui, string: &str, wrap_width: f32| {
-                                let mut job = if is_typst {
-                                    highlight_typst_code(string, dark_mode, font_size)
-                                } else {
-                                    LayoutJob::simple(
-                                        string.to_owned(),
-                                        FontId::new(font_size, FontFamily::Monospace),
-                                        palette.syn_default,
-                                        wrap_width,
-                                    )
-                                };
-                                job.wrap.max_width = f32::INFINITY;
-                                ui.fonts(|f| f.layout_job(job))
-                            };
+                            let gutter_x_max = gutter_x_min + gutter_w;
 
                             Frame::new()
                                 .fill(editor_bg)
                                 .inner_margin(Margin::symmetric(10, 8))
                                 .show(ui, |ui| {
                                     let avail_editor_size = ui.available_size();
+                                    // Reserve 22px on the right when word_wrap is enabled so the end-of-line
+                                    // wrap indicator (`↩`) is always clearly visible inside the editor panel.
+                                    let target_wrap_width = if word_wrap {
+                                        (avail_editor_size.x - 22.0).max(80.0)
+                                    } else {
+                                        f32::INFINITY
+                                    };
+
+                                    let mut layouter =
+                                        |ui: &Ui, string: &str, _wrap_width: f32| {
+                                            let mut job = if is_typst {
+                                                highlight_typst_code(string, dark_mode, font_size)
+                                            } else {
+                                                LayoutJob::simple(
+                                                    string.to_owned(),
+                                                    FontId::new(font_size, FontFamily::Monospace),
+                                                    palette.syn_default,
+                                                    target_wrap_width,
+                                                )
+                                            };
+                                            job.wrap.max_width = target_wrap_width;
+                                            ui.fonts(|f| f.layout_job(job))
+                                        };
+
                                     // Reserve shape slot before TextEdit so the Active Line Highlight
                                     // (#262530 dark / #EBF3FE light) renders behind the active cursor line
                                     let active_line_shape_idx =
@@ -2473,7 +2729,11 @@ impl TypstIdeApp {
                                     let mut output = TextEdit::multiline(text_ref)
                                         .id_salt("typst_code_editor")
                                         .code_editor()
-                                        .desired_width(f32::INFINITY)
+                                        .desired_width(if word_wrap {
+                                            avail_editor_size.x
+                                        } else {
+                                            f32::INFINITY
+                                        })
                                         .min_size(avail_editor_size)
                                         .desired_rows(34)
                                         .frame(false)
@@ -2481,7 +2741,84 @@ impl TypstIdeApp {
                                         .layouter(&mut layouter)
                                         .show(ui);
 
-                                    // Restore StickyIndex-preserved cursor after a remote CRDT update
+                                    // Paint aligned gutter line numbers and end-of-line wrap indicators (`↩`)
+                                    // for every wrapped visual row in the galley.
+                                    let total_rows = output.galley.rows.len();
+                                    let mut logical_line = 1usize;
+                                    let mut is_wrapped_continuation = false;
+                                    let gutter_font = FontId::new(font_size, FontFamily::Monospace);
+                                    let cont_font =
+                                        FontId::new((font_size * 0.85).max(9.5), FontFamily::Monospace);
+                                    let wrap_badge_font =
+                                        FontId::new((font_size * 0.90).max(10.5), FontFamily::Monospace);
+
+                                    for (row_idx, row) in output.galley.rows.iter().enumerate() {
+                                        let row_top_y = output.galley_pos.y + row.min_y();
+                                        let row_center_y =
+                                            output.galley_pos.y + row.rect.center().y;
+
+                                        if show_line_numbers {
+                                            if !is_wrapped_continuation {
+                                                ui.painter().text(
+                                                    Pos2::new(gutter_x_max - 8.0, row_top_y),
+                                                    Align2::RIGHT_TOP,
+                                                    logical_line.to_string(),
+                                                    gutter_font.clone(),
+                                                    gutter_fg,
+                                                );
+                                            } else {
+                                                ui.painter().text(
+                                                    Pos2::new(gutter_x_max - 8.0, row_top_y),
+                                                    Align2::RIGHT_TOP,
+                                                    "↪",
+                                                    cont_font.clone(),
+                                                    gutter_fg.gamma_multiply(0.65),
+                                                );
+                                            }
+                                        }
+
+                                        let wrapped_to_next = word_wrap
+                                            && !row.ends_with_newline
+                                            && (row_idx + 1 < total_rows);
+                                        if wrapped_to_next {
+                                            let eol_x = (output.galley_pos.x
+                                                + row.rect.max.x
+                                                + 4.0)
+                                                .min(output.response.rect.max.x - 12.0);
+                                            ui.painter().text(
+                                                Pos2::new(eol_x, row_center_y),
+                                                Align2::LEFT_CENTER,
+                                                "↩",
+                                                wrap_badge_font.clone(),
+                                                palette.syn_keyword,
+                                            );
+                                        }
+
+                                        if row.ends_with_newline {
+                                            logical_line += 1;
+                                            is_wrapped_continuation = false;
+                                        } else {
+                                            is_wrapped_continuation = true;
+                                        }
+                                    }
+
+                                    if show_line_numbers {
+                                        ui.painter().line_segment(
+                                            [
+                                                Pos2::new(
+                                                    gutter_x_max,
+                                                    output.response.rect.min.y - 8.0,
+                                                ),
+                                                Pos2::new(
+                                                    gutter_x_max,
+                                                    output.response.rect.max.y + 8.0,
+                                                ),
+                                            ],
+                                            Stroke::new(1.0_f32, border_col),
+                                        );
+                                    }
+
+                                    // Restore StickyIndex-preserved cursor or Document Outline click navigation
                                     if let Some(sel) = restore_cursor {
                                         output.state.cursor.set_char_range(Some(
                                             CCursorRange::two(
@@ -2504,6 +2841,21 @@ impl TypstIdeApp {
                                                 output.state.clone().store(ctx, output.response.id);
                                             }
                                         }
+                                    }
+
+                                    // If navigated from the Document Outline panel, focus editor and scroll to target heading
+                                    if let Some(target_char) = scroll_to_char {
+                                        output.response.request_focus();
+                                        let target_cursor =
+                                            output.galley.from_ccursor(CCursor::new(target_char));
+                                        let local_rect =
+                                            output.galley.pos_from_cursor(&target_cursor);
+                                        let screen_rect =
+                                            local_rect.translate(output.galley_pos.to_vec2());
+                                        ui.scroll_to_rect(
+                                            screen_rect.expand2(Vec2::new(0.0, 56.0)),
+                                            Some(Align::Center),
+                                        );
                                     }
 
                                     let current_range = output
@@ -3367,15 +3719,18 @@ impl eframe::App for TypstIdeApp {
             )
             .show(ctx, |ui| {
                 let total_rect = ui.available_rect_before_wrap();
-                let spacing = 1.0;
-                let half_w = ((total_rect.width() - spacing) * 0.5).max(160.0);
+                let spacing = 4.0;
                 let full_h = total_rect.height();
+                let avail_w = (total_rect.width() - spacing).max(200.0);
+                let min_pane_w = 180.0_f32.min(avail_w * 0.4);
+                let max_pane_w = (avail_w - min_pane_w).max(min_pane_w);
+                let left_w = (avail_w * self.editor_split_ratio).clamp(min_pane_w, max_pane_w);
 
-                let left_rect = Rect::from_min_size(total_rect.min, Vec2::new(half_w, full_h));
-                let div_x = total_rect.min.x + half_w + spacing * 0.5;
+                let left_rect = Rect::from_min_size(total_rect.min, Vec2::new(left_w, full_h));
+                let div_x = total_rect.min.x + left_w + spacing * 0.5;
                 let right_rect = Rect::from_min_size(
-                    Pos2::new(total_rect.min.x + half_w + spacing, total_rect.min.y),
-                    Vec2::new((total_rect.width() - half_w - spacing).max(160.0), full_h),
+                    Pos2::new(total_rect.min.x + left_w + spacing, total_rect.min.y),
+                    Vec2::new((avail_w - left_w).max(min_pane_w), full_h),
                 );
 
                 // Left Pane: Code Editor
@@ -3386,15 +3741,6 @@ impl eframe::App for TypstIdeApp {
                 );
                 self.render_editor_pane(ctx, &mut left_ui);
 
-                // 1px Hairline Vertical Split Divider Line
-                ui.painter().line_segment(
-                    [
-                        Pos2::new(div_x, total_rect.min.y),
-                        Pos2::new(div_x, total_rect.max.y),
-                    ],
-                    Stroke::new(1.0_f32, palette.panel_border),
-                );
-
                 // Right Pane: Live Document Preview
                 let mut right_ui = ui.new_child(
                     egui::UiBuilder::new()
@@ -3402,6 +3748,67 @@ impl eframe::App for TypstIdeApp {
                         .layout(Layout::top_down(Align::Min)),
                 );
                 self.render_preview_pane(ctx, &mut right_ui);
+
+                // Interactive Resizable Vertical Split Divider between Editor and Live Preview
+                let divider_hit_rect = Rect::from_center_size(
+                    Pos2::new(div_x, total_rect.center().y),
+                    Vec2::new(10.0, full_h),
+                );
+                let div_resp = ui
+                    .interact(
+                        divider_hit_rect,
+                        ui.id().with("editor_preview_split_divider"),
+                        Sense::click_and_drag(),
+                    )
+                    .on_hover_text(
+                        "Drag to resize Code Editor and Live Preview panels (double-click to reset 50/50)",
+                    );
+
+                if div_resp.dragged() {
+                    if let Some(pointer_pos) = ctx.pointer_interact_pos() {
+                        let new_ratio = (pointer_pos.x - total_rect.min.x) / avail_w.max(1.0);
+                        self.editor_split_ratio = new_ratio.clamp(0.15, 0.85);
+                        ctx.request_repaint();
+                    }
+                }
+                if div_resp.double_clicked() {
+                    self.editor_split_ratio = 0.5;
+                }
+
+                let div_active = div_resp.hovered() || div_resp.dragged();
+                if div_active {
+                    ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
+                }
+
+                let line_col = if div_active {
+                    palette.selection_stroke
+                } else {
+                    palette.panel_border
+                };
+                let line_width = if div_active { 2.0_f32 } else { 1.0_f32 };
+
+                ui.painter().line_segment(
+                    [
+                        Pos2::new(div_x, total_rect.min.y),
+                        Pos2::new(div_x, total_rect.max.y),
+                    ],
+                    Stroke::new(line_width, line_col),
+                );
+
+                // Subtle center resize handle pill on the divider seam
+                let handle_rect = Rect::from_center_size(
+                    Pos2::new(div_x, total_rect.center().y),
+                    Vec2::new(4.0, 28.0),
+                );
+                ui.painter().rect_filled(
+                    handle_rect,
+                    CornerRadius::same(2),
+                    if div_active {
+                        palette.selection_stroke
+                    } else {
+                        palette.text_muted.gamma_multiply(0.45)
+                    },
+                );
 
                 ui.advance_cursor_after_rect(total_rect);
             });
@@ -3589,5 +3996,36 @@ mod pollster {
                 Poll::Pending => std::thread::sleep(std::time::Duration::from_millis(10)),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_word_wrap_enabled_by_default() {
+        let settings = IdeSettings::default();
+        assert!(settings.word_wrap, "Automatic line wrapping must be on by default");
+    }
+
+    #[test]
+    fn test_extract_document_outline_typst_headings() {
+        let sample = "#set page(paper: \"a4\")\n\n= Executive Summary\nSome intro text.\n\n== Filesystem & Compilation Pipeline <sec:pipe>\nDetails.\n\n```typst\n= Not A Heading Inside Code Block\n```\n\n=== Mathematical Formulation\n";
+        let outline = TypstIdeApp::extract_document_outline(sample, FileKind::Typst);
+        assert_eq!(outline.len(), 3);
+        assert_eq!(outline[0].level, 1);
+        assert_eq!(outline[0].title, "Executive Summary");
+        assert_eq!(outline[0].line_number, 3);
+        assert_eq!(outline[1].level, 2);
+        assert_eq!(outline[1].title, "Filesystem & Compilation Pipeline");
+        assert_eq!(outline[1].line_number, 6);
+        assert_eq!(outline[2].level, 3);
+        assert_eq!(outline[2].title, "Mathematical Formulation");
+        assert_eq!(outline[2].line_number, 13);
+
+        // Verify char_offset points accurately to the heading line in the buffer
+        let h2_slice: String = sample.chars().skip(outline[1].char_offset).take(5).collect();
+        assert_eq!(h2_slice, "== Fi");
     }
 }
