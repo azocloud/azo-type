@@ -1,36 +1,47 @@
 pub mod app;
 pub mod compiler;
 pub mod highlight;
-pub mod vfs;
+pub mod project;
 pub mod world;
 
 use std::path::PathBuf;
 
 use app::TypstIdeApp;
 
-#[cfg(not(target_arch = "wasm32"))]
-fn parse_screenshot_arg() -> Option<PathBuf> {
+fn parse_cli_args() -> (Option<PathBuf>, Option<PathBuf>) {
     let args: Vec<String> = std::env::args().collect();
+    let mut screenshot_path = None;
+    let mut folder_path = None;
+
     let mut idx = 1;
     while idx < args.len() {
         if args[idx] == "--screenshot" {
             if let Some(path_str) = args.get(idx + 1) {
-                return Some(PathBuf::from(path_str));
+                screenshot_path = Some(PathBuf::from(path_str));
+                idx += 2;
+                continue;
             }
         } else if let Some(rest) = args[idx].strip_prefix("--screenshot=") {
-            return Some(PathBuf::from(rest));
+            screenshot_path = Some(PathBuf::from(rest));
+            idx += 1;
+            continue;
+        } else if !args[idx].starts_with('-') && folder_path.is_none() {
+            let candidate = PathBuf::from(&args[idx]);
+            if candidate.is_dir() {
+                folder_path = Some(candidate);
+            }
         }
         idx += 1;
     }
-    None
+
+    (folder_path, screenshot_path)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
-    let screenshot_path = parse_screenshot_arg();
+    let (initial_folder, screenshot_path) = parse_cli_args();
 
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Typst Studio — Cross-Platform & Web Typst IDE")
+        .with_title("Typst Studio — Native Desktop Typst IDE")
         .with_inner_size([1360.0, 860.0])
         .with_min_inner_size([800.0, 520.0]);
 
@@ -59,33 +70,12 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Typst Studio",
         native_options,
-        Box::new(move |cc| Ok(Box::new(TypstIdeApp::new(cc, screenshot_path)))),
+        Box::new(move |cc| {
+            Ok(Box::new(TypstIdeApp::new(
+                cc,
+                initial_folder,
+                screenshot_path,
+            )))
+        }),
     )
-}
-
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    use wasm_bindgen::JsCast as _;
-
-    wasm_bindgen_futures::spawn_local(async {
-        let document = web_sys::window()
-            .expect("No window")
-            .document()
-            .expect("No document");
-
-        let canvas = document
-            .get_element_by_id("the_canvas_id")
-            .expect("Failed to find #the_canvas_id")
-            .dyn_into::<web_sys::HtmlCanvasElement>()
-            .expect("#the_canvas_id was not an HtmlCanvasElement");
-
-        let web_options = eframe::WebOptions::default();
-        let _ = eframe::WebRunner::new()
-            .start(
-                canvas,
-                web_options,
-                Box::new(|cc| Ok(Box::new(TypstIdeApp::new(cc, None)))),
-            )
-            .await;
-    });
 }

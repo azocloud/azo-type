@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use chrono::{Datelike, FixedOffset, Local, Utc};
@@ -10,7 +10,7 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, World};
 
-use crate::vfs::{normalize_vpath, ProjectWorkspace};
+use crate::project::DiskProject;
 
 /// Shared, immutable compiler resources initialized once (Standard Library + Bundled Fonts).
 pub struct SharedWorldResources {
@@ -25,8 +25,6 @@ impl SharedWorldResources {
         let mut book = FontBook::new();
         let mut fonts = Vec::new();
 
-        // Load all embedded fonts from typst-assets so compilation works identically
-        // on Windows, macOS, Linux, and WebAssembly without system font dependencies.
         for font_data in typst_assets::fonts() {
             let buffer = Bytes::from_static(font_data);
             for font in Font::iter(buffer) {
@@ -57,32 +55,31 @@ impl Default for SharedWorldResources {
     }
 }
 
-/// Custom `typst::World` implementation backed directly by our `ProjectWorkspace` VFS.
+/// Custom `typst::World` implementation backed directly by the local OS filesystem (`DiskProject`).
 pub struct EditorWorld {
     resources: Arc<SharedWorldResources>,
-    workspace: ProjectWorkspace,
+    project: DiskProject,
     main_id: FileId,
     source_cache: Mutex<HashMap<FileId, Source>>,
     bytes_cache: Mutex<HashMap<FileId, Bytes>>,
 }
 
 impl EditorWorld {
-    pub fn new(resources: Arc<SharedWorldResources>, workspace: ProjectWorkspace) -> Self {
-        let main_vpath = VirtualPath::new(Path::new(&workspace.main_file));
+    pub fn new(resources: Arc<SharedWorldResources>, project: DiskProject) -> Self {
+        let main_vpath = VirtualPath::new(&project.main_file);
         let main_id = FileId::new(None, main_vpath);
 
         Self {
             resources,
-            workspace,
+            project,
             main_id,
             source_cache: Mutex::new(HashMap::new()),
             bytes_cache: Mutex::new(HashMap::new()),
         }
     }
 
-    fn resolve_vpath(id: FileId) -> String {
-        let raw = id.vpath().as_rootless_path().to_string_lossy();
-        normalize_vpath(&raw)
+    fn resolve_rel_path(id: FileId) -> PathBuf {
+        id.vpath().as_rootless_path().to_path_buf()
     }
 }
 
@@ -106,17 +103,11 @@ impl World for EditorWorld {
             }
         }
 
-        let key = Self::resolve_vpath(id);
-        let vfile = self
-            .workspace
-            .get_file(&key)
-            .ok_or_else(|| FileError::NotFound(Path::new(&key).to_path_buf()))?;
-
-        let text = if let Some(ref t) = vfile.text {
-            t.clone()
-        } else {
-            String::from_utf8(vfile.bytes.clone()).map_err(|_| FileError::InvalidUtf8)?
-        };
+        let rel_path = Self::resolve_rel_path(id);
+        let text = self
+            .project
+            .read_source_text(&rel_path)
+            .map_err(|e| FileError::from_io(e, &rel_path))?;
 
         let source = Source::new(id, text);
         if let Ok(mut cache) = self.source_cache.lock() {
@@ -132,18 +123,13 @@ impl World for EditorWorld {
             }
         }
 
-        let key = Self::resolve_vpath(id);
-        let vfile = self
-            .workspace
-            .get_file(&key)
-            .ok_or_else(|| FileError::NotFound(Path::new(&key).to_path_buf()))?;
+        let rel_path = Self::resolve_rel_path(id);
+        let raw_bytes = self
+            .project
+            .read_file_bytes(&rel_path)
+            .map_err(|e| FileError::from_io(e, &rel_path))?;
 
-        let bytes = if let Some(ref t) = vfile.text {
-            Bytes::from(t.as_bytes().to_vec())
-        } else {
-            Bytes::from(vfile.bytes.clone())
-        };
-
+        let bytes = Bytes::from(raw_bytes);
         if let Ok(mut cache) = self.bytes_cache.lock() {
             cache.insert(id, bytes.clone());
         }

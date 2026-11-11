@@ -1,4 +1,6 @@
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use egui::{ColorImage, Context, TextureHandle, TextureOptions};
 use typst::diag::{Severity, SourceDiagnostic};
@@ -6,13 +8,13 @@ use typst::model::Document;
 use typst::World;
 use typst_pdf::PdfOptions;
 
-use crate::vfs::{normalize_vpath, ProjectWorkspace};
+use crate::project::DiskProject;
 use crate::world::{EditorWorld, SharedWorldResources};
 
 #[derive(Debug, Clone)]
 pub struct DiagnosticItem {
     pub is_error: bool,
-    pub file: String,
+    pub file: PathBuf,
     pub line: Option<usize>,
     pub column: Option<usize>,
     pub message: String,
@@ -43,15 +45,14 @@ pub struct CompileSnapshot {
     pub duration_ms: f64,
 }
 
-pub fn compile_workspace(
+pub fn compile_project(
     resources: Arc<SharedWorldResources>,
-    workspace: &ProjectWorkspace,
+    project: &DiskProject,
     pixel_per_pt: f32,
 ) -> CompileSnapshot {
-    #[cfg(not(target_arch = "wasm32"))]
-    let start = std::time::Instant::now();
+    let start = Instant::now();
 
-    let world = EditorWorld::new(resources, workspace.clone());
+    let world = EditorWorld::new(resources, project.clone());
     let warned = typst::compile(&world);
 
     let mut diagnostics = Vec::new();
@@ -89,13 +90,10 @@ pub fn compile_workspace(
         }
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
     let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-    #[cfg(target_arch = "wasm32")]
-    let duration_ms = 4.2;
 
     CompileSnapshot {
-        revision: workspace.revision,
+        revision: project.revision,
         pixel_per_pt,
         document,
         pages,
@@ -106,9 +104,9 @@ pub fn compile_workspace(
 
 pub fn export_pdf_bytes(
     resources: Arc<SharedWorldResources>,
-    workspace: &ProjectWorkspace,
+    project: &DiskProject,
 ) -> Result<Vec<u8>, Vec<DiagnosticItem>> {
-    let world = EditorWorld::new(resources, workspace.clone());
+    let world = EditorWorld::new(resources, project.clone());
     let warned = typst::compile(&world);
 
     match warned.output {
@@ -129,12 +127,7 @@ pub fn export_pdf_bytes(
 
 fn extract_diagnostic(world: &EditorWorld, diag: &SourceDiagnostic) -> DiagnosticItem {
     let is_error = matches!(diag.severity, Severity::Error);
-    let mut file = world
-        .main()
-        .vpath()
-        .as_rootless_path()
-        .to_string_lossy()
-        .to_string();
+    let mut file = world.main().vpath().as_rootless_path().to_path_buf();
     let mut line = None;
     let mut column = None;
 
@@ -149,7 +142,7 @@ fn extract_diagnostic(world: &EditorWorld, diag: &SourceDiagnostic) -> Diagnosti
     }
 
     if let Some(id) = target_span.id() {
-        file = normalize_vpath(&id.vpath().as_rootless_path().to_string_lossy());
+        file = id.vpath().as_rootless_path().to_path_buf();
         if let Ok(source) = world.source(id) {
             if let Some(range) = source.range(target_span) {
                 line = source.byte_to_line(range.start).map(|l| l + 1);

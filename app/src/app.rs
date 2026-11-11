@@ -1,37 +1,91 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
 use egui::text::LayoutJob;
 use egui::{
-    Align, Color32, CollapsingHeader, Context, CornerRadius, FontFamily, FontId, Frame, Layout,
-    Margin, Pos2, Rect, RichText, ScrollArea, Sense, SidePanel, Stroke, StrokeKind, TextEdit,
-    TopBottomPanel, Ui, Vec2, Visuals,
+    Align, CollapsingHeader, Color32, Context, CornerRadius, FontFamily, FontId, Frame, Key,
+    Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea, Sense, SidePanel, Slider, Stroke,
+    StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2, Visuals, Window,
 };
 
 use crate::compiler::{
-    compile_workspace, export_pdf_bytes, upload_page_textures, CompileSnapshot, DiagnosticItem,
+    compile_project, export_pdf_bytes, upload_page_textures, CompileSnapshot, DiagnosticItem,
     RenderedPageData, RenderedPageTexture,
 };
 use crate::highlight::highlight_typst_code;
-use crate::vfs::{FileKind, ProjectWorkspace};
+use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind, FsTreeNode};
 use crate::world::SharedWorldResources;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAction {
+    NewFile,
+    OpenFolder,
+    RescanFolder,
+    SaveFile,
+    SaveAll,
+    ExportPdf,
+    OpenSettings,
+    ToggleSidebar,
+    ToggleTheme,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
+    CompileNow,
+    Quit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsTab {
+    Appearance,
+    EditorAndDisk,
+    CompilerAndPreview,
+}
+
+#[derive(Debug, Clone)]
+pub struct IdeSettings {
+    pub dark_mode: bool,
+    pub editor_font_size: f32,
+    pub show_line_numbers: bool,
+    pub syntax_highlighting: bool,
+    pub auto_save_on_edit: bool,
+    pub show_hidden_files: bool,
+    pub auto_compile: bool,
+    pub debounce_ms: u64,
+    pub render_dpi_scale: f32,
+}
+
+impl Default for IdeSettings {
+    fn default() -> Self {
+        Self {
+            dark_mode: true,
+            editor_font_size: 13.5,
+            show_line_numbers: true,
+            syntax_highlighting: true,
+            auto_save_on_edit: true,
+            show_hidden_files: false,
+            auto_compile: true,
+            debounce_ms: 120,
+            render_dpi_scale: 2.0,
+        }
+    }
+}
+
 pub enum IoEvent {
-    FilesOpened(Vec<(String, Vec<u8>)>),
-    #[cfg(not(target_arch = "wasm32"))]
-    FolderLoaded(Result<ProjectWorkspace, String>),
+    FolderPicked(PathBuf),
     StatusMessage(String),
 }
 
 pub struct TypstIdeApp {
     pub resources: Arc<SharedWorldResources>,
-    pub workspace: ProjectWorkspace,
+    pub project: DiskProject,
+    pub settings: IdeSettings,
     pub show_sidebar: bool,
-    pub dark_mode: bool,
     pub zoom: f32,
-    pub render_dpi_scale: f32,
-    pub editor_font_size: f32,
+
+    // Settings sub-window state (opened via File > Settings)
+    pub show_settings_window: bool,
+    pub settings_tab: SettingsTab,
 
     // Compilation state
     pub last_compiled_revision: u64,
@@ -52,11 +106,15 @@ pub struct TypstIdeApp {
     // Status bar notification
     pub status_notice: String,
 
-    // Async file dialog & background compilation channels
+    // Channels for native file dialogs & background compilation
     pub io_tx: Sender<IoEvent>,
     pub io_rx: Receiver<IoEvent>,
     pub compile_tx: Sender<CompileSnapshot>,
     pub compile_rx: Receiver<CompileSnapshot>,
+
+    // Native macOS OS Menu Bar handle
+    #[cfg(target_os = "macos")]
+    pub macos_menu: Option<macos_native_menu::MacOsMenuBar>,
 
     // Screenshot automation
     pub screenshot_path: Option<PathBuf>,
@@ -65,31 +123,46 @@ pub struct TypstIdeApp {
 }
 
 impl TypstIdeApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, screenshot_path: Option<PathBuf>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        initial_folder: Option<PathBuf>,
+        screenshot_path: Option<PathBuf>,
+    ) -> Self {
         let resources = Arc::new(SharedWorldResources::new());
-        let workspace = ProjectWorkspace::new_sample_project();
+        let settings = IdeSettings::default();
 
-        let dark_mode = true;
-        Self::apply_theme(&cc.egui_ctx, dark_mode);
+        let target_folder = initial_folder.unwrap_or_else(ensure_sample_project_on_disk);
+        let project = DiskProject::open_folder(&target_folder, settings.show_hidden_files)
+            .unwrap_or_else(|_| {
+                let fallback = ensure_sample_project_on_disk();
+                DiskProject::open_folder(&fallback, false).expect("Failed to open sample project")
+            });
 
-        let render_dpi_scale = 2.0;
-        let initial_snapshot = compile_workspace(
+        Self::apply_theme(&cc.egui_ctx, settings.dark_mode);
+
+        let initial_snapshot = compile_project(
             Arc::clone(&resources),
-            &workspace,
-            render_dpi_scale,
+            &project,
+            settings.render_dpi_scale,
         );
         let page_textures = upload_page_textures(&cc.egui_ctx, &initial_snapshot.pages);
 
         let (io_tx, io_rx) = mpsc::channel();
         let (compile_tx, compile_rx) = mpsc::channel();
 
-        let font_families = resources.font_family_count();
-        let font_faces = resources.font_face_count();
+        let status_notice = format!(
+            "Opened disk project '{}' ({})",
+            project.project_name,
+            project.root_dir.display()
+        );
+
+        #[cfg(target_os = "macos")]
+        let macos_menu = macos_native_menu::MacOsMenuBar::init();
 
         Self {
             resources,
             last_compiled_revision: initial_snapshot.revision,
-            last_compiled_dpi: render_dpi_scale,
+            last_compiled_dpi: settings.render_dpi_scale,
             pending_compile: false,
             last_edit_time: 0.0,
             compile_in_progress: false,
@@ -97,23 +170,22 @@ impl TypstIdeApp {
             page_data: initial_snapshot.pages,
             page_textures,
             diagnostics: initial_snapshot.diagnostics,
-            workspace,
+            project,
+            settings,
             show_sidebar: true,
-            dark_mode,
             zoom: 1.0,
-            render_dpi_scale,
-            editor_font_size: 13.5,
+            show_settings_window: false,
+            settings_tab: SettingsTab::Appearance,
             show_new_file_input: false,
             new_file_name: "chapters/appendix.typ".to_string(),
             inspect_asset_mode: false,
-            status_notice: format!(
-                "Ready — Embedded {} font families ({} faces) in memory",
-                font_families, font_faces
-            ),
+            status_notice,
             io_tx,
             io_rx,
             compile_tx,
             compile_rx,
+            #[cfg(target_os = "macos")]
+            macos_menu,
             screenshot_path,
             frame_count: 0,
             screenshot_requested: false,
@@ -160,33 +232,93 @@ impl TypstIdeApp {
         ctx.set_visuals(visuals);
     }
 
-    fn trigger_compile_now(&mut self, ctx: &Context) {
-        self.pending_compile = false;
-        let resources = Arc::clone(&self.resources);
-        let workspace_clone = self.workspace.clone();
-        let dpi = self.render_dpi_scale;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if !self.compile_in_progress {
-                self.compile_in_progress = true;
-                let tx = self.compile_tx.clone();
-                let ctx_clone = ctx.clone();
-                std::thread::spawn(move || {
-                    let snapshot = compile_workspace(resources, &workspace_clone, dpi);
-                    let _ = tx.send(snapshot);
-                    ctx_clone.request_repaint();
-                });
-            } else {
-                // Re-queue once in-flight pass completes
-                self.pending_compile = true;
+    fn dispatch_menu_action(&mut self, ctx: &Context, action: MenuAction) {
+        match action {
+            MenuAction::NewFile => {
+                self.show_new_file_input = true;
+            }
+            MenuAction::OpenFolder => {
+                self.open_folder_dialog(ctx);
+            }
+            MenuAction::RescanFolder => {
+                if let Err(e) = self.project.rescan_tree() {
+                    self.status_notice = format!("Rescan failed: {}", e);
+                } else {
+                    self.status_notice =
+                        format!("Rescanned disk folder '{}'", self.project.root_dir.display());
+                    self.trigger_compile_now(ctx);
+                }
+            }
+            MenuAction::SaveFile => match self.project.save_active_file() {
+                Ok(path) => {
+                    self.status_notice = format!("Saved to disk: {}", path.display());
+                    self.trigger_compile_now(ctx);
+                }
+                Err(e) => {
+                    self.status_notice = format!("Save error: {}", e);
+                }
+            },
+            MenuAction::SaveAll => match self.project.save_all_files() {
+                Ok(n) => {
+                    self.status_notice = format!(
+                        "Saved {} modified file(s) in {}",
+                        n,
+                        self.project.root_dir.display()
+                    );
+                    self.trigger_compile_now(ctx);
+                }
+                Err(e) => {
+                    self.status_notice = format!("Save all error: {}", e);
+                }
+            },
+            MenuAction::ExportPdf => {
+                self.export_pdf_action(ctx);
+            }
+            MenuAction::OpenSettings => {
+                self.show_settings_window = true;
+            }
+            MenuAction::ToggleSidebar => {
+                self.show_sidebar = !self.show_sidebar;
+            }
+            MenuAction::ToggleTheme => {
+                self.settings.dark_mode = !self.settings.dark_mode;
+                Self::apply_theme(ctx, self.settings.dark_mode);
+            }
+            MenuAction::ZoomIn => {
+                self.zoom = (self.zoom + 0.15).clamp(0.4, 2.5);
+            }
+            MenuAction::ZoomOut => {
+                self.zoom = (self.zoom - 0.15).clamp(0.4, 2.5);
+            }
+            MenuAction::ZoomReset => {
+                self.zoom = 1.0;
+            }
+            MenuAction::CompileNow => {
+                self.trigger_compile_now(ctx);
+            }
+            MenuAction::Quit => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
+    }
 
-        #[cfg(target_arch = "wasm32")]
-        {
-            let snapshot = compile_workspace(resources, &workspace_clone, dpi);
-            self.apply_compile_snapshot(ctx, snapshot);
+    fn trigger_compile_now(&mut self, ctx: &Context) {
+        self.pending_compile = false;
+        if !self.compile_in_progress {
+            self.compile_in_progress = true;
+            let resources = Arc::clone(&self.resources);
+            let project_clone = self.project.clone();
+            let dpi = self.settings.render_dpi_scale;
+            let tx = self.compile_tx.clone();
+            let ctx_clone = ctx.clone();
+
+            std::thread::spawn(move || {
+                let snapshot = compile_project(resources, &project_clone, dpi);
+                let _ = tx.send(snapshot);
+                ctx_clone.request_repaint();
+            });
+        } else {
+            self.pending_compile = true;
         }
     }
 
@@ -197,8 +329,6 @@ impl TypstIdeApp {
         self.compile_duration_ms = snapshot.duration_ms;
         self.diagnostics = snapshot.diagnostics;
 
-        // Keep the previous valid rendered pages on screen if a transient syntax error occurs
-        // while the user is mid-keystroke, or update if compilation succeeded.
         if !snapshot.pages.is_empty() {
             self.page_textures = upload_page_textures(ctx, &snapshot.pages);
             self.page_data = snapshot.pages;
@@ -206,34 +336,34 @@ impl TypstIdeApp {
     }
 
     fn poll_channels(&mut self, ctx: &Context) {
+        #[cfg(target_os = "macos")]
+        if let Some(ref menu) = self.macos_menu {
+            while let Some(action) = menu.poll_action() {
+                self.dispatch_menu_action(ctx, action);
+            }
+        }
+
         while let Ok(snapshot) = self.compile_rx.try_recv() {
             self.apply_compile_snapshot(ctx, snapshot);
         }
 
         while let Ok(event) = self.io_rx.try_recv() {
             match event {
-                IoEvent::FilesOpened(items) => {
-                    let count = items.len();
-                    for (name, bytes) in items {
-                        self.workspace.upsert_binary_file(&name, bytes);
+                IoEvent::FolderPicked(path) => {
+                    match DiskProject::open_folder(&path, self.settings.show_hidden_files) {
+                        Ok(proj) => {
+                            let name = proj.project_name.clone();
+                            let root_str = proj.root_dir.display().to_string();
+                            self.project = proj;
+                            self.status_notice =
+                                format!("Opened project '{}' ({})", name, root_str);
+                            self.trigger_compile_now(ctx);
+                        }
+                        Err(err) => {
+                            self.status_notice = format!("Could not open folder: {}", err);
+                        }
                     }
-                    self.status_notice = format!("Loaded {} file(s) into workspace", count);
-                    self.trigger_compile_now(ctx);
                 }
-                #[cfg(not(target_arch = "wasm32"))]
-                IoEvent::FolderLoaded(result) => match result {
-                    Ok(ws) => {
-                        let count = ws.files.len();
-                        let name = ws.project_name.clone();
-                        self.workspace = ws;
-                        self.status_notice =
-                            format!("Opened folder '{}' ({} files)", name, count);
-                        self.trigger_compile_now(ctx);
-                    }
-                    Err(err) => {
-                        self.status_notice = format!("Folder load error: {}", err);
-                    }
-                },
                 IoEvent::StatusMessage(msg) => {
                     self.status_notice = msg;
                 }
@@ -241,181 +371,106 @@ impl TypstIdeApp {
         }
     }
 
-    fn open_files_dialog(&self, ctx: &Context) {
-        let tx = self.io_tx.clone();
-        let ctx_clone = ctx.clone();
-        let task = async move {
-            if let Some(handles) = rfd::AsyncFileDialog::new()
-                .set_title("Import Files into Typst Workspace")
-                .add_filter(
-                    "Typst & Assets",
-                    &["typ", "bib", "yml", "svg", "png", "jpg", "jpeg", "txt", "csv"],
-                )
-                .pick_files()
-                .await
-            {
-                let mut loaded = Vec::new();
-                for handle in handles {
-                    let name = handle.file_name();
-                    let bytes = handle.read().await;
-                    loaded.push((name, bytes));
-                }
-                if !loaded.is_empty() {
-                    let _ = tx.send(IoEvent::FilesOpened(loaded));
-                    ctx_clone.request_repaint();
-                }
+    fn handle_keyboard_shortcuts(&mut self, ctx: &Context) {
+        let mut triggered = None;
+        ctx.input_mut(|i| {
+            if i.consume_key(Modifiers::COMMAND, Key::Comma) {
+                triggered = Some(MenuAction::OpenSettings);
+            } else if i.consume_key(Modifiers::COMMAND, Key::S) {
+                triggered = Some(MenuAction::SaveFile);
+            } else if i.consume_key(Modifiers::COMMAND, Key::O) {
+                triggered = Some(MenuAction::OpenFolder);
+            } else if i.consume_key(Modifiers::COMMAND, Key::N) {
+                triggered = Some(MenuAction::NewFile);
+            } else if i.consume_key(Modifiers::COMMAND, Key::B) {
+                triggered = Some(MenuAction::ToggleSidebar);
+            } else if i.consume_key(Modifiers::COMMAND, Key::E) {
+                triggered = Some(MenuAction::ExportPdf);
+            } else if i.consume_key(Modifiers::NONE, Key::F5) {
+                triggered = Some(MenuAction::RescanFolder);
             }
-        };
-
-        #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || {
-            pollster::block_on_or_spin(task);
         });
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(task);
+        if let Some(action) = triggered {
+            self.dispatch_menu_action(ctx, action);
+        }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn open_folder_dialog(&self, ctx: &Context) {
         let tx = self.io_tx.clone();
         let ctx_clone = ctx.clone();
-        let task = async move {
-            if let Some(folder) = rfd::AsyncFileDialog::new()
-                .set_title("Open Typst Project Folder")
-                .pick_folder()
-                .await
-            {
-                let path = folder.path().to_path_buf();
-                let res = ProjectWorkspace::load_from_native_dir(&path);
-                let _ = tx.send(IoEvent::FolderLoaded(res));
-                ctx_clone.request_repaint();
-            }
-        };
+        let start_dir = self.project.root_dir.clone();
 
         std::thread::spawn(move || {
+            let task = async move {
+                if let Some(folder) = rfd::AsyncFileDialog::new()
+                    .set_title("Open Typst Project Folder")
+                    .set_directory(&start_dir)
+                    .pick_folder()
+                    .await
+                {
+                    let _ = tx.send(IoEvent::FolderPicked(folder.path().to_path_buf()));
+                    ctx_clone.request_repaint();
+                }
+            };
             pollster::block_on_or_spin(task);
         });
-    }
-
-    fn save_active_or_project(&mut self, ctx: &Context) {
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(root) = self.workspace.root_dir.clone() {
-            match self.workspace.save_all_to_native_dir(&root) {
-                Ok(n) => {
-                    self.status_notice =
-                        format!("Saved {} workspace files to {}", n, root.display());
-                    return;
-                }
-                Err(e) => {
-                    self.status_notice = format!("Failed to save project: {}", e);
-                    return;
-                }
-            }
-        }
-
-        // Otherwise save the active file via rfd::AsyncFileDialog
-        let Some(active) = self.workspace.get_file_mut(&self.workspace.active_file.clone()) else {
-            return;
-        };
-        active.sync_bytes_from_text();
-        active.dirty = false;
-        let suggested = active
-            .path
-            .rsplit('/')
-            .next()
-            .unwrap_or("main.typ")
-            .to_string();
-        let bytes = active.bytes.clone();
-        let tx = self.io_tx.clone();
-        let ctx_clone = ctx.clone();
-
-        let task = async move {
-            if let Some(handle) = rfd::AsyncFileDialog::new()
-                .set_title("Save File")
-                .set_file_name(&suggested)
-                .save_file()
-                .await
-            {
-                match handle.write(&bytes).await {
-                    Ok(()) => {
-                        let _ = tx.send(IoEvent::StatusMessage(format!(
-                            "Saved '{}'",
-                            handle.file_name()
-                        )));
-                    }
-                    Err(e) => {
-                        let _ = tx.send(IoEvent::StatusMessage(format!("Save error: {}", e)));
-                    }
-                }
-                ctx_clone.request_repaint();
-            }
-        };
-
-        #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || {
-            pollster::block_on_or_spin(task);
-        });
-
-        #[cfg(target_arch = "wasm32")]
-        wasm_bindgen_futures::spawn_local(task);
     }
 
     fn export_pdf_action(&mut self, ctx: &Context) {
+        let _ = self.project.save_all_files();
         let resources = Arc::clone(&self.resources);
-        let workspace_snapshot = self.workspace.clone();
+        let project_snapshot = self.project.clone();
         let default_pdf_name = format!(
             "{}.pdf",
-            self.workspace
+            self.project
                 .main_file
-                .trim_end_matches(".typ")
-                .replace('/', "_")
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("document")
         );
+        let start_dir = self.project.root_dir.clone();
 
-        match export_pdf_bytes(resources, &workspace_snapshot) {
+        match export_pdf_bytes(resources, &project_snapshot) {
             Ok(pdf_bytes) => {
                 let size_kb = pdf_bytes.len() as f64 / 1024.0;
                 self.status_notice = format!(
-                    "Compiled PDF ({:.1} KB) — Select destination in dialog...",
+                    "Compiled PDF ({:.1} KB) — Choose destination on disk...",
                     size_kb
                 );
                 let tx = self.io_tx.clone();
                 let ctx_clone = ctx.clone();
 
-                let task = async move {
-                    if let Some(handle) = rfd::AsyncFileDialog::new()
-                        .set_title("Export Compiled PDF")
-                        .set_file_name(&default_pdf_name)
-                        .add_filter("PDF Document", &["pdf"])
-                        .save_file()
-                        .await
-                    {
-                        match handle.write(&pdf_bytes).await {
-                            Ok(()) => {
-                                let _ = tx.send(IoEvent::StatusMessage(format!(
-                                    "Exported PDF to '{}' ({:.1} KB)",
-                                    handle.file_name(),
-                                    size_kb
-                                )));
-                            }
-                            Err(err) => {
-                                let _ = tx.send(IoEvent::StatusMessage(format!(
-                                    "PDF write failed: {}",
-                                    err
-                                )));
-                            }
-                        }
-                        ctx_clone.request_repaint();
-                    }
-                };
-
-                #[cfg(not(target_arch = "wasm32"))]
                 std::thread::spawn(move || {
+                    let task = async move {
+                        if let Some(handle) = rfd::AsyncFileDialog::new()
+                            .set_title("Export Compiled PDF to Disk")
+                            .set_directory(&start_dir)
+                            .set_file_name(&default_pdf_name)
+                            .add_filter("PDF Document", &["pdf"])
+                            .save_file()
+                            .await
+                        {
+                            let out_path = handle.path().to_path_buf();
+                            match std::fs::write(&out_path, &pdf_bytes) {
+                                Ok(()) => {
+                                    let _ = tx.send(IoEvent::StatusMessage(format!(
+                                        "Exported PDF to '{}' ({:.1} KB)",
+                                        out_path.display(),
+                                        size_kb
+                                    )));
+                                }
+                                Err(err) => {
+                                    let _ = tx.send(IoEvent::StatusMessage(format!(
+                                        "PDF write failed: {}",
+                                        err
+                                    )));
+                                }
+                            }
+                            ctx_clone.request_repaint();
+                        }
+                    };
                     pollster::block_on_or_spin(task);
                 });
-
-                #[cfg(target_arch = "wasm32")]
-                wasm_bindgen_futures::spawn_local(task);
             }
             Err(diags) => {
                 self.diagnostics = diags;
@@ -425,54 +480,240 @@ impl TypstIdeApp {
         }
     }
 
-    fn render_top_menu_bar(&mut self, ctx: &Context) {
-        let bar_bg = if self.dark_mode {
-            Color32::from_rgb(15, 23, 42)
+    /// Renders the desktop application menu bar on Linux and Windows.
+    /// On macOS, the menu bar is part of the OS at the top of the screen via `muda` and is NOT rendered in-window.
+    #[cfg(not(target_os = "macos"))]
+    fn render_desktop_menu_bar(&mut self, ctx: &Context) {
+        let menu_bg = if self.settings.dark_mode {
+            Color32::from_rgb(11, 15, 25)
         } else {
-            Color32::from_rgb(241, 245, 249)
+            Color32::from_rgb(226, 232, 240)
         };
-        let border_col = if self.dark_mode {
+        let border_col = if self.settings.dark_mode {
             Color32::from_rgb(30, 41, 59)
         } else {
             Color32::from_rgb(203, 213, 225)
         };
 
-        TopBottomPanel::top("top_menu_bar")
+        let mut pending_action: Option<MenuAction> = None;
+        let mut snippet_to_insert: Option<&'static str> = None;
+
+        TopBottomPanel::top("desktop_os_menu_bar")
+            .frame(
+                Frame::new()
+                    .fill(menu_bg)
+                    .inner_margin(Margin::symmetric(10, 4))
+                    .stroke(Stroke::new(1.0_f32, border_col)),
+            )
+            .show(ctx, |ui| {
+                egui::menu::bar(ui, |ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+
+                    // FILE MENU
+                    ui.menu_button(RichText::new("File").strong(), |ui| {
+                        ui.set_min_width(220.0);
+                        if ui.button("New File in Project...  (Ctrl+N)").clicked() {
+                            pending_action = Some(MenuAction::NewFile);
+                            ui.close_menu();
+                        }
+                        if ui.button("Open Project Folder...  (Ctrl+O)").clicked() {
+                            pending_action = Some(MenuAction::OpenFolder);
+                            ui.close_menu();
+                        }
+                        if ui.button("Rescan Folder on Disk  (F5)").clicked() {
+                            pending_action = Some(MenuAction::RescanFolder);
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button("Save Active File  (Ctrl+S)").clicked() {
+                            pending_action = Some(MenuAction::SaveFile);
+                            ui.close_menu();
+                        }
+                        if ui.button("Save All Project Files").clicked() {
+                            pending_action = Some(MenuAction::SaveAll);
+                            ui.close_menu();
+                        }
+                        if ui.button("Export PDF...  (Ctrl+E)").clicked() {
+                            pending_action = Some(MenuAction::ExportPdf);
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button("Settings...  (Ctrl+,)").clicked() {
+                            pending_action = Some(MenuAction::OpenSettings);
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button("Quit").clicked() {
+                            pending_action = Some(MenuAction::Quit);
+                            ui.close_menu();
+                        }
+                    });
+
+                    // EDIT MENU
+                    ui.menu_button(RichText::new("Edit").strong(), |ui| {
+                        ui.set_min_width(200.0);
+                        if ui.button("Insert Section Heading").clicked() {
+                            snippet_to_insert = Some("\n\n== New Section\n");
+                            ui.close_menu();
+                        }
+                        if ui.button("Insert Display Math ($ ... $)").clicked() {
+                            snippet_to_insert =
+                                Some("\n$ f(x) = integral_0^x e^(-t^2) dif t $\n");
+                            ui.close_menu();
+                        }
+                        if ui.button("Insert Formatted Table").clicked() {
+                            snippet_to_insert = Some(
+                                "\n#table(\n  columns: (1fr, 1fr),\n  [*Column A*], [*Column B*],\n  [Item 1], [Value 1],\n)\n",
+                            );
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button("Settings...  (Ctrl+,)").clicked() {
+                            pending_action = Some(MenuAction::OpenSettings);
+                            ui.close_menu();
+                        }
+                    });
+
+                    // VIEW MENU
+                    ui.menu_button(RichText::new("View").strong(), |ui| {
+                        ui.set_min_width(210.0);
+                        let sidebar_txt = if self.show_sidebar {
+                            "Hide Project File Tree  (Ctrl+B)"
+                        } else {
+                            "Show Project File Tree  (Ctrl+B)"
+                        };
+                        if ui.button(sidebar_txt).clicked() {
+                            pending_action = Some(MenuAction::ToggleSidebar);
+                            ui.close_menu();
+                        }
+                        let theme_txt = if self.settings.dark_mode {
+                            "Switch to Light Theme"
+                        } else {
+                            "Switch to Dark Theme"
+                        };
+                        if ui.button(theme_txt).clicked() {
+                            pending_action = Some(MenuAction::ToggleTheme);
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button("Zoom In Preview (+)").clicked() {
+                            pending_action = Some(MenuAction::ZoomIn);
+                            ui.close_menu();
+                        }
+                        if ui.button("Zoom Out Preview (-)").clicked() {
+                            pending_action = Some(MenuAction::ZoomOut);
+                            ui.close_menu();
+                        }
+                        if ui.button("Reset Preview Zoom (100%)").clicked() {
+                            pending_action = Some(MenuAction::ZoomReset);
+                            ui.close_menu();
+                        }
+                    });
+
+                    // PROJECT MENU
+                    ui.menu_button(RichText::new("Project").strong(), |ui| {
+                        ui.set_min_width(210.0);
+                        if ui.button("Compile Document Now").clicked() {
+                            pending_action = Some(MenuAction::CompileNow);
+                            ui.close_menu();
+                        }
+                        if ui.button("Export PDF...  (Ctrl+E)").clicked() {
+                            pending_action = Some(MenuAction::ExportPdf);
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui
+                            .button("Set Active File as Main Entrypoint")
+                            .clicked()
+                        {
+                            let active = self.project.active_file.clone();
+                            if FileKind::from_path(&active) == FileKind::Typst {
+                                self.project.set_main_file(active);
+                                pending_action = Some(MenuAction::CompileNow);
+                            }
+                            ui.close_menu();
+                        }
+                    });
+
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "Folder: {}",
+                                self.project.root_dir.display()
+                            ))
+                            .small()
+                            .monospace()
+                            .weak(),
+                        );
+                    });
+                });
+            });
+
+        if let Some(snippet) = snippet_to_insert {
+            let auto_save = self.settings.auto_save_on_edit;
+            if let Some(buf) = self.project.active_buffer_mut() {
+                if let Some(ref mut text) = buf.text {
+                    text.push_str(snippet);
+                    self.project.mark_active_modified(auto_save);
+                    self.pending_compile = true;
+                    self.last_edit_time = ctx.input(|i| i.time);
+                }
+            }
+        }
+
+        if let Some(act) = pending_action {
+            self.dispatch_menu_action(ctx, act);
+        }
+    }
+
+    fn render_top_toolbar(&mut self, ctx: &Context) {
+        let bar_bg = if self.settings.dark_mode {
+            Color32::from_rgb(15, 23, 42)
+        } else {
+            Color32::from_rgb(241, 245, 249)
+        };
+        let border_col = if self.settings.dark_mode {
+            Color32::from_rgb(30, 41, 59)
+        } else {
+            Color32::from_rgb(203, 213, 225)
+        };
+
+        let mut pending_action: Option<MenuAction> = None;
+
+        TopBottomPanel::top("top_action_toolbar")
             .frame(
                 Frame::new()
                     .fill(bar_bg)
-                    .inner_margin(Margin::symmetric(12, 8))
+                    .inner_margin(Margin::symmetric(12, 7))
                     .stroke(Stroke::new(1.0_f32, border_col)),
             )
             .show(ctx, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
 
-                    // Sidebar Toggle Button
                     let sidebar_label = if self.show_sidebar {
-                        "Hide Files"
+                        "Hide Tree"
                     } else {
-                        "Show Files"
+                        "Show Tree"
                     };
                     if ui
                         .selectable_label(
                             self.show_sidebar,
                             RichText::new(sidebar_label).strong(),
                         )
-                        .on_hover_text("Toggle Left File Overview Tree")
+                        .on_hover_text("Toggle Left Project File Tree (Ctrl+B)")
                         .clicked()
                     {
-                        self.show_sidebar = !self.show_sidebar;
+                        pending_action = Some(MenuAction::ToggleSidebar);
                     }
 
                     ui.separator();
 
-                    // Brand Title
                     ui.label(
                         RichText::new("TYPST STUDIO")
                             .strong()
-                            .size(14.0)
-                            .color(if self.dark_mode {
+                            .size(13.5)
+                            .color(if self.settings.dark_mode {
                                 Color32::from_rgb(56, 189, 248)
                             } else {
                                 Color32::from_rgb(2, 132, 199)
@@ -481,59 +722,55 @@ impl TypstIdeApp {
 
                     ui.separator();
 
-                    // Project Actions: New File, Open Files, Load Folder, Save
+                    if ui
+                        .button("Open Project Folder...")
+                        .on_hover_text("Open a Typst project directory from disk (Ctrl+O)")
+                        .clicked()
+                    {
+                        pending_action = Some(MenuAction::OpenFolder);
+                    }
+
                     if ui
                         .button("+ New File")
-                        .on_hover_text("Create a new .typ or asset file in the VFS workspace")
+                        .on_hover_text("Create a new file on disk inside this project (Ctrl+N)")
                         .clicked()
                     {
-                        self.show_new_file_input = !self.show_new_file_input;
-                    }
-
-                    if ui
-                        .button("Open Files...")
-                        .on_hover_text("Import files from disk/browser into the VFS")
-                        .clicked()
-                    {
-                        self.open_files_dialog(ctx);
-                    }
-
-                    #[cfg(not(target_arch = "wasm32"))]
-                    if ui
-                        .button("Load Folder...")
-                        .on_hover_text("Load an entire project directory from local disk")
-                        .clicked()
-                    {
-                        self.open_folder_dialog(ctx);
+                        pending_action = Some(MenuAction::NewFile);
                     }
 
                     if ui
                         .button("Save")
-                        .on_hover_text("Save active file or sync workspace to disk")
+                        .on_hover_text("Write active buffer to disk (Ctrl+S)")
                         .clicked()
                     {
-                        self.save_active_or_project(ctx);
+                        pending_action = Some(MenuAction::SaveFile);
+                    }
+
+                    if ui
+                        .selectable_label(self.show_settings_window, "Settings")
+                        .on_hover_text("Open Settings Window (File > Settings / Ctrl+,)")
+                        .clicked()
+                    {
+                        self.show_settings_window = !self.show_settings_window;
                     }
 
                     ui.separator();
 
-                    // Zoom controls in top bar
                     ui.label(RichText::new("Zoom:").small());
                     if ui.small_button("-").clicked() {
-                        self.zoom = (self.zoom - 0.15).clamp(0.4, 2.5);
+                        pending_action = Some(MenuAction::ZoomOut);
                     }
                     if ui
                         .small_button(format!("{:.0}%", self.zoom * 100.0))
                         .on_hover_text("Click to reset zoom to 100%")
                         .clicked()
                     {
-                        self.zoom = 1.0;
+                        pending_action = Some(MenuAction::ZoomReset);
                     }
                     if ui.small_button("+").clicked() {
-                        self.zoom = (self.zoom + 0.15).clamp(0.4, 2.5);
+                        pending_action = Some(MenuAction::ZoomIn);
                     }
 
-                    // Right-aligned actions: Theme Switcher + Export PDF
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let export_btn = egui::Button::new(
                             RichText::new("Export PDF")
@@ -545,15 +782,15 @@ impl TypstIdeApp {
 
                         if ui
                             .add(export_btn)
-                            .on_hover_text("Compile document with typst-pdf and save PDF")
+                            .on_hover_text("Compile document with typst-pdf and save PDF to disk")
                             .clicked()
                         {
-                            self.export_pdf_action(ctx);
+                            pending_action = Some(MenuAction::ExportPdf);
                         }
 
                         ui.add_space(4.0);
 
-                        let theme_label = if self.dark_mode {
+                        let theme_label = if self.settings.dark_mode {
                             "Light Theme"
                         } else {
                             "Dark Theme"
@@ -563,8 +800,7 @@ impl TypstIdeApp {
                             .on_hover_text("Switch between Light and Dark editor themes")
                             .clicked()
                         {
-                            self.dark_mode = !self.dark_mode;
-                            Self::apply_theme(ctx, self.dark_mode);
+                            pending_action = Some(MenuAction::ToggleTheme);
                         }
 
                         if ui
@@ -572,35 +808,37 @@ impl TypstIdeApp {
                             .on_hover_text("Force immediate Typst compilation")
                             .clicked()
                         {
-                            self.trigger_compile_now(ctx);
+                            pending_action = Some(MenuAction::CompileNow);
                         }
                     });
                 });
 
-                // Optional inline New File bar
+                // Inline New File creation bar on disk
                 if self.show_new_file_input {
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("New virtual path:").strong());
+                        ui.label(RichText::new("New file path on disk:").strong());
                         let resp = ui.add(
                             TextEdit::singleline(&mut self.new_file_name)
                                 .desired_width(240.0)
                                 .hint_text("e.g. chapters/results.typ"),
                         );
                         let enter_pressed =
-                            resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if ui.button("Create").clicked() || enter_pressed {
-                            let path = self.new_file_name.trim().to_string();
-                            if !path.is_empty() {
-                                let starter = if path.ends_with(".typ") {
-                                    format!("== {}\n\nWrite content for `{}` here.\n", path, path)
-                                } else {
-                                    String::new()
-                                };
-                                let key = self.workspace.upsert_text_file(&path, starter);
-                                self.status_notice = format!("Created '{}' in VFS", key);
-                                self.show_new_file_input = false;
-                                self.trigger_compile_now(ctx);
+                            resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                        if ui.button("Create on Disk").clicked() || enter_pressed {
+                            let path_str = self.new_file_name.trim().to_string();
+                            match self.project.create_file_on_disk(&path_str) {
+                                Ok(rel) => {
+                                    self.status_notice = format!(
+                                        "Created '{}' on disk",
+                                        self.project.root_dir.join(&rel).display()
+                                    );
+                                    self.show_new_file_input = false;
+                                    self.trigger_compile_now(ctx);
+                                }
+                                Err(e) => {
+                                    self.status_notice = format!("Create file failed: {}", e);
+                                }
                             }
                         }
                         if ui.button("Cancel").clicked() {
@@ -609,15 +847,212 @@ impl TypstIdeApp {
                     });
                 }
             });
+
+        if let Some(act) = pending_action {
+            self.dispatch_menu_action(ctx, act);
+        }
+    }
+
+    /// Renders the Settings sub-window (`File > Settings`).
+    fn render_settings_subwindow(&mut self, ctx: &Context) {
+        if !self.show_settings_window {
+            return;
+        }
+
+        let mut open = self.show_settings_window;
+        let mut close_clicked = false;
+        let mut theme_changed = false;
+        let mut dpi_changed = false;
+        let mut rescan_needed = false;
+
+        Window::new("Settings — Typst Studio")
+            .open(&mut open)
+            .resizable(true)
+            .collapsible(false)
+            .default_width(480.0)
+            .default_height(360.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut self.settings_tab,
+                        SettingsTab::Appearance,
+                        RichText::new("Appearance").strong(),
+                    );
+                    ui.selectable_value(
+                        &mut self.settings_tab,
+                        SettingsTab::EditorAndDisk,
+                        RichText::new("Editor & Filesystem").strong(),
+                    );
+                    ui.selectable_value(
+                        &mut self.settings_tab,
+                        SettingsTab::CompilerAndPreview,
+                        RichText::new("Compiler & Preview").strong(),
+                    );
+                });
+                ui.separator();
+                ui.add_space(6.0);
+
+                match self.settings_tab {
+                    SettingsTab::Appearance => {
+                        ui.heading("Theme & Visual Appearance");
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Color Theme:");
+                            if ui
+                                .radio_value(&mut self.settings.dark_mode, true, "Dark Mode")
+                                .changed()
+                            {
+                                theme_changed = true;
+                            }
+                            if ui
+                                .radio_value(&mut self.settings.dark_mode, false, "Light Mode")
+                                .changed()
+                            {
+                                theme_changed = true;
+                            }
+                        });
+
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Editor Font Size:");
+                            ui.add(
+                                Slider::new(&mut self.settings.editor_font_size, 10.0..=22.0)
+                                    .suffix(" pt"),
+                            );
+                        });
+
+                        ui.add_space(8.0);
+                        ui.checkbox(
+                            &mut self.settings.show_line_numbers,
+                            "Show line numbers gutter in code editor",
+                        );
+                        ui.checkbox(
+                            &mut self.settings.syntax_highlighting,
+                            "Enable real-time Typst syntax highlighting",
+                        );
+                    }
+                    SettingsTab::EditorAndDisk => {
+                        ui.heading("Filesystem & Project Behavior");
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "Active Project Directory: {}",
+                                self.project.root_dir.display()
+                            ))
+                            .monospace()
+                            .small(),
+                        );
+                        ui.add_space(6.0);
+                        ui.checkbox(
+                            &mut self.settings.auto_save_on_edit,
+                            "Automatically save modified buffers to disk on edit",
+                        );
+                        if ui
+                            .checkbox(
+                                &mut self.settings.show_hidden_files,
+                                "Show hidden dotfiles in project tree",
+                            )
+                            .changed()
+                        {
+                            self.project.show_hidden_files = self.settings.show_hidden_files;
+                            rescan_needed = true;
+                        }
+                        ui.add_space(8.0);
+                        if ui.button("Open Another Project Folder...").clicked() {
+                            self.open_folder_dialog(ctx);
+                        }
+                    }
+                    SettingsTab::CompilerAndPreview => {
+                        ui.heading("Typst Compiler & Live Preview");
+                        ui.add_space(8.0);
+                        ui.checkbox(
+                            &mut self.settings.auto_compile,
+                            "Automatically compile Typst document while typing",
+                        );
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Compile Debounce Delay:");
+                            ui.add(
+                                Slider::new(&mut self.settings.debounce_ms, 50..=800)
+                                    .suffix(" ms"),
+                            );
+                        });
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Preview Rasterization DPI:");
+                            if ui
+                                .selectable_value(
+                                    &mut self.settings.render_dpi_scale,
+                                    1.5,
+                                    "1.5x Fast",
+                                )
+                                .changed()
+                            {
+                                dpi_changed = true;
+                            }
+                            if ui
+                                .selectable_value(
+                                    &mut self.settings.render_dpi_scale,
+                                    2.0,
+                                    "2.0x Crisp (Default)",
+                                )
+                                .changed()
+                            {
+                                dpi_changed = true;
+                            }
+                            if ui
+                                .selectable_value(
+                                    &mut self.settings.render_dpi_scale,
+                                    3.0,
+                                    "3.0x Ultra HiDPI",
+                                )
+                                .changed()
+                            {
+                                dpi_changed = true;
+                            }
+                        });
+                    }
+                }
+
+                ui.add_space(14.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Reset to Defaults").clicked() {
+                        let prev_dark = self.settings.dark_mode;
+                        self.settings = IdeSettings::default();
+                        if prev_dark != self.settings.dark_mode {
+                            theme_changed = true;
+                        }
+                        dpi_changed = true;
+                    }
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            close_clicked = true;
+                        }
+                    });
+                });
+            });
+
+        self.show_settings_window = open && !close_clicked;
+
+        if theme_changed {
+            Self::apply_theme(ctx, self.settings.dark_mode);
+        }
+        if rescan_needed {
+            let _ = self.project.rescan_tree();
+        }
+        if dpi_changed {
+            self.trigger_compile_now(ctx);
+        }
     }
 
     fn render_bottom_status_bar(&mut self, ctx: &Context) {
-        let bar_bg = if self.dark_mode {
+        let bar_bg = if self.settings.dark_mode {
             Color32::from_rgb(11, 15, 25)
         } else {
             Color32::from_rgb(226, 232, 240)
         };
-        let border_col = if self.dark_mode {
+        let border_col = if self.settings.dark_mode {
             Color32::from_rgb(30, 41, 59)
         } else {
             Color32::from_rgb(203, 213, 225)
@@ -635,7 +1070,6 @@ impl TypstIdeApp {
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    // Status pill
                     let (dot_color, status_text) = if self.compile_in_progress || self.pending_compile
                     {
                         (Color32::from_rgb(251, 191, 36), "Compiling...".to_string())
@@ -664,8 +1098,11 @@ impl TypstIdeApp {
 
                     ui.separator();
                     ui.label(
-                        RichText::new(format!("Entrypoint: {}", self.workspace.main_file))
-                            .small(),
+                        RichText::new(format!(
+                            "Main: {}",
+                            self.project.main_file.display()
+                        ))
+                        .small(),
                     );
 
                     ui.separator();
@@ -677,13 +1114,15 @@ impl TypstIdeApp {
                     ui.label(RichText::new(&self.status_notice).small().weak());
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if let Some(active) = self.workspace.get_file(&self.workspace.active_file) {
+                        if let Some(active) = self.project.active_buffer() {
+                            let saved_state = if active.dirty { "Modified" } else { "Saved" };
                             ui.label(
                                 RichText::new(format!(
-                                    "{}  |  {} lines  |  {} bytes",
-                                    active.path,
+                                    "{} ({})  |  {} lines  |  {} bytes",
+                                    active.rel_path.display(),
+                                    saved_state,
                                     active.line_count(),
-                                    active.size_bytes()
+                                    active.size_bytes
                                 ))
                                 .small()
                                 .monospace(),
@@ -699,12 +1138,12 @@ impl TypstIdeApp {
             return;
         }
 
-        let panel_bg = if self.dark_mode {
+        let panel_bg = if self.settings.dark_mode {
             Color32::from_rgb(15, 23, 42)
         } else {
             Color32::from_rgb(241, 245, 249)
         };
-        let border_col = if self.dark_mode {
+        let border_col = if self.settings.dark_mode {
             Color32::from_rgb(30, 41, 59)
         } else {
             Color32::from_rgb(203, 213, 225)
@@ -712,8 +1151,8 @@ impl TypstIdeApp {
 
         SidePanel::left("left_file_tree_panel")
             .resizable(true)
-            .default_width(245.0)
-            .width_range(180.0..=380.0)
+            .default_width(250.0)
+            .width_range(185.0..=400.0)
             .frame(
                 Frame::new()
                     .fill(panel_bg)
@@ -723,10 +1162,10 @@ impl TypstIdeApp {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("PROJECT EXPLORER")
+                        RichText::new("DISK PROJECT TREE")
                             .size(11.5)
                             .strong()
-                            .color(if self.dark_mode {
+                            .color(if self.settings.dark_mode {
                                 Color32::from_rgb(148, 163, 184)
                             } else {
                                 Color32::from_rgb(71, 85, 105)
@@ -734,8 +1173,15 @@ impl TypstIdeApp {
                     );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui
+                            .small_button("Refresh")
+                            .on_hover_text("Rescan project folder from disk (F5)")
+                            .clicked()
+                        {
+                            let _ = self.project.rescan_tree();
+                        }
+                        if ui
                             .small_button("+ File")
-                            .on_hover_text("Create new file in project")
+                            .on_hover_text("Create a new file on disk")
                             .clicked()
                         {
                             self.show_new_file_input = true;
@@ -745,13 +1191,13 @@ impl TypstIdeApp {
 
                 ui.add_space(6.0);
 
-                // Project Root Header
-                let mut clicked_path: Option<String> = None;
-                let mut new_main_path: Option<String> = None;
+                let mut clicked_path: Option<PathBuf> = None;
+                let mut new_main_path: Option<PathBuf> = None;
 
-                let active_path = self.workspace.active_file.clone();
-                let main_path = self.workspace.main_file.clone();
-                let project_title = format!("Workspace: {}", self.workspace.project_name);
+                let active_path = self.project.active_file.clone();
+                let main_path = self.project.main_file.clone();
+                let project_title = format!("Folder: {}", self.project.project_name);
+                let tree_snapshot = self.project.tree.clone();
 
                 ScrollArea::vertical()
                     .id_salt("file_tree_scroll")
@@ -759,53 +1205,16 @@ impl TypstIdeApp {
                         CollapsingHeader::new(RichText::new(project_title).strong())
                             .default_open(true)
                             .show(ui, |ui| {
-                                let groups = self.workspace.grouped_by_folder();
-
-                                // 1. Top-level root files
-                                if let Some(root_files) = groups.get("") {
-                                    for file in root_files {
-                                        Self::render_tree_file_row(
-                                            ui,
-                                            file.path.as_str(),
-                                            file.path.as_str(),
-                                            file.kind,
-                                            file.dirty,
-                                            file.path == active_path,
-                                            file.path == main_path,
-                                            &mut clicked_path,
-                                            &mut new_main_path,
-                                        );
-                                    }
-                                }
-
-                                // 2. Subfolders
-                                for (folder, folder_files) in &groups {
-                                    if folder.is_empty() {
-                                        continue;
-                                    }
-                                    let folder_header = format!("{}/", folder);
-                                    CollapsingHeader::new(RichText::new(folder_header).strong())
-                                        .default_open(true)
-                                        .show(ui, |ui| {
-                                            for file in folder_files {
-                                                let short_name = file
-                                                    .path
-                                                    .rsplit('/')
-                                                    .next()
-                                                    .unwrap_or(file.path.as_str());
-                                                Self::render_tree_file_row(
-                                                    ui,
-                                                    &file.path,
-                                                    short_name,
-                                                    file.kind,
-                                                    file.dirty,
-                                                    file.path == active_path,
-                                                    file.path == main_path,
-                                                    &mut clicked_path,
-                                                    &mut new_main_path,
-                                                );
-                                            }
-                                        });
+                                for node in &tree_snapshot {
+                                    Self::render_fs_tree_node(
+                                        ui,
+                                        node,
+                                        &self.project,
+                                        &active_path,
+                                        &main_path,
+                                        &mut clicked_path,
+                                        &mut new_main_path,
+                                    );
                                 }
                             });
 
@@ -813,17 +1222,16 @@ impl TypstIdeApp {
                         ui.separator();
                         ui.add_space(6.0);
 
-                        // Active File / Asset Summary Box inside the sidebar
-                        if let Some(active) = self.workspace.get_file(&self.workspace.active_file) {
+                        if let Some(active) = self.project.active_buffer() {
                             ui.label(
-                                RichText::new("ACTIVE ITEM METADATA")
+                                RichText::new("DISK FILE DETAILS")
                                     .size(10.5)
                                     .strong()
                                     .color(Color32::from_rgb(100, 116, 139)),
                             );
                             ui.add_space(4.0);
                             Frame::new()
-                                .fill(if self.dark_mode {
+                                .fill(if self.settings.dark_mode {
                                     Color32::from_rgb(24, 33, 50)
                                 } else {
                                     Color32::from_rgb(255, 255, 255)
@@ -836,20 +1244,18 @@ impl TypstIdeApp {
                                         RichText::new(format!(
                                             "{} {}",
                                             active.kind.icon(),
-                                            active.path
+                                            active.rel_path.display()
                                         ))
                                         .strong()
                                         .size(12.0),
                                     );
+                                    ui.label(RichText::new(active.kind.label()).small().weak());
                                     ui.label(
-                                        RichText::new(active.kind.label()).small().weak(),
-                                    );
-                                    ui.label(
-                                        RichText::new(format!("Size: {} bytes", active.size_bytes()))
+                                        RichText::new(format!("Size: {} bytes", active.size_bytes))
                                             .small(),
                                     );
                                     if active.kind == FileKind::Typst {
-                                        let is_main = active.path == self.workspace.main_file;
+                                        let is_main = active.rel_path == self.project.main_file;
                                         if is_main {
                                             ui.label(
                                                 RichText::new("★ Main Compiler Entrypoint")
@@ -860,83 +1266,114 @@ impl TypstIdeApp {
                                             .small_button("Set as Main Entrypoint")
                                             .clicked()
                                         {
-                                            new_main_path = Some(active.path.clone());
+                                            new_main_path = Some(active.rel_path.clone());
                                         }
-                                    } else if active.kind == FileKind::Svg
-                                        || active.kind == FileKind::Image
-                                    {
-                                        ui.add_space(4.0);
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "#image(\"{}\")",
-                                                active.path
-                                            ))
-                                            .monospace()
-                                            .small(),
-                                        );
                                     }
                                 });
                         }
                     });
 
-                if let Some(path) = clicked_path {
-                    self.workspace.select_file(&path);
-                    if let Some(f) = self.workspace.get_file(&path) {
+                if let Some(rel_path) = clicked_path {
+                    if let Err(e) = self.project.open_file(&rel_path) {
+                        self.status_notice = format!("Could not open file: {}", e);
+                    } else if let Some(buf) = self.project.active_buffer() {
                         self.inspect_asset_mode =
-                            matches!(f.kind, FileKind::Image | FileKind::Binary);
+                            matches!(buf.kind, FileKind::Image | FileKind::Binary);
                     }
                 }
                 if let Some(main_p) = new_main_path {
-                    self.workspace.set_main_file(&main_p);
-                    self.status_notice = format!("Set '{}' as main Typst file", main_p);
+                    self.project.set_main_file(main_p.clone());
+                    self.status_notice =
+                        format!("Set '{}' as main Typst file", main_p.display());
                     self.trigger_compile_now(ctx);
                 }
             });
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn render_tree_file_row(
+    fn render_fs_tree_node(
         ui: &mut Ui,
-        full_path: &str,
-        display_name: &str,
-        kind: FileKind,
-        dirty: bool,
-        is_active: bool,
-        is_main: bool,
-        clicked_path: &mut Option<String>,
-        new_main_path: &mut Option<String>,
+        node: &FsTreeNode,
+        project: &DiskProject,
+        active_path: &Path,
+        main_path: &Path,
+        clicked_path: &mut Option<PathBuf>,
+        new_main_path: &mut Option<PathBuf>,
     ) {
-        ui.horizontal(|ui| {
-            let dirty_mark = if dirty { " •" } else { "" };
-            let main_badge = if is_main { " ★" } else { "" };
-            let label_text = format!(
-                "{} {}{}{}",
-                kind.icon(),
-                display_name,
-                main_badge,
-                dirty_mark
-            );
-            let mut rich = RichText::new(label_text).size(12.5);
-            if is_active {
-                rich = rich.strong();
+        match node {
+            FsTreeNode::Directory {
+                name,
+                rel_path: _,
+                children,
+            } => {
+                let header = format!("{}/", name);
+                CollapsingHeader::new(RichText::new(header).strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        for child in children {
+                            Self::render_fs_tree_node(
+                                ui,
+                                child,
+                                project,
+                                active_path,
+                                main_path,
+                                clicked_path,
+                                new_main_path,
+                            );
+                        }
+                    });
             }
-            let resp = ui.selectable_label(is_active, rich);
-            if resp.clicked() {
-                *clicked_path = Some(full_path.to_string());
+            FsTreeNode::File {
+                name,
+                rel_path,
+                abs_path,
+                kind,
+                ..
+            } => {
+                let is_active = rel_path == active_path;
+                let is_main = rel_path == main_path;
+                let dirty = project
+                    .buffers
+                    .get(rel_path)
+                    .map(|b| b.dirty)
+                    .unwrap_or(false);
+
+                ui.horizontal(|ui| {
+                    let dirty_mark = if dirty { " *" } else { "" };
+                    let main_badge = if is_main { " ★" } else { "" };
+                    let label_text =
+                        format!("{} {}{}{}", kind.icon(), name, main_badge, dirty_mark);
+                    let mut rich = RichText::new(label_text).size(12.5);
+                    if is_active {
+                        rich = rich.strong();
+                    }
+                    let resp = ui
+                        .selectable_label(is_active, rich)
+                        .on_hover_text(abs_path.display().to_string());
+                    if resp.clicked() {
+                        *clicked_path = Some(rel_path.clone());
+                    }
+                    resp.context_menu(|ui| {
+                        ui.label(
+                            RichText::new(abs_path.display().to_string())
+                                .monospace()
+                                .small(),
+                        );
+                        ui.separator();
+                        if *kind == FileKind::Typst
+                            && !is_main
+                            && ui.button("Set as Main File").clicked()
+                        {
+                            *new_main_path = Some(rel_path.clone());
+                            ui.close_menu();
+                        }
+                    });
+                });
             }
-            resp.context_menu(|ui| {
-                ui.label(RichText::new(full_path).monospace().small());
-                ui.separator();
-                if kind == FileKind::Typst && !is_main && ui.button("Set as Main File").clicked() {
-                    *new_main_path = Some(full_path.to_string());
-                    ui.close_menu();
-                }
-            });
-        });
+        }
     }
 
     fn render_editor_pane(&mut self, ctx: &Context, ui: &mut Ui) {
-        let border_col = if self.dark_mode {
+        let border_col = if self.settings.dark_mode {
             Color32::from_rgb(30, 41, 59)
         } else {
             Color32::from_rgb(203, 213, 225)
@@ -945,24 +1382,30 @@ impl TypstIdeApp {
         // 1. Open File Tabs Bar
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            let tabs = self.workspace.open_tabs.clone();
-            let active_path = self.workspace.active_file.clone();
+            let tabs = self.project.open_tabs.clone();
+            let active_path = self.project.active_file.clone();
             let mut select_tab = None;
             let mut close_tab = None;
 
             for tab_path in &tabs {
                 let is_active = *tab_path == active_path;
-                let short_name = tab_path.rsplit('/').next().unwrap_or(tab_path);
-                let icon = self
-                    .workspace
-                    .get_file(tab_path)
-                    .map(|f| f.kind.icon())
-                    .unwrap_or("📄");
-                let tab_label = format!("{} {}", icon, short_name);
+                let short_name = tab_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("file");
+                let icon = FileKind::from_path(tab_path).icon();
+                let dirty = self
+                    .project
+                    .buffers
+                    .get(tab_path)
+                    .map(|b| b.dirty)
+                    .unwrap_or(false);
+                let dirty_suffix = if dirty { " *" } else { "" };
+                let tab_label = format!("{} {}{}", icon, short_name, dirty_suffix);
 
                 if ui
                     .selectable_label(is_active, RichText::new(tab_label).size(12.0))
-                    .on_hover_text(tab_path)
+                    .on_hover_text(self.project.root_dir.join(tab_path).display().to_string())
                     .clicked()
                 {
                     select_tab = Some(tab_path.clone());
@@ -979,22 +1422,18 @@ impl TypstIdeApp {
             }
 
             if let Some(p) = select_tab {
-                self.workspace.select_file(&p);
+                let _ = self.project.open_file(&p);
             }
             if let Some(p) = close_tab {
-                self.workspace.close_tab(&p);
+                self.project.close_tab(&p);
             }
         });
 
         ui.separator();
 
         // 2. Quick Formatting & Snippet Toolbar
-        let active_path = self.workspace.active_file.clone();
-        let active_kind = self
-            .workspace
-            .get_file(&active_path)
-            .map(|f| f.kind)
-            .unwrap_or(FileKind::Typst);
+        let active_path = self.project.active_file.clone();
+        let active_kind = FileKind::from_path(&active_path);
 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0;
@@ -1060,10 +1499,11 @@ impl TypstIdeApp {
             }
 
             if let Some(snippet) = snippet_to_insert {
-                if let Some(file) = self.workspace.get_file_mut(&active_path) {
+                let auto_save = self.settings.auto_save_on_edit;
+                if let Some(file) = self.project.active_buffer_mut() {
                     if let Some(ref mut text) = file.text {
                         text.push_str(snippet);
-                        self.workspace.mark_modified(&active_path);
+                        self.project.mark_active_modified(auto_save);
                         self.pending_compile = true;
                         self.last_edit_time = ctx.input(|i| i.time);
                     }
@@ -1071,14 +1511,24 @@ impl TypstIdeApp {
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.small_button("A+").on_hover_text("Increase editor font size").clicked() {
-                    self.editor_font_size = (self.editor_font_size + 1.0).clamp(10.0, 22.0);
+                if ui
+                    .small_button("A+")
+                    .on_hover_text("Increase editor font size")
+                    .clicked()
+                {
+                    self.settings.editor_font_size =
+                        (self.settings.editor_font_size + 1.0).clamp(10.0, 22.0);
                 }
-                if ui.small_button("A-").on_hover_text("Decrease editor font size").clicked() {
-                    self.editor_font_size = (self.editor_font_size - 1.0).clamp(10.0, 22.0);
+                if ui
+                    .small_button("A-")
+                    .on_hover_text("Decrease editor font size")
+                    .clicked()
+                {
+                    self.settings.editor_font_size =
+                        (self.settings.editor_font_size - 1.0).clamp(10.0, 22.0);
                 }
                 ui.label(
-                    RichText::new(format!("PATH: {}", active_path))
+                    RichText::new(format!("FILE: {}", active_path.display()))
                         .size(11.0)
                         .monospace()
                         .weak(),
@@ -1089,17 +1539,23 @@ impl TypstIdeApp {
         ui.separator();
 
         // 3. Editor Area or Asset Inspector
-        let Some(file) = self.workspace.get_file_mut(&active_path) else {
+        let dark_mode = self.settings.dark_mode;
+        let font_size = self.settings.editor_font_size;
+        let show_line_numbers = self.settings.show_line_numbers;
+        let use_syntax_highlight = self.settings.syntax_highlighting;
+        let inspect_asset_mode = self.inspect_asset_mode;
+
+        let Some(file) = self.project.active_buffer_mut() else {
             ui.centered_and_justified(|ui| {
-                ui.label("Select a file from the Project Explorer.");
+                ui.label("Select a file from the Disk Project Tree.");
             });
             return;
         };
 
-        if file.text.is_none() || self.inspect_asset_mode {
-            // Asset metadata / preview view
+        if file.text.is_none() || inspect_asset_mode {
+            let mut exit_inspect = false;
             Frame::new()
-                .fill(if self.dark_mode {
+                .fill(if dark_mode {
                     Color32::from_rgb(15, 23, 42)
                 } else {
                     Color32::from_rgb(248, 250, 252)
@@ -1108,26 +1564,31 @@ impl TypstIdeApp {
                 .corner_radius(CornerRadius::same(6))
                 .stroke(Stroke::new(1.0_f32, border_col))
                 .show(ui, |ui| {
-                    ui.heading(format!("{} {}", file.kind.icon(), file.path));
+                    ui.heading(format!("{} {}", file.kind.icon(), file.rel_path.display()));
                     ui.add_space(6.0);
+                    ui.label(format!("Disk Path: {}", file.abs_path.display()));
                     ui.label(format!("Asset Type: {}", file.kind.label()));
-                    ui.label(format!("Byte Length: {} bytes", file.size_bytes()));
+                    ui.label(format!("File Size: {} bytes", file.size_bytes));
                     ui.add_space(8.0);
                     ui.label("Embed in any Typst file using:");
-                    ui.code(format!("#image(\"{}\", width: 80%)", file.path));
+                    ui.code(format!(
+                        "#image(\"{}\", width: 80%)",
+                        file.rel_path.to_string_lossy().replace('\\', "/")
+                    ));
                     if file.text.is_some() {
                         ui.add_space(8.0);
                         if ui.button("Switch to Source Code Editor").clicked() {
-                            self.inspect_asset_mode = false;
+                            exit_inspect = true;
                         }
                     }
                 });
+            if exit_inspect {
+                self.inspect_asset_mode = false;
+            }
             return;
         }
 
-        let dark_mode = self.dark_mode;
-        let font_size = self.editor_font_size;
-        let is_typst = file.kind == FileKind::Typst;
+        let is_typst = file.kind == FileKind::Typst && use_syntax_highlight;
         let mut text_changed = false;
 
         let editor_bg = if dark_mode {
@@ -1163,41 +1624,43 @@ impl TypstIdeApp {
                         ui.horizontal_top(|ui| {
                             ui.spacing_mut().item_spacing.x = 0.0;
 
-                            // Line numbers gutter
-                            Frame::new()
-                                .fill(gutter_bg)
-                                .inner_margin(Margin::symmetric(8, 8))
-                                .show(ui, |ui| {
-                                    ui.add(
-                                        egui::Label::new(
-                                            RichText::new(line_numbers_str.trim_end())
-                                                .font(FontId::new(font_size, FontFamily::Monospace))
-                                                .color(gutter_fg),
-                                        )
-                                        .selectable(false),
-                                    );
-                                });
+                            if show_line_numbers {
+                                Frame::new()
+                                    .fill(gutter_bg)
+                                    .inner_margin(Margin::symmetric(8, 8))
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(line_numbers_str.trim_end())
+                                                    .font(FontId::new(
+                                                        font_size,
+                                                        FontFamily::Monospace,
+                                                    ))
+                                                    .color(gutter_fg),
+                                            )
+                                            .selectable(false),
+                                        );
+                                    });
+                            }
 
-                            // Code editor with custom Typst syntax highlighting
-                            let mut layouter =
-                                |ui: &Ui, string: &str, wrap_width: f32| {
-                                    let mut job = if is_typst {
-                                        highlight_typst_code(string, dark_mode, font_size)
-                                    } else {
-                                        LayoutJob::simple(
-                                            string.to_owned(),
-                                            FontId::new(font_size, FontFamily::Monospace),
-                                            if dark_mode {
-                                                Color32::from_rgb(226, 232, 240)
-                                            } else {
-                                                Color32::from_rgb(30, 41, 59)
-                                            },
-                                            wrap_width,
-                                        )
-                                    };
-                                    job.wrap.max_width = f32::INFINITY;
-                                    ui.fonts(|f| f.layout_job(job))
+                            let mut layouter = |ui: &Ui, string: &str, wrap_width: f32| {
+                                let mut job = if is_typst {
+                                    highlight_typst_code(string, dark_mode, font_size)
+                                } else {
+                                    LayoutJob::simple(
+                                        string.to_owned(),
+                                        FontId::new(font_size, FontFamily::Monospace),
+                                        if dark_mode {
+                                            Color32::from_rgb(226, 232, 240)
+                                        } else {
+                                            Color32::from_rgb(30, 41, 59)
+                                        },
+                                        wrap_width,
+                                    )
                                 };
+                                job.wrap.max_width = f32::INFINITY;
+                                ui.fonts(|f| f.layout_job(job))
+                            };
 
                             Frame::new()
                                 .fill(editor_bg)
@@ -1223,31 +1686,33 @@ impl TypstIdeApp {
             });
 
         if text_changed {
-            self.workspace.mark_modified(&active_path);
-            self.pending_compile = true;
-            self.last_edit_time = ctx.input(|i| i.time);
+            let auto_save = self.settings.auto_save_on_edit;
+            self.project.mark_active_modified(auto_save);
+            if self.settings.auto_compile {
+                self.pending_compile = true;
+                self.last_edit_time = ctx.input(|i| i.time);
+            }
         }
     }
 
     fn render_preview_pane(&mut self, _ctx: &Context, ui: &mut Ui) {
-        let canvas_bg = if self.dark_mode {
+        let canvas_bg = if self.settings.dark_mode {
             Color32::from_rgb(30, 41, 59)
         } else {
             Color32::from_rgb(226, 232, 240)
         };
-        let border_col = if self.dark_mode {
+        let border_col = if self.settings.dark_mode {
             Color32::from_rgb(51, 65, 85)
         } else {
             Color32::from_rgb(203, 213, 225)
         };
 
-        // Preview Top Header Bar
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new("LIVE DOCUMENT PREVIEW")
                     .size(12.0)
                     .strong()
-                    .color(if self.dark_mode {
+                    .color(if self.settings.dark_mode {
                         Color32::from_rgb(148, 163, 184)
                     } else {
                         Color32::from_rgb(71, 85, 105)
@@ -1279,7 +1744,6 @@ impl TypstIdeApp {
 
         ui.separator();
 
-        // Reserve space at the bottom if there are errors or warnings to show the diagnostic banner
         let has_diagnostics = !self.diagnostics.is_empty();
         let available_height = ui.available_height();
         let banner_height = if has_diagnostics {
@@ -1289,14 +1753,12 @@ impl TypstIdeApp {
         };
         let preview_height = (available_height - banner_height - 4.0).max(120.0);
 
-        // Scrollable & Zoomable Page Canvas
         ui.allocate_ui(Vec2::new(ui.available_width(), preview_height), |ui| {
             Frame::new()
                 .fill(canvas_bg)
                 .stroke(Stroke::new(1.0_f32, border_col))
                 .corner_radius(CornerRadius::same(4))
                 .show(ui, |ui| {
-                    // Handle Ctrl + Scroll wheel zoom inside preview
                     if ui.ui_contains_pointer() {
                         let zoom_delta = ui.input(|i| i.zoom_delta());
                         if (zoom_delta - 1.0).abs() > 0.001 {
@@ -1322,7 +1784,6 @@ impl TypstIdeApp {
                                     let avail_w = (ui.available_width() - 36.0).max(200.0);
 
                                     for page in &self.page_textures {
-                                        // Fit naturally into the preview pane width at zoom = 1.0
                                         let base_scale =
                                             (avail_w / page.width_pt).clamp(0.45, 1.35);
                                         let display_w = page.width_pt * base_scale * self.zoom;
@@ -1332,7 +1793,6 @@ impl TypstIdeApp {
                                         let (rect, _response) =
                                             ui.allocate_exact_size(page_size, Sense::hover());
 
-                                        // Subtle multi-layer drop shadow
                                         let painter = ui.painter();
                                         let shadow_rect_outer =
                                             rect.translate(Vec2::new(0.0, 5.0)).expand(3.0);
@@ -1349,7 +1809,6 @@ impl TypstIdeApp {
                                             Color32::from_black_alpha(85),
                                         );
 
-                                        // White paper backing + rendered Typst page texture
                                         painter.rect_filled(
                                             rect,
                                             CornerRadius::ZERO,
@@ -1389,17 +1848,16 @@ impl TypstIdeApp {
                 });
         });
 
-        // Bottom Error & Diagnostic Banner if compilation fails or has warnings
         if has_diagnostics {
             ui.add_space(4.0);
             let error_count = self.diagnostics.iter().filter(|d| d.is_error).count();
             let banner_bg = if error_count > 0 {
-                if self.dark_mode {
+                if self.settings.dark_mode {
                     Color32::from_rgb(45, 18, 24)
                 } else {
                     Color32::from_rgb(254, 242, 242)
                 }
-            } else if self.dark_mode {
+            } else if self.settings.dark_mode {
                 Color32::from_rgb(45, 34, 15)
             } else {
                 Color32::from_rgb(255, 251, 235)
@@ -1411,7 +1869,7 @@ impl TypstIdeApp {
                 Color32::from_rgb(245, 158, 11)
             };
 
-            let mut file_to_open: Option<String> = None;
+            let mut file_to_open: Option<PathBuf> = None;
 
             Frame::new()
                 .fill(banner_bg)
@@ -1446,12 +1904,16 @@ impl TypstIdeApp {
                                         Color32::from_rgb(251, 191, 36)
                                     };
                                     let loc = match (diag.line, diag.column) {
-                                        (Some(l), Some(c)) => format!("{}:{}:{}", diag.file, l, c),
-                                        (Some(l), None) => format!("{}:{}", diag.file, l),
-                                        _ => diag.file.clone(),
+                                        (Some(l), Some(c)) => {
+                                            format!("{}:{}:{}", diag.file.display(), l, c)
+                                        }
+                                        (Some(l), None) => format!("{}:{}", diag.file.display(), l),
+                                        _ => diag.file.display().to_string(),
                                     };
                                     if ui
-                                        .small_button(RichText::new(&loc).monospace().color(badge_color))
+                                        .small_button(
+                                            RichText::new(&loc).monospace().color(badge_color),
+                                        )
                                         .on_hover_text("Click to open file in editor")
                                         .clicked()
                                     {
@@ -1461,7 +1923,7 @@ impl TypstIdeApp {
                                 });
                                 for hint in &diag.hints {
                                     ui.label(
-                                        RichText::new(format!("  💡 Hint: {}", hint))
+                                        RichText::new(format!("  Hint: {}", hint))
                                             .italics()
                                             .size(11.5),
                                     );
@@ -1472,7 +1934,7 @@ impl TypstIdeApp {
                 });
 
             if let Some(target_file) = file_to_open {
-                self.workspace.select_file(&target_file);
+                let _ = self.project.open_file(&target_file);
             }
         }
     }
@@ -1482,11 +1944,9 @@ impl TypstIdeApp {
             return;
         };
 
-        // Keep requesting repaint so the window draws continuously even when unfocused
         ctx.request_repaint();
         self.frame_count = self.frame_count.saturating_add(1);
 
-        // Check if a screenshot event arrived this frame
         let mut captured_image: Option<Arc<egui::ColorImage>> = None;
         ctx.input(|i| {
             for event in &i.raw.events {
@@ -1528,28 +1988,34 @@ impl TypstIdeApp {
 impl eframe::App for TypstIdeApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         self.poll_channels(ctx);
+        self.handle_keyboard_shortcuts(ctx);
 
-        // Debounced non-blocking compilation: wait 120ms after the last keystroke
-        if self.pending_compile {
+        // Debounced non-blocking compilation
+        if self.pending_compile && self.settings.auto_compile {
             let now = ctx.input(|i| i.time);
-            if now - self.last_edit_time >= 0.12 {
+            let delay_secs = (self.settings.debounce_ms as f64) / 1000.0;
+            if now - self.last_edit_time >= delay_secs {
                 self.trigger_compile_now(ctx);
             } else {
                 ctx.request_repaint_after(std::time::Duration::from_millis(40));
             }
         }
 
-        // Top Menu Bar
-        self.render_top_menu_bar(ctx);
+        // Desktop Menu Bar on Linux & Windows (on macOS, menu bar is rendered by the OS at the top of the screen)
+        #[cfg(not(target_os = "macos"))]
+        self.render_desktop_menu_bar(ctx);
+
+        // Top Action Toolbar
+        self.render_top_toolbar(ctx);
 
         // Bottom Status Bar
         self.render_bottom_status_bar(ctx);
 
-        // Collapsible Left File Overview Panel
+        // Collapsible Left File Overview Panel (Disk Project Tree)
         self.render_left_file_panel(ctx);
 
         // Main Split View (Code Editor Left + Live Preview Right)
-        let central_bg = if self.dark_mode {
+        let central_bg = if self.settings.dark_mode {
             Color32::from_rgb(17, 24, 39)
         } else {
             Color32::from_rgb(248, 250, 252)
@@ -1583,7 +2049,7 @@ impl eframe::App for TypstIdeApp {
                 self.render_editor_pane(ctx, &mut left_ui);
 
                 // Vertical Split Divider Line
-                let div_color = if self.dark_mode {
+                let div_color = if self.settings.dark_mode {
                     Color32::from_rgb(45, 55, 72)
                 } else {
                     Color32::from_rgb(203, 213, 225)
@@ -1607,11 +2073,145 @@ impl eframe::App for TypstIdeApp {
                 ui.advance_cursor_after_rect(total_rect);
             });
 
+        // Settings Sub-Window (opened via File > Settings)
+        self.render_settings_subwindow(ctx);
+
         self.handle_screenshot_lifecycle(ctx);
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+/// Native macOS screen-top menu bar using `muda`, so on macOS the menu bar is part of the OS
+/// directly at the top of the screen rather than rendered inside the window.
+#[cfg(target_os = "macos")]
+mod macos_native_menu {
+    use super::MenuAction;
+    use muda::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
+
+    pub struct MacOsMenuBar {
+        _menu: Menu,
+        id_new_file: MenuId,
+        id_open_folder: MenuId,
+        id_rescan: MenuId,
+        id_save: MenuId,
+        id_save_all: MenuId,
+        id_export_pdf: MenuId,
+        id_settings: MenuId,
+        id_quit: MenuId,
+        id_toggle_sidebar: MenuId,
+        id_toggle_theme: MenuId,
+        id_zoom_in: MenuId,
+        id_zoom_out: MenuId,
+        id_zoom_reset: MenuId,
+        id_compile: MenuId,
+    }
+
+    impl MacOsMenuBar {
+        pub fn init() -> Option<Self> {
+            let menu = Menu::new();
+
+            let file_menu = Submenu::new("File", true);
+            let item_new_file = MenuItem::new("New File in Project...", true, None);
+            let item_open_folder = MenuItem::new("Open Project Folder...", true, None);
+            let item_rescan = MenuItem::new("Rescan Folder on Disk", true, None);
+            let item_save = MenuItem::new("Save Active File", true, None);
+            let item_save_all = MenuItem::new("Save All Project Files", true, None);
+            let item_export_pdf = MenuItem::new("Export PDF...", true, None);
+            let item_settings = MenuItem::new("Settings...", true, None);
+            let item_quit = MenuItem::new("Quit Typst Studio", true, None);
+
+            let _ = file_menu.append_items(&[
+                &item_new_file,
+                &item_open_folder,
+                &item_rescan,
+                &PredefinedMenuItem::separator(),
+                &item_save,
+                &item_save_all,
+                &item_export_pdf,
+                &PredefinedMenuItem::separator(),
+                &item_settings,
+                &PredefinedMenuItem::separator(),
+                &item_quit,
+            ]);
+
+            let view_menu = Submenu::new("View", true);
+            let item_toggle_sidebar = MenuItem::new("Toggle Project File Tree", true, None);
+            let item_toggle_theme = MenuItem::new("Switch Theme (Dark / Light)", true, None);
+            let item_zoom_in = MenuItem::new("Zoom In (+)", true, None);
+            let item_zoom_out = MenuItem::new("Zoom Out (-)", true, None);
+            let item_zoom_reset = MenuItem::new("Reset Zoom (100%)", true, None);
+            let _ = view_menu.append_items(&[
+                &item_toggle_sidebar,
+                &item_toggle_theme,
+                &PredefinedMenuItem::separator(),
+                &item_zoom_in,
+                &item_zoom_out,
+                &item_zoom_reset,
+            ]);
+
+            let project_menu = Submenu::new("Project", true);
+            let item_compile = MenuItem::new("Compile Document Now", true, None);
+            let _ = project_menu.append(&item_compile);
+
+            let _ = menu.append_items(&[&file_menu, &view_menu, &project_menu]);
+            menu.init_for_nsapp();
+
+            Some(Self {
+                _menu: menu,
+                id_new_file: item_new_file.id().clone(),
+                id_open_folder: item_open_folder.id().clone(),
+                id_rescan: item_rescan.id().clone(),
+                id_save: item_save.id().clone(),
+                id_save_all: item_save_all.id().clone(),
+                id_export_pdf: item_export_pdf.id().clone(),
+                id_settings: item_settings.id().clone(),
+                id_quit: item_quit.id().clone(),
+                id_toggle_sidebar: item_toggle_sidebar.id().clone(),
+                id_toggle_theme: item_toggle_theme.id().clone(),
+                id_zoom_in: item_zoom_in.id().clone(),
+                id_zoom_out: item_zoom_out.id().clone(),
+                id_zoom_reset: item_zoom_reset.id().clone(),
+                id_compile: item_compile.id().clone(),
+            })
+        }
+
+        pub fn poll_action(&self) -> Option<MenuAction> {
+            let ev = MenuEvent::receiver().try_recv().ok()?;
+            let id = ev.id();
+            if *id == self.id_new_file {
+                Some(MenuAction::NewFile)
+            } else if *id == self.id_open_folder {
+                Some(MenuAction::OpenFolder)
+            } else if *id == self.id_rescan {
+                Some(MenuAction::RescanFolder)
+            } else if *id == self.id_save {
+                Some(MenuAction::SaveFile)
+            } else if *id == self.id_save_all {
+                Some(MenuAction::SaveAll)
+            } else if *id == self.id_export_pdf {
+                Some(MenuAction::ExportPdf)
+            } else if *id == self.id_settings {
+                Some(MenuAction::OpenSettings)
+            } else if *id == self.id_quit {
+                Some(MenuAction::Quit)
+            } else if *id == self.id_toggle_sidebar {
+                Some(MenuAction::ToggleSidebar)
+            } else if *id == self.id_toggle_theme {
+                Some(MenuAction::ToggleTheme)
+            } else if *id == self.id_zoom_in {
+                Some(MenuAction::ZoomIn)
+            } else if *id == self.id_zoom_out {
+                Some(MenuAction::ZoomOut)
+            } else if *id == self.id_zoom_reset {
+                Some(MenuAction::ZoomReset)
+            } else if *id == self.id_compile {
+                Some(MenuAction::CompileNow)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 mod pollster {
     use std::future::Future;
     use std::pin::Pin;

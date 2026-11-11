@@ -1,8 +1,8 @@
 [package]
 name = "typst-ide"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Cross-Platform & Web Typst IDE and Live Previewer in Rust"
+description = "Native Cross-Platform Typst IDE and Live Previewer in Rust (Linux, macOS, Windows)"
 authors = ["Typst IDE Architect"]
 
 [dependencies]
@@ -12,7 +12,6 @@ eframe = { version = "0.31.1", default-features = false, features = [
     "default_fonts",
     "glow",
     "wayland",
-    "web_screen_reader",
     "x11",
 ] }
 typst = "0.12.0"
@@ -27,12 +26,5 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 log = "0.4"
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = [
-    "Document",
-    "Element",
-    "HtmlCanvasElement",
-    "Window",
-] }
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.21.2", default-features = false }
