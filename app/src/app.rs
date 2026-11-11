@@ -18,12 +18,14 @@ use crate::collab::ui::{
 };
 use crate::compiler::{
     compile_project, export_pdf_bytes_with_config, upload_page_textures, CompileSnapshot,
-    DiagnosticItem, PdfArchivalStandard, PdfExportConfig, PdfVersionChoice, RenderedPageData,
-    RenderedPageTexture,
+    CompiledOutlineItem, DiagnosticItem, PdfArchivalStandard, PdfExportConfig, PdfVersionChoice,
+    RenderedPageData, RenderedPageTexture,
 };
 use crate::highlight::{highlight_typst_code, ThemePalette, DESIGN_SYSTEM_CSS_TOKENS};
 use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind, FsTreeNode};
 use crate::world::SharedWorldResources;
+use typst::syntax::ast::AstNode;
+use typst::syntax::{ast, LinkedNode, SyntaxKind, SyntaxNode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
@@ -48,9 +50,18 @@ pub enum MenuAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentOutlineItem {
     pub level: usize,
+    pub number_label: String,
     pub title: String,
+    pub file: PathBuf,
     pub line_number: usize,
     pub char_offset: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct OutlineTreeNode {
+    pub item: DocumentOutlineItem,
+    pub is_current: bool,
+    pub children: Vec<OutlineTreeNode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +161,7 @@ pub struct TypstIdeApp {
     pub compile_duration_ms: f64,
     pub page_data: Vec<RenderedPageData>,
     pub page_textures: Vec<RenderedPageTexture>,
+    pub compiled_outline: Vec<CompiledOutlineItem>,
     pub diagnostics: Vec<DiagnosticItem>,
 
     // New file creation & rename modal/inline state
@@ -231,6 +243,7 @@ impl TypstIdeApp {
             compile_duration_ms: initial_snapshot.duration_ms,
             page_data: initial_snapshot.pages,
             page_textures,
+            compiled_outline: initial_snapshot.outline,
             diagnostics: initial_snapshot.diagnostics,
             project,
             settings,
@@ -444,6 +457,9 @@ impl TypstIdeApp {
         if !snapshot.pages.is_empty() {
             self.page_textures = upload_page_textures(ctx, &snapshot.pages);
             self.page_data = snapshot.pages;
+        }
+        if snapshot.document.is_some() {
+            self.compiled_outline = snapshot.outline;
         }
     }
 
@@ -1868,115 +1884,568 @@ impl TypstIdeApp {
             });
     }
 
-    fn extract_document_outline(text: &str, kind: FileKind) -> Vec<DocumentOutlineItem> {
-        let mut items = Vec::new();
-        let mut in_code_fence = false;
-        let mut char_cursor = 0usize;
-
-        for (idx, raw_line) in text.split('\n').enumerate() {
-            let line_number = idx + 1;
-            let line_char_len = raw_line.chars().count();
-            let line = raw_line.trim_end_matches('\r');
-            let trimmed = line.trim_start();
-            let leading_ws_chars = line.chars().count().saturating_sub(trimmed.chars().count());
-
-            if trimmed.starts_with("```") {
-                in_code_fence = !in_code_fence;
-                char_cursor += line_char_len + 1;
-                continue;
+    fn extract_typst_markup_plain_text(node: &SyntaxNode) -> String {
+        fn visit(n: &SyntaxNode, out: &mut String) {
+            match n.kind() {
+                SyntaxKind::LineComment
+                | SyntaxKind::BlockComment
+                | SyntaxKind::Label
+                | SyntaxKind::HeadingMarker => {}
+                SyntaxKind::Text => out.push_str(n.leaf_text().as_str()),
+                SyntaxKind::Space | SyntaxKind::Parbreak | SyntaxKind::Linebreak => {
+                    if !out.ends_with(' ') && !out.is_empty() {
+                        out.push(' ');
+                    }
+                }
+                SyntaxKind::SmartQuote
+                | SyntaxKind::Shorthand
+                | SyntaxKind::Escape
+                | SyntaxKind::MathText
+                | SyntaxKind::MathIdent
+                | SyntaxKind::Int
+                | SyntaxKind::Float
+                | SyntaxKind::Numeric => out.push_str(n.leaf_text().as_str()),
+                SyntaxKind::Str => {
+                    out.push_str(n.leaf_text().trim_matches('"'));
+                }
+                _ => {
+                    for child in n.children() {
+                        visit(child, out);
+                    }
+                }
             }
+        }
+        let mut raw = String::new();
+        visit(node, &mut raw);
+        raw.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
 
-            if !in_code_fence && !trimmed.starts_with("//") {
-                match kind {
-                    FileKind::Typst => {
-                        let eq_count = trimmed.chars().take_while(|&c| c == '=').count();
-                        if eq_count >= 1 {
-                            let after_eq = &trimmed[eq_count..];
-                            if after_eq.starts_with(' ') || after_eq.starts_with('\t') {
-                                let mut title = after_eq.trim().to_string();
-                                // Strip trailing `<label>` if present
-                                if let (Some(lt), true) = (title.rfind('<'), title.ends_with('>')) {
-                                    let candidate = title[lt..].trim();
-                                    if !candidate.contains(' ') {
-                                        title = title[..lt].trim().to_string();
+    fn extract_typst_ast_outline(
+        text: &str,
+        current_file: &Path,
+        project: Option<&DiskProject>,
+        visited: &mut Vec<PathBuf>,
+    ) -> Vec<DocumentOutlineItem> {
+        let root = typst::syntax::parse(text);
+        let linked = LinkedNode::new(&root);
+        let mut items = Vec::new();
+
+        fn walk(
+            node: &LinkedNode<'_>,
+            text: &str,
+            current_file: &Path,
+            project: Option<&DiskProject>,
+            visited: &mut Vec<PathBuf>,
+            items: &mut Vec<DocumentOutlineItem>,
+        ) {
+            match node.kind() {
+                SyntaxKind::Heading => {
+                    if let Some(heading) = node.cast::<ast::Heading>() {
+                        let level = heading.depth().get();
+                        let title =
+                            TypstIdeApp::extract_typst_markup_plain_text(heading.body().to_untyped());
+                        if !title.is_empty() {
+                            let byte_offset = node.offset().min(text.len());
+                            let char_offset = text[..byte_offset].chars().count();
+                            let line_number =
+                                text[..byte_offset].bytes().filter(|&b| b == b'\n').count() + 1;
+                            items.push(DocumentOutlineItem {
+                                level,
+                                number_label: String::new(),
+                                title,
+                                file: current_file.to_path_buf(),
+                                line_number,
+                                char_offset,
+                            });
+                        }
+                    }
+                    return;
+                }
+                SyntaxKind::FuncCall => {
+                    if let Some(call) = node.cast::<ast::FuncCall>() {
+                        let callee_txt = call.callee().to_untyped().full_text();
+                        if callee_txt == "heading" || callee_txt.ends_with(".heading") {
+                            let mut level = 1usize;
+                            let mut body_title = String::new();
+                            for arg in call.args().items() {
+                                match arg {
+                                    ast::Arg::Named(named) => {
+                                        if named.name().as_str() == "level" {
+                                            if let ast::Expr::Int(i) = named.expr() {
+                                                level = (i.get() as usize).max(1);
+                                            }
+                                        }
                                     }
-                                }
-                                if !title.is_empty() {
-                                    let target_char = char_cursor + leading_ws_chars;
-                                    items.push(DocumentOutlineItem {
-                                        level: eq_count,
-                                        title,
-                                        line_number,
-                                        char_offset: target_char,
-                                    });
+                                    ast::Arg::Pos(expr) => {
+                                        let candidate = match expr {
+                                            ast::Expr::ContentBlock(cb) => {
+                                                TypstIdeApp::extract_typst_markup_plain_text(
+                                                    cb.body().to_untyped(),
+                                                )
+                                            }
+                                            ast::Expr::Str(s) => s.get().to_string(),
+                                            other => TypstIdeApp::extract_typst_markup_plain_text(
+                                                other.to_untyped(),
+                                            ),
+                                        };
+                                        if !candidate.is_empty() {
+                                            body_title = candidate;
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
-                        } else if let Some(rest) = trimmed.strip_prefix("#let ") {
-                            let name: String = rest
-                                .chars()
-                                .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-                                .collect();
-                            if !name.is_empty() && leading_ws_chars == 0 {
+                            if !body_title.is_empty() {
+                                let byte_offset = node.offset().min(text.len());
+                                let char_offset = text[..byte_offset].chars().count();
+                                let line_number =
+                                    text[..byte_offset].bytes().filter(|&b| b == b'\n').count() + 1;
                                 items.push(DocumentOutlineItem {
-                                    level: 3,
-                                    title: format!("#let {}", name),
+                                    level,
+                                    number_label: String::new(),
+                                    title: body_title,
+                                    file: current_file.to_path_buf(),
                                     line_number,
-                                    char_offset: char_cursor + leading_ws_chars,
+                                    char_offset,
                                 });
-                            }
-                        }
-                    }
-                    FileKind::Bib => {
-                        if trimmed.starts_with('@') {
-                            if let Some(brace_idx) = trimmed.find('{') {
-                                let entry_type = &trimmed[1..brace_idx];
-                                let after_brace = &trimmed[brace_idx + 1..];
-                                let key = after_brace
-                                    .split(',')
-                                    .next()
-                                    .unwrap_or("")
-                                    .trim();
-                                if !key.is_empty() {
-                                    items.push(DocumentOutlineItem {
-                                        level: 1,
-                                        title: format!("@{} ({})", key, entry_type),
-                                        line_number,
-                                        char_offset: char_cursor + leading_ws_chars,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    _ => {
-                        let hash_count = trimmed.chars().take_while(|&c| c == '#').count();
-                        if hash_count >= 1 {
-                            let after_hash = &trimmed[hash_count..];
-                            if after_hash.starts_with(' ') {
-                                let title = after_hash.trim().to_string();
-                                if !title.is_empty() {
-                                    items.push(DocumentOutlineItem {
-                                        level: hash_count,
-                                        title,
-                                        line_number,
-                                        char_offset: char_cursor + leading_ws_chars,
-                                    });
-                                }
+                                return;
                             }
                         }
                     }
                 }
+                SyntaxKind::ModuleInclude => {
+                    if let (Some(inc), Some(proj)) = (node.cast::<ast::ModuleInclude>(), project) {
+                        if let ast::Expr::Str(path_lit) = inc.source() {
+                            let raw_rel = path_lit.get();
+                            let resolved = if let Some(stripped) = raw_rel.strip_prefix('/') {
+                                PathBuf::from(stripped)
+                            } else {
+                                current_file
+                                    .parent()
+                                    .map(|p| p.join(raw_rel.as_str()))
+                                    .unwrap_or_else(|| PathBuf::from(raw_rel.as_str()))
+                            };
+                            let norm_rel =
+                                PathBuf::from(normalize_rel_path(&resolved.to_string_lossy()));
+                            if !visited.contains(&norm_rel) {
+                                visited.push(norm_rel.clone());
+                                if let Ok(inc_text) = proj.read_source_text(&norm_rel) {
+                                    let sub_items = TypstIdeApp::extract_typst_ast_outline(
+                                        &inc_text,
+                                        &norm_rel,
+                                        Some(proj),
+                                        visited,
+                                    );
+                                    items.extend(sub_items);
+                                }
+                            }
+                        }
+                    }
+                    return;
+                }
+                SyntaxKind::ShowRule | SyntaxKind::SetRule => {
+                    // Do not treat styling rules like `show heading.where(level: 1): ...` as document headings
+                    return;
+                }
+                _ => {}
             }
 
-            char_cursor += line_char_len + 1;
+            for child in node.children() {
+                walk(&child, text, current_file, project, visited, items);
+            }
         }
 
-        // If a Typst file has real section headings (`= ...`), prefer showing only section headings
-        // unless there are none (e.g. a pure `#let` template file).
-        if kind == FileKind::Typst && items.iter().any(|it| !it.title.starts_with("#let ")) {
-            items.retain(|it| !it.title.starts_with("#let "));
-        }
-
+        walk(&linked, text, current_file, project, visited, &mut items);
         items
+    }
+
+    pub fn assign_hierarchical_numbers(items: &mut [DocumentOutlineItem]) {
+        let mut counters: Vec<usize> = Vec::new();
+        for item in items.iter_mut() {
+            let lvl = item.level.clamp(1, 6);
+            if counters.len() < lvl {
+                counters.resize(lvl, 0);
+            } else {
+                counters.truncate(lvl);
+            }
+            counters[lvl - 1] += 1;
+            for c in &mut counters[..lvl] {
+                if *c == 0 {
+                    *c = 1;
+                }
+            }
+            if item.number_label.is_empty() {
+                item.number_label = counters
+                    .iter()
+                    .map(|c| c.to_string())
+                    .collect::<Vec<_>>()
+                    .join(".");
+            }
+        }
+    }
+
+    pub fn build_outline_tree(
+        items: &[DocumentOutlineItem],
+        active_idx: Option<usize>,
+    ) -> Vec<OutlineTreeNode> {
+        fn build_slice(
+            slice: &[(usize, &DocumentOutlineItem)],
+            active_idx: Option<usize>,
+        ) -> Vec<OutlineTreeNode> {
+            let mut nodes = Vec::new();
+            let mut i = 0;
+            while i < slice.len() {
+                let (idx, curr) = slice[i];
+                let mut j = i + 1;
+                while j < slice.len() && slice[j].1.level > curr.level {
+                    j += 1;
+                }
+                let children = build_slice(&slice[i + 1..j], active_idx);
+                nodes.push(OutlineTreeNode {
+                    item: curr.clone(),
+                    is_current: active_idx == Some(idx),
+                    children,
+                });
+                i = j;
+            }
+            nodes
+        }
+
+        let indexed: Vec<(usize, &DocumentOutlineItem)> = items.iter().enumerate().collect();
+        build_slice(&indexed, active_idx)
+    }
+
+    fn extract_document_outline(
+        text: &str,
+        kind: FileKind,
+        current_file: &Path,
+        project: Option<&DiskProject>,
+        compiled_outline: &[CompiledOutlineItem],
+    ) -> Vec<DocumentOutlineItem> {
+        let mut items = match kind {
+            FileKind::Typst => {
+                let mut visited = vec![current_file.to_path_buf()];
+                let mut ast_items =
+                    Self::extract_typst_ast_outline(text, current_file, project, &mut visited);
+
+                // If the active file is the main compiled entrypoint and the Typst compiler
+                // introspector produced additional dynamic headings (e.g., from imported
+                // template/component functions like `#architecture-table()`), merge them
+                // while keeping live AST char_offsets for the active file.
+                let is_main_entrypoint = project
+                    .map(|p| p.effective_compile_entrypoint() == current_file)
+                    .unwrap_or(false);
+                if is_main_entrypoint && !compiled_outline.is_empty() {
+                    let mut merged = Vec::with_capacity(compiled_outline.len().max(ast_items.len()));
+                    let mut used_ast = vec![false; ast_items.len()];
+                    for comp in compiled_outline {
+                        if let Some((ast_idx, ast_match)) = ast_items
+                            .iter()
+                            .enumerate()
+                            .find(|(i, a)| {
+                                !used_ast[*i]
+                                    && a.file == comp.file
+                                    && (a.title == comp.title || a.line_number == comp.line)
+                            })
+                        {
+                            used_ast[ast_idx] = true;
+                            let mut item = ast_match.clone();
+                            item.level = comp.level;
+                            if let Some(ref num) = comp.numbers {
+                                item.number_label = num.clone();
+                            }
+                            merged.push(item);
+                        } else {
+                            merged.push(DocumentOutlineItem {
+                                level: comp.level,
+                                number_label: comp.numbers.clone().unwrap_or_default(),
+                                title: comp.title.clone(),
+                                file: comp.file.clone(),
+                                line_number: comp.line,
+                                char_offset: comp.char_offset,
+                            });
+                        }
+                    }
+                    // Also include any newly-typed AST headings not yet in compiled_outline
+                    for (idx, ast_item) in ast_items.into_iter().enumerate() {
+                        if !used_ast[idx] {
+                            let insert_pos = merged
+                                .iter()
+                                .position(|m| {
+                                    m.file == ast_item.file && m.line_number > ast_item.line_number
+                                })
+                                .unwrap_or(merged.len());
+                            merged.insert(insert_pos, ast_item);
+                        }
+                    }
+                    ast_items = merged;
+                }
+
+                ast_items
+            }
+            FileKind::Bib => {
+                let mut bib_items = Vec::new();
+                let mut char_cursor = 0usize;
+                for (idx, raw_line) in text.split('\n').enumerate() {
+                    let line_number = idx + 1;
+                    let line_char_len = raw_line.chars().count();
+                    let line = raw_line.trim_end_matches('\r');
+                    let trimmed = line.trim_start();
+                    let leading_ws = line.chars().count().saturating_sub(trimmed.chars().count());
+                    if trimmed.starts_with('@') {
+                        if let Some(brace_idx) = trimmed.find('{') {
+                            let entry_type = &trimmed[1..brace_idx];
+                            let after_brace = &trimmed[brace_idx + 1..];
+                            let key = after_brace.split(',').next().unwrap_or("").trim();
+                            if !key.is_empty() {
+                                bib_items.push(DocumentOutlineItem {
+                                    level: 1,
+                                    number_label: (bib_items.len() + 1).to_string(),
+                                    title: format!("@{} ({})", key, entry_type),
+                                    file: current_file.to_path_buf(),
+                                    line_number,
+                                    char_offset: char_cursor + leading_ws,
+                                });
+                            }
+                        }
+                    }
+                    char_cursor += line_char_len + 1;
+                }
+                bib_items
+            }
+            _ => {
+                let mut md_items = Vec::new();
+                let mut char_cursor = 0usize;
+                for (idx, raw_line) in text.split('\n').enumerate() {
+                    let line_number = idx + 1;
+                    let line_char_len = raw_line.chars().count();
+                    let line = raw_line.trim_end_matches('\r');
+                    let trimmed = line.trim_start();
+                    let leading_ws = line.chars().count().saturating_sub(trimmed.chars().count());
+                    let hash_count = trimmed.chars().take_while(|&c| c == '#').count();
+                    if hash_count >= 1 {
+                        let after_hash = &trimmed[hash_count..];
+                        if after_hash.starts_with(' ') {
+                            let title = after_hash.trim().to_string();
+                            if !title.is_empty() {
+                                md_items.push(DocumentOutlineItem {
+                                    level: hash_count,
+                                    number_label: String::new(),
+                                    title,
+                                    file: current_file.to_path_buf(),
+                                    line_number,
+                                    char_offset: char_cursor + leading_ws,
+                                });
+                            }
+                        }
+                    }
+                    char_cursor += line_char_len + 1;
+                }
+                md_items
+            }
+        };
+
+        Self::assign_hierarchical_numbers(&mut items);
+        items
+    }
+
+    fn render_outline_tree_node(
+        ui: &mut Ui,
+        node: &OutlineTreeNode,
+        depth: usize,
+        is_last: bool,
+        active_file: &Path,
+        palette: &ThemePalette,
+        navigate_to_item: &mut Option<DocumentOutlineItem>,
+    ) {
+        let has_children = !node.children.is_empty();
+        let collapse_id = ui.make_persistent_id((
+            "outline_tree_node",
+            &node.item.file,
+            node.item.line_number,
+            &node.item.title,
+        ));
+        let mut is_open = ui
+            .ctx()
+            .data_mut(|d| *d.get_persisted_mut_or(collapse_id, true));
+
+        let indent_w = (depth as f32) * 14.0;
+        let row_resp = ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if indent_w > 0.0 {
+                let (guide_rect, _) =
+                    ui.allocate_exact_size(Vec2::new(indent_w, 18.0), Sense::hover());
+                // Draw vertical hierarchy guide lines for ancestor levels
+                for lvl in 0..depth {
+                    let gx = guide_rect.min.x + (lvl as f32) * 14.0 + 6.0;
+                    let max_y = if lvl + 1 == depth && is_last && !has_children {
+                        guide_rect.center().y
+                    } else {
+                        guide_rect.max.y
+                    };
+                    ui.painter().line_segment(
+                        [Pos2::new(gx, guide_rect.min.y), Pos2::new(gx, max_y)],
+                        Stroke::new(1.0_f32, palette.panel_border),
+                    );
+                    if lvl + 1 == depth {
+                        ui.painter().line_segment(
+                            [
+                                Pos2::new(gx, guide_rect.center().y),
+                                Pos2::new(gx + 6.0, guide_rect.center().y),
+                            ],
+                            Stroke::new(1.0_f32, palette.panel_border),
+                        );
+                    }
+                }
+            }
+
+            if has_children {
+                let arrow = if is_open { "▼" } else { "▶" };
+                if ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new(arrow)
+                                .size(9.5)
+                                .monospace()
+                                .color(palette.text_muted),
+                        )
+                        .frame(false)
+                        .min_size(Vec2::new(12.0, 16.0)),
+                    )
+                    .on_hover_text(if is_open {
+                        "Collapse subheadings"
+                    } else {
+                        "Expand subheadings"
+                    })
+                    .clicked()
+                {
+                    is_open = !is_open;
+                    ui.ctx().data_mut(|d| d.insert_persisted(collapse_id, is_open));
+                }
+            } else {
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new("•")
+                        .size(10.5)
+                        .monospace()
+                        .color(palette.text_muted),
+                );
+            }
+
+            // Typst hierarchy badge (`= 1`, `== 1.1`, `=== 1.2.1`)
+            let badge_color = match node.item.level {
+                1 => palette.syn_keyword,
+                2 => palette.syn_property_or_func,
+                3 => palette.syn_string,
+                _ => palette.syn_operator,
+            };
+            let eq_prefix = "=".repeat(node.item.level.min(4));
+            let badge_text = if node.item.number_label.is_empty() {
+                eq_prefix
+            } else {
+                format!("{} {}", eq_prefix, node.item.number_label)
+            };
+            ui.label(
+                RichText::new(badge_text)
+                    .size(10.0)
+                    .monospace()
+                    .strong()
+                    .color(badge_color),
+            );
+
+            let is_external_file = node.item.file != active_file;
+            let max_chars = if is_external_file {
+                16usize.saturating_sub(depth * 2)
+            } else {
+                20usize.saturating_sub(depth * 2)
+            }
+            .max(10);
+            let display_title = if node.item.title.chars().count() > max_chars {
+                let truncated: String = node
+                    .item
+                    .title
+                    .chars()
+                    .take(max_chars.saturating_sub(1))
+                    .collect();
+                format!("{}…", truncated.trim_end())
+            } else {
+                node.item.title.clone()
+            };
+
+            let mut title_rt = RichText::new(display_title).size(11.8).color(if node.is_current {
+                palette.text_primary
+            } else if node.item.level == 1 {
+                palette.text_primary.gamma_multiply(0.92)
+            } else {
+                palette.text_muted
+            });
+            if node.is_current || node.item.level == 1 {
+                title_rt = title_rt.strong();
+            }
+
+            let hover_msg = if is_external_file {
+                format!(
+                    "{} {} — {}\nFile: {} (Line {})\nClick to open & jump cursor here",
+                    "=".repeat(node.item.level),
+                    node.item.number_label,
+                    node.item.title,
+                    node.item.file.display(),
+                    node.item.line_number
+                )
+            } else {
+                format!(
+                    "{} {} — {}\nLine {}\nClick to jump cursor here",
+                    "=".repeat(node.item.level),
+                    node.item.number_label,
+                    node.item.title,
+                    node.item.line_number
+                )
+            };
+
+            let resp = ui
+                .selectable_label(node.is_current, title_rt)
+                .on_hover_text(hover_msg);
+            if resp.clicked() {
+                *navigate_to_item = Some(node.item.clone());
+            }
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let loc_label = if is_external_file {
+                    let short_f = node
+                        .item
+                        .file
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("ext");
+                    format!("{}:L{}", short_f, node.item.line_number)
+                } else {
+                    format!("L{}", node.item.line_number)
+                };
+                ui.label(
+                    RichText::new(loc_label)
+                        .size(9.5)
+                        .monospace()
+                        .color(palette.text_muted),
+                );
+            });
+        });
+
+        let _ = row_resp;
+
+        if has_children && is_open {
+            let child_len = node.children.len();
+            for (c_idx, child) in node.children.iter().enumerate() {
+                Self::render_outline_tree_node(
+                    ui,
+                    child,
+                    depth + 1,
+                    c_idx + 1 == child_len,
+                    active_file,
+                    palette,
+                    navigate_to_item,
+                );
+            }
+        }
     }
 
     fn render_left_file_panel(&mut self, ctx: &Context) {
@@ -1990,8 +2459,8 @@ impl TypstIdeApp {
 
         SidePanel::left("left_file_tree_panel")
             .resizable(true)
-            .default_width(255.0)
-            .width_range(185.0..=440.0)
+            .default_width(265.0)
+            .width_range(195.0..=450.0)
             .frame(
                 Frame::new()
                     .fill(panel_bg)
@@ -2039,7 +2508,7 @@ impl TypstIdeApp {
                 let presences_snapshot = self.collab_ui.remote_presences.clone();
 
                 let total_sidebar_h = ui.available_height();
-                let tree_max_h = (total_sidebar_h * 0.46).max(130.0);
+                let tree_max_h = (total_sidebar_h * 0.42).max(125.0);
 
                 ScrollArea::vertical()
                     .id_salt("file_tree_scroll")
@@ -2075,14 +2544,20 @@ impl TypstIdeApp {
                 ui.separator();
                 ui.add_space(6.0);
 
-                // Document Outline Panel for the currently open text editor file
+                // Document Outline Hierarchy Panel for the currently open text editor file
                 let outline_items = self
                     .project
                     .active_buffer()
                     .and_then(|buf| {
-                        buf.text
-                            .as_deref()
-                            .map(|txt| Self::extract_document_outline(txt, buf.kind))
+                        buf.text.as_deref().map(|txt| {
+                            Self::extract_document_outline(
+                                txt,
+                                buf.kind,
+                                &buf.rel_path,
+                                Some(&self.project),
+                                &self.compiled_outline,
+                            )
+                        })
                     })
                     .unwrap_or_default();
 
@@ -2095,7 +2570,7 @@ impl TypstIdeApp {
                     );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.label(
-                            RichText::new(format!("{} item(s)", outline_items.len()))
+                            RichText::new(format!("{} heading(s)", outline_items.len()))
                                 .size(10.5)
                                 .monospace()
                                 .color(palette.text_muted),
@@ -2113,9 +2588,12 @@ impl TypstIdeApp {
                     .iter()
                     .enumerate()
                     .rev()
-                    .find(|(_, item)| item.char_offset <= current_cursor_char)
+                    .find(|(_, item)| {
+                        item.file == active_path && item.char_offset <= current_cursor_char
+                    })
                     .map(|(idx, _)| idx);
 
+                let outline_tree = Self::build_outline_tree(&outline_items, active_outline_idx);
                 let mut navigate_to_item: Option<DocumentOutlineItem> = None;
 
                 Frame::new()
@@ -2128,98 +2606,35 @@ impl TypstIdeApp {
                             .id_salt("document_outline_scroll")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                if outline_items.is_empty() {
+                                if outline_tree.is_empty() {
                                     ui.label(
                                         RichText::new(
-                                            "No headings found in active file.\nAdd `= Heading` or `== Section` to populate the outline.",
+                                            "No Typst headings in active file.\nUse `= Heading`, `== Section`, or `=== Subsection` to build the hierarchy.",
                                         )
                                         .small()
                                         .color(palette.text_muted),
                                     );
                                 } else {
-                                    for (idx, item) in outline_items.iter().enumerate() {
-                                        let is_current = active_outline_idx == Some(idx);
-                                        let indent_px =
-                                            ((item.level.saturating_sub(1)) as f32 * 12.0).min(48.0);
-                                        let prefix = match item.level {
-                                            1 => "H1",
-                                            2 => "H2",
-                                            3 => "H3",
-                                            _ => "H4",
-                                        };
-
-                                        ui.horizontal(|ui| {
-                                            if indent_px > 0.0 {
-                                                ui.add_space(indent_px);
-                                            }
-                                            ui.label(
-                                                RichText::new(prefix)
-                                                    .size(10.0)
-                                                    .monospace()
-                                                    .strong()
-                                                    .color(if item.level == 1 {
-                                                        palette.syn_keyword
-                                                    } else {
-                                                        palette.syn_property_or_func
-                                                    }),
-                                            );
-                                            let max_chars =
-                                                26usize.saturating_sub(item.level.saturating_sub(1) * 2);
-                                            let display_title =
-                                                if item.title.chars().count() > max_chars {
-                                                    let truncated: String = item
-                                                        .title
-                                                        .chars()
-                                                        .take(max_chars.saturating_sub(1))
-                                                        .collect();
-                                                    format!("{}…", truncated.trim_end())
-                                                } else {
-                                                    item.title.clone()
-                                                };
-                                            let title_rt = RichText::new(display_title)
-                                                .size(12.0)
-                                                .color(if is_current {
-                                                    palette.text_primary
-                                                } else {
-                                                    palette.text_muted
-                                                });
-                                            let title_rt = if is_current || item.level == 1 {
-                                                title_rt.strong()
-                                            } else {
-                                                title_rt
-                                            };
-
-                                            let resp = ui
-                                                .selectable_label(is_current, title_rt)
-                                                .on_hover_text(format!(
-                                                    "Click to jump cursor to '{}' (Line {})",
-                                                    item.title, item.line_number
-                                                ));
-                                            if resp.clicked() {
-                                                navigate_to_item = Some(item.clone());
-                                            }
-
-                                            ui.with_layout(
-                                                Layout::right_to_left(Align::Center),
-                                                |ui| {
-                                                    ui.label(
-                                                        RichText::new(format!(
-                                                            "L{}",
-                                                            item.line_number
-                                                        ))
-                                                        .size(10.0)
-                                                        .monospace()
-                                                        .color(palette.text_muted),
-                                                    );
-                                                },
-                                            );
-                                        });
+                                    let root_len = outline_tree.len();
+                                    for (idx, root_node) in outline_tree.iter().enumerate() {
+                                        Self::render_outline_tree_node(
+                                            ui,
+                                            root_node,
+                                            0,
+                                            idx + 1 == root_len,
+                                            &active_path,
+                                            &palette,
+                                            &mut navigate_to_item,
+                                        );
                                     }
                                 }
                             });
                     });
 
                 if let Some(target_item) = navigate_to_item {
+                    if target_item.file != self.project.active_file {
+                        let _ = self.project.open_file(&target_item.file);
+                    }
                     let sel = CharSelection {
                         primary_char: target_item.char_offset,
                         secondary_char: target_item.char_offset,
@@ -2229,8 +2644,11 @@ impl TypstIdeApp {
                     self.last_editor_selection = Some(sel);
                     self.inspect_asset_mode = false;
                     self.status_notice = format!(
-                        "Navigated to '{}' (Line {})",
-                        target_item.title, target_item.line_number
+                        "Navigated to '{} {}' ({}:{})",
+                        target_item.number_label,
+                        target_item.title,
+                        target_item.file.display(),
+                        target_item.line_number
                     );
                 }
 
@@ -2741,6 +3159,49 @@ impl TypstIdeApp {
                                         .layouter(&mut layouter)
                                         .show(ui);
 
+                                    // Restore StickyIndex-preserved cursor or Document Outline click navigation
+                                    // BEFORE painting the Active Line Highlight so the highlight and cursor
+                                    // jump immediately to the selected heading on the same frame.
+                                    if let Some(sel) = restore_cursor {
+                                        output.state.cursor.set_char_range(Some(
+                                            CCursorRange::two(
+                                                CCursor::new(sel.secondary_char),
+                                                CCursor::new(sel.primary_char),
+                                            ),
+                                        ));
+                                        output.state.clone().store(ctx, output.response.id);
+                                    } else if ctx.input(|i| i.pointer.secondary_pressed())
+                                        && output.response.hovered()
+                                    {
+                                        // Preserve existing text selection when right-clicking inside the editor
+                                        if let Some(prev) = prev_selection {
+                                            if prev.primary_char != prev.secondary_char {
+                                                let restored = CCursorRange::two(
+                                                    CCursor::new(prev.secondary_char),
+                                                    CCursor::new(prev.primary_char),
+                                                );
+                                                output.state.cursor.set_char_range(Some(restored));
+                                                output.state.clone().store(ctx, output.response.id);
+                                            }
+                                        }
+                                    }
+
+                                    // If navigated from the Document Outline panel, focus editor and scroll to target heading
+                                    if let Some(target_char) = scroll_to_char {
+                                        output.response.request_focus();
+                                        let target_cursor =
+                                            output.galley.from_ccursor(CCursor::new(target_char));
+                                        let local_rect =
+                                            output.galley.pos_from_cursor(&target_cursor);
+                                        let screen_rect =
+                                            local_rect.translate(output.galley_pos.to_vec2());
+                                        ui.scroll_to_rect(
+                                            screen_rect.expand2(Vec2::new(0.0, 56.0)),
+                                            Some(Align::Center),
+                                        );
+                                        ctx.request_repaint();
+                                    }
+
                                     // Paint aligned gutter line numbers and end-of-line wrap indicators (`↩`)
                                     // for every wrapped visual row in the galley.
                                     let total_rows = output.galley.rows.len();
@@ -2815,46 +3276,6 @@ impl TypstIdeApp {
                                                 ),
                                             ],
                                             Stroke::new(1.0_f32, border_col),
-                                        );
-                                    }
-
-                                    // Restore StickyIndex-preserved cursor or Document Outline click navigation
-                                    if let Some(sel) = restore_cursor {
-                                        output.state.cursor.set_char_range(Some(
-                                            CCursorRange::two(
-                                                CCursor::new(sel.secondary_char),
-                                                CCursor::new(sel.primary_char),
-                                            ),
-                                        ));
-                                        output.state.clone().store(ctx, output.response.id);
-                                    } else if ctx.input(|i| i.pointer.secondary_pressed())
-                                        && output.response.hovered()
-                                    {
-                                        // Preserve existing text selection when right-clicking inside the editor
-                                        if let Some(prev) = prev_selection {
-                                            if prev.primary_char != prev.secondary_char {
-                                                let restored = CCursorRange::two(
-                                                    CCursor::new(prev.secondary_char),
-                                                    CCursor::new(prev.primary_char),
-                                                );
-                                                output.state.cursor.set_char_range(Some(restored));
-                                                output.state.clone().store(ctx, output.response.id);
-                                            }
-                                        }
-                                    }
-
-                                    // If navigated from the Document Outline panel, focus editor and scroll to target heading
-                                    if let Some(target_char) = scroll_to_char {
-                                        output.response.request_focus();
-                                        let target_cursor =
-                                            output.galley.from_ccursor(CCursor::new(target_char));
-                                        let local_rect =
-                                            output.galley.pos_from_cursor(&target_cursor);
-                                        let screen_rect =
-                                            local_rect.translate(output.galley_pos.to_vec2());
-                                        ui.scroll_to_rect(
-                                            screen_rect.expand2(Vec2::new(0.0, 56.0)),
-                                            Some(Align::Center),
                                         );
                                     }
 
@@ -4011,18 +4432,41 @@ mod tests {
 
     #[test]
     fn test_extract_document_outline_typst_headings() {
-        let sample = "#set page(paper: \"a4\")\n\n= Executive Summary\nSome intro text.\n\n== Filesystem & Compilation Pipeline <sec:pipe>\nDetails.\n\n```typst\n= Not A Heading Inside Code Block\n```\n\n=== Mathematical Formulation\n";
-        let outline = TypstIdeApp::extract_document_outline(sample, FileKind::Typst);
-        assert_eq!(outline.len(), 3);
+        let sample = "#set page(paper: \"a4\")\n\n= Executive Summary\nSome intro text.\n\n$ x\n= y + 1 $\n\n== Filesystem & Compilation Pipeline <sec:pipe>\nDetails.\n\n```typst\n= Not A Heading Inside Code Block\n```\n\n=== Mathematical Formulation\n\n#heading(level: 2)[Functional Subheading]\n";
+        let outline = TypstIdeApp::extract_document_outline(
+            sample,
+            FileKind::Typst,
+            Path::new("main.typ"),
+            None,
+            &[],
+        );
+        assert_eq!(outline.len(), 4);
         assert_eq!(outline[0].level, 1);
+        assert_eq!(outline[0].number_label, "1");
         assert_eq!(outline[0].title, "Executive Summary");
         assert_eq!(outline[0].line_number, 3);
         assert_eq!(outline[1].level, 2);
+        assert_eq!(outline[1].number_label, "1.1");
         assert_eq!(outline[1].title, "Filesystem & Compilation Pipeline");
-        assert_eq!(outline[1].line_number, 6);
+        assert_eq!(outline[1].line_number, 9);
         assert_eq!(outline[2].level, 3);
+        assert_eq!(outline[2].number_label, "1.1.1");
         assert_eq!(outline[2].title, "Mathematical Formulation");
-        assert_eq!(outline[2].line_number, 13);
+        assert_eq!(outline[2].line_number, 16);
+        assert_eq!(outline[3].level, 2);
+        assert_eq!(outline[3].number_label, "1.2");
+        assert_eq!(outline[3].title, "Functional Subheading");
+
+        // Verify tree construction builds true nested Typst hierarchy
+        let tree = TypstIdeApp::build_outline_tree(&outline, Some(2));
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].item.title, "Executive Summary");
+        assert_eq!(tree[0].children.len(), 2);
+        assert_eq!(tree[0].children[0].item.title, "Filesystem & Compilation Pipeline");
+        assert_eq!(tree[0].children[0].children.len(), 1);
+        assert_eq!(tree[0].children[0].children[0].item.title, "Mathematical Formulation");
+        assert!(tree[0].children[0].children[0].is_current);
+        assert_eq!(tree[0].children[1].item.title, "Functional Subheading");
 
         // Verify char_offset points accurately to the heading line in the buffer
         let h2_slice: String = sample.chars().skip(outline[1].char_offset).take(5).collect();

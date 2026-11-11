@@ -5,7 +5,9 @@ use std::time::Instant;
 use chrono::{Datelike, Local, Timelike};
 use egui::{ColorImage, Context, TextureHandle, TextureOptions};
 use typst::diag::{Severity, SourceDiagnostic};
-use typst::foundations::Datetime;
+use typst::foundations::{Datetime, NativeElement, StyleChain};
+use typst::introspection::Introspector;
+use typst::model::HeadingElem;
 use typst::utils::Scalar;
 use typst::{World, WorldExt};
 use typst_layout::PagedDocument;
@@ -216,6 +218,16 @@ pub struct DiagnosticItem {
     pub hints: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledOutlineItem {
+    pub level: usize,
+    pub numbers: Option<String>,
+    pub title: String,
+    pub file: PathBuf,
+    pub line: usize,
+    pub char_offset: usize,
+}
+
 #[derive(Clone)]
 pub struct RenderedPageData {
     pub page_number: usize,
@@ -236,6 +248,7 @@ pub struct CompileSnapshot {
     pub pixel_per_pt: f32,
     pub document: Option<Arc<PagedDocument>>,
     pub pages: Vec<RenderedPageData>,
+    pub outline: Vec<CompiledOutlineItem>,
     pub diagnostics: Vec<DiagnosticItem>,
     pub duration_ms: f64,
 }
@@ -255,7 +268,7 @@ pub fn compile_project(
         diagnostics.push(extract_diagnostic(&world, warning));
     }
 
-    let (document, pages) = match warned.output {
+    let (document, pages, outline) = match warned.output {
         Ok(doc) => {
             let doc_pages = doc.pages();
             let mut rendered_pages = Vec::with_capacity(doc_pages.len());
@@ -280,13 +293,14 @@ pub fn compile_project(
                     image: Arc::new(color_image),
                 });
             }
-            (Some(Arc::new(doc)), rendered_pages)
+            let compiled_outline = extract_compiled_outline(&world, &doc);
+            (Some(Arc::new(doc)), rendered_pages, compiled_outline)
         }
         Err(errors) => {
             for err in &errors {
                 diagnostics.push(extract_diagnostic(&world, err));
             }
-            (None, Vec::new())
+            (None, Vec::new(), Vec::new())
         }
     };
 
@@ -297,6 +311,7 @@ pub fn compile_project(
         pixel_per_pt,
         document,
         pages,
+        outline,
         diagnostics,
         duration_ms,
     }
@@ -363,6 +378,62 @@ fn current_pdf_timestamp() -> Option<Timestamp> {
     )?;
     let minute_offset = now.offset().local_minus_utc() / 60;
     Timestamp::new_local(dt, minute_offset).or_else(|| Some(Timestamp::new_utc(dt)))
+}
+
+fn extract_compiled_outline(world: &EditorWorld, doc: &PagedDocument) -> Vec<CompiledOutlineItem> {
+    let mut items = Vec::new();
+    let elems = doc.introspector().query(&HeadingElem::ELEM.select());
+    let default_file = world.display_path_for_id(world.main());
+
+    for elem in elems.iter() {
+        let Some(heading) = elem.to_packed::<HeadingElem>() else {
+            continue;
+        };
+        if !heading.outlined.get(StyleChain::default()) {
+            continue;
+        }
+        let level = heading.resolve_level(StyleChain::default()).get();
+        let numbers = heading.numbers.as_ref().map(|n| n.to_string());
+        let title = heading.body.plain_text().trim().to_string();
+        if title.is_empty() {
+            continue;
+        }
+
+        let span = heading.span();
+        let mut file = default_file.clone();
+        let mut line = 1usize;
+        let mut char_offset = 0usize;
+
+        if let Some(id) = span.id() {
+            #[allow(deprecated)]
+            let is_project_file = id.package().is_none();
+            if is_project_file {
+                file = world.display_path_for_id(id);
+                if let Ok(source) = world.source(id) {
+                    if let Some(range) = world.range(span) {
+                        let byte_start = range.start.min(source.text().len());
+                        line = source
+                            .lines()
+                            .byte_to_line(byte_start)
+                            .map(|l| l + 1)
+                            .unwrap_or(1);
+                        char_offset = source.text()[..byte_start].chars().count();
+                    }
+                }
+            }
+        }
+
+        items.push(CompiledOutlineItem {
+            level,
+            numbers,
+            title,
+            file,
+            line,
+            char_offset,
+        });
+    }
+
+    items
 }
 
 fn extract_diagnostic(world: &EditorWorld, diag: &SourceDiagnostic) -> DiagnosticItem {

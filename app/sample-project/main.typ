@@ -28,6 +28,10 @@
 
 When you open a project folder from disk, `EditorWorld` resolves `#import`, `#include`, and image paths directly from your project directory on disk while merging any unsaved editor buffers in real time.
 
+=== Package & Universe Resolution
+
+External `@preview` packages and local project modules are resolved automatically and cached on disk.
+
 #figure(
   image("assets/diagram.svg", width: 92%),
   caption: [Direct filesystem project tree, `EditorWorld` compiler pipeline, and live GPU page rasterization.],
@@ -39,6 +43,8 @@ Typst's mathematical engine typesets equations using embedded *New Computer Mode
 
 $ cal(L)_("layout")(x, lambda) = sum_(k=1)^N integral_0^T (1/2 norm(nabla phi_k (t))^2 + lambda_k dot psi_k (x, t)) dif t $
 
+=== Multi-Pass Layout Convergence
+
 For multi-page convergence, the layout introspector validates fixed-point stability across $m <= 5$ passes:
 
 $ bold(H) = mat(
@@ -48,7 +54,11 @@ $ bold(H) = mat(
   partial f_n / partial x_1, partial f_n / partial x_2, dots.c, partial f_n / partial x_n;
 ) quad "==>" quad rho(bold(H)^(-1)) < 1 $
 
+= Architecture & PDF Standards
+
 #architecture-table()
+
+== Archival Conformance & Settings
 
 #callout(
   title: "Desktop Workflow & Settings",
