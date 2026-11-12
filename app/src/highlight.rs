@@ -1,3 +1,5 @@
+//! Syntax highlighting engine mapping Typst AST tokens to styled `egui::text::LayoutJob` spans.
+
 use egui::text::{LayoutJob, TextFormat};
 use egui::{FontFamily, FontId};
 use typst::syntax::{highlight, parse, LinkedNode, SyntaxKind, Tag};

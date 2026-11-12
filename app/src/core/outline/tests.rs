@@ -1,3 +1,5 @@
+//! Unit tests for Typst AST heading extraction and outline hierarchy construction.
+
 use std::path::Path;
 
 use super::*;

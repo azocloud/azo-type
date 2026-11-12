@@ -1,3 +1,5 @@
+//! Unit tests for peer awareness state encoding, decoding, and synchronization.
+
 use super::*;
 
 #[test]

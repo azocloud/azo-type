@@ -1,3 +1,5 @@
+//! Atomic disk persistence for CRDT state snapshots (`.typst-collab/state.yrs`) and workspace reconciliation.
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

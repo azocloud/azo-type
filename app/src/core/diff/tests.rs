@@ -1,3 +1,5 @@
+//! Unit tests for UTF-16 text differencing, emoji offsets, and collision path formatting.
+
 use super::*;
 
 #[test]

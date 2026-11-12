@@ -1,3 +1,5 @@
+//! Background asynchronous collaboration session actor coordinating CRDT state, transport, and UI channels.
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc as std_mpsc;

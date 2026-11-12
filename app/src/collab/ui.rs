@@ -1,3 +1,5 @@
+//! Collaborative UI window, peer list badges, session controls, and in-editor remote cursor painting.
+
 use std::path::Path;
 
 use egui::text::CCursor;

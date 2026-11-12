@@ -1,3 +1,5 @@
+//! Multi-file Yrs CRDT document container (`CollabProjectDoc`), sticky cursors, and local undo manager.
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::{Arc, Mutex};

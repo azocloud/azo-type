@@ -1,3 +1,5 @@
+//! Unit tests for PDF export version choices and archival standard validation.
+
 use super::*;
 
 #[test]

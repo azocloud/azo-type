@@ -29,30 +29,45 @@ pub trait SourceResolver {
 /// Outline item extracted from compiled Typst document introspection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledOutlineItem {
+    /// Heading nesting depth (1-based).
     pub level: usize,
+    /// Optional compiled section numbering string.
     pub numbers: Option<String>,
+    /// Plain-text heading title.
     pub title: String,
+    /// Relative path of the source file containing this heading.
     pub file: PathBuf,
+    /// 1-based line number in the source file.
     pub line: usize,
+    /// Character offset from the start of the source file.
     pub char_offset: usize,
 }
 
 /// A single heading or navigable entry extracted from an open document or project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentOutlineItem {
+    /// Heading nesting depth (1-based).
     pub level: usize,
+    /// Hierarchical section number label (e.g. `"1.2.1"`).
     pub number_label: String,
+    /// Plain-text heading title.
     pub title: String,
+    /// Relative path of the source file containing this entry.
     pub file: PathBuf,
+    /// 1-based line number in the source file.
     pub line_number: usize,
+    /// Character offset from the start of the source file.
     pub char_offset: usize,
 }
 
 /// Tree node representing a document heading with nested child sections.
 #[derive(Debug, Clone)]
 pub struct OutlineTreeNode {
+    /// The heading entry data for this node.
     pub item: DocumentOutlineItem,
+    /// Whether the editor cursor is currently inside this section.
     pub is_current: bool,
+    /// Nested sub-section nodes.
     pub children: Vec<OutlineTreeNode>,
 }
 

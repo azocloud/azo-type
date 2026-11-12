@@ -1,3 +1,5 @@
+//! Binary entrypoint launching the native `eframe` desktop window and parsing CLI arguments.
+
 use typst_ide::app::TypstIdeApp;
 
 fn parse_cli_args() -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) {

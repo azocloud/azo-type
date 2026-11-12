@@ -1,3 +1,5 @@
+//! Unit tests for file kind extension classification and text editability.
+
 use super::*;
 
 #[test]

@@ -1,3 +1,5 @@
+//! Unit tests for the Typst compiler, package fetching, and PDF export pipeline.
+
 use super::*;
 
 #[test]

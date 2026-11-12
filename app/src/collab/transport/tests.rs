@@ -1,3 +1,5 @@
+//! Unit tests for session ticket encoding, redaction, and Iroh QUIC handshake.
+
 use super::*;
 
 #[test]

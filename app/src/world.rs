@@ -1,3 +1,5 @@
+//! Implementation of `typst::World` (`IdeWorld`) providing fonts, packages, and file sources to the compiler.
+
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::{self, Cursor, Read};

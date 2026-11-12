@@ -1,3 +1,5 @@
+//! Library root for `typst-ide`, exposing domain, platform, collaboration, compiler, and UI modules.
+
 use std::path::PathBuf;
 
 pub mod app;

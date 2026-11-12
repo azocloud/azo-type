@@ -1,3 +1,5 @@
+//! Top-level application state orchestrator (`TypstIdeApp`), event loop, and channel dispatcher.
+
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;

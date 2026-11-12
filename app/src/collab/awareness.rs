@@ -1,3 +1,5 @@
+//! Ephemeral peer presence, active file tracking, and remote cursor awareness synchronization.
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};

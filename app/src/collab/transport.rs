@@ -1,3 +1,5 @@
+//! Concrete `Iroh` QUIC peer-to-peer network transport implementation (`IrohCollabTransport`).
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

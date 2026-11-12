@@ -12,19 +12,25 @@ mod tests;
 /// Minimal text edit operation expressed in `yrs` UTF-16 code-unit offsets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Utf16TextDiff {
+    /// Starting offset in UTF-16 code units.
     pub utf16_index: u32,
+    /// Number of UTF-16 code units to remove starting at `utf16_index`.
     pub utf16_remove_len: u32,
+    /// Substring to insert at `utf16_index`.
     pub insert_text: String,
 }
 
 /// Cursor and selection range expressed in Unicode scalar `char` indices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CharSelection {
+    /// Active cursor position in Unicode scalar `char` indices.
     pub primary_char: usize,
+    /// Selection anchor position in Unicode scalar `char` indices.
     pub secondary_char: usize,
 }
 
 impl CharSelection {
+    /// Creates a collapsed caret selection at `char_idx`.
     pub fn caret(char_idx: usize) -> Self {
         Self {
             primary_char: char_idx,

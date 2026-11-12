@@ -8,17 +8,24 @@ mod tests;
 /// Selectable PDF version in the Export PDF dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PdfVersionChoice {
+    /// PDF 1.4 standard.
     V1_4,
+    /// PDF 1.5 standard.
     V1_5,
+    /// PDF 1.6 standard.
     V1_6,
+    /// PDF 1.7 standard (default).
     V1_7,
+    /// PDF 2.0 standard.
     V2_0,
 }
 
 impl PdfVersionChoice {
+    /// Slice containing all supported PDF version choices in order.
     pub const ALL: &'static [PdfVersionChoice] =
         &[Self::V1_4, Self::V1_5, Self::V1_6, Self::V1_7, Self::V2_0];
 
+    /// Human-readable display label for the UI dropdown.
     pub fn label(self) -> &'static str {
         match self {
             Self::V1_4 => "PDF 1.4",
@@ -29,6 +36,7 @@ impl PdfVersionChoice {
         }
     }
 
+    /// Compact version number string (e.g. `"1.7"`).
     pub fn short_label(self) -> &'static str {
         match self {
             Self::V1_4 => "1.4",
@@ -39,6 +47,7 @@ impl PdfVersionChoice {
         }
     }
 
+    /// Converts this choice into the corresponding `typst_pdf::PdfStandard`.
     pub fn to_standard(self) -> PdfStandard {
         match self {
             Self::V1_4 => PdfStandard::V_1_4,
@@ -53,21 +62,34 @@ impl PdfVersionChoice {
 /// Selectable PDF archival (PDF/A) standard in the Export PDF dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PdfArchivalStandard {
+    /// Standard non-archival PDF export.
     None,
+    /// PDF/A-1b (ISO 19005-1 Level B).
     A1b,
+    /// PDF/A-1a (ISO 19005-1 Level A).
     A1a,
+    /// PDF/A-2b (ISO 19005-2 Level B).
     A2b,
+    /// PDF/A-2u (ISO 19005-2 Level U).
     A2u,
+    /// PDF/A-2a (ISO 19005-2 Level A).
     A2a,
+    /// PDF/A-3b (ISO 19005-3 Level B).
     A3b,
+    /// PDF/A-3u (ISO 19005-3 Level U).
     A3u,
+    /// PDF/A-3a (ISO 19005-3 Level A).
     A3a,
+    /// PDF/A-4 (ISO 19005-4).
     A4,
+    /// PDF/A-4f (ISO 19005-4 with embedded files).
     A4f,
+    /// PDF/A-4e (ISO 19005-4 engineering archival).
     A4e,
 }
 
 impl PdfArchivalStandard {
+    /// Slice containing all selectable PDF/A archival options.
     pub const ALL: &'static [PdfArchivalStandard] = &[
         Self::None,
         Self::A1b,
@@ -83,6 +105,7 @@ impl PdfArchivalStandard {
         Self::A4e,
     ];
 
+    /// Descriptive label for the UI dropdown.
     pub fn label(self) -> &'static str {
         match self {
             Self::None => "None (Standard PDF)",
@@ -100,6 +123,7 @@ impl PdfArchivalStandard {
         }
     }
 
+    /// Short standard identifier (e.g. `"PDF/A-2b"`).
     pub fn code_label(self) -> &'static str {
         match self {
             Self::None => "None",
@@ -117,6 +141,7 @@ impl PdfArchivalStandard {
         }
     }
 
+    /// Converts this archival choice into an optional `typst_pdf::PdfStandard`.
     pub fn to_standard(self) -> Option<PdfStandard> {
         match self {
             Self::None => None,
@@ -150,9 +175,13 @@ impl PdfArchivalStandard {
 /// Configuration for PDF export chosen by the user in the Export PDF dialog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PdfExportConfig {
+    /// Target PDF specification version.
     pub version: PdfVersionChoice,
+    /// Optional PDF/A archival compliance standard.
     pub archival_standard: PdfArchivalStandard,
+    /// Whether PDF/UA-1 universal accessibility compliance is enabled.
     pub pdf_ua1: bool,
+    /// Whether document structure tags are emitted into the PDF.
     pub tagged: bool,
 }
 
@@ -168,6 +197,7 @@ impl Default for PdfExportConfig {
 }
 
 impl PdfExportConfig {
+    /// Validates and builds the `typst_pdf::PdfStandards` configuration.
     pub fn build_standards(&self) -> Result<PdfStandards, String> {
         let mut list = vec![self.version.to_standard()];
         if let Some(a_std) = self.archival_standard.to_standard() {
@@ -179,6 +209,7 @@ impl PdfExportConfig {
         PdfStandards::new(&list).map_err(|e| e.message().to_string())
     }
 
+    /// Formats a human-readable badge string summarizing active PDF standards.
     pub fn summary_badge(&self) -> String {
         let mut parts = vec![format!("PDF {}", self.version.short_label())];
         if self.archival_standard != PdfArchivalStandard::None {

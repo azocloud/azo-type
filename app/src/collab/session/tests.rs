@@ -1,3 +1,5 @@
+//! Unit tests for end-to-end multi-file P2P session synchronization over Iroh.
+
 use std::time::Instant;
 
 use super::*;

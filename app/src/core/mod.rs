@@ -7,6 +7,8 @@
 //! - [`pdf`]: PDF versions, archival (PDF/A) standards, and export configurations.
 //! - [`settings`]: User preferences model and default configuration.
 
+#![warn(missing_docs)]
+
 pub mod diff;
 pub mod file_kind;
 pub mod outline;

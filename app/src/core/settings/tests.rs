@@ -1,3 +1,5 @@
+//! Unit tests for default IDE user preferences and settings initialization.
+
 use super::*;
 
 #[test]

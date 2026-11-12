@@ -1,3 +1,5 @@
+//! On-disk workspace management (`DiskProject`), file tree scanning, and open buffer caching.
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

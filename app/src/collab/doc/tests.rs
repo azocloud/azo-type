@@ -1,3 +1,5 @@
+//! Unit tests for Yrs CRDT convergence, sticky cursors, path collisions, and local undo.
+
 use super::*;
 
 #[test]

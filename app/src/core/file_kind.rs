@@ -8,11 +8,17 @@ mod tests;
 /// Semantic classification of project files for syntax highlighting, editing, and preview.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileKind {
+    /// Typst markup source file (`.typ`).
     Typst,
+    /// Bibliography file (`.bib`, `.yml`, `.yaml`).
     Bib,
+    /// Scalable Vector Graphics file (`.svg`).
     Svg,
+    /// Raster image asset (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`).
     Image,
+    /// Plain text or structured text file (`.txt`, `.md`, `.csv`, `.json`, `.toml`).
     Text,
+    /// Opaque binary file asset.
     Binary,
 }
 
