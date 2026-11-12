@@ -6,6 +6,7 @@ use egui::{
     Align, CentralPanel, Color32, Context, CornerRadius, Frame, Key, Layout, Margin, RichText,
     TextEdit, Ui, ViewportBuilder, ViewportClass, ViewportId, Window,
 };
+use rust_i18n::t;
 
 use crate::ui::theme::{apply_theme, ThemePalette};
 
@@ -30,19 +31,19 @@ pub fn render_new_file_modal(
     let viewport_id = ViewportId::from_hash_of("azo_type_new_file_os_window");
     let builder = crate::platform::configure_viewport_builder(
         ViewportBuilder::default()
-            .with_title("New File in Project")
+            .with_title(t!("file_modals.new_file_title"))
             .with_inner_size([440.0, 160.0])
             .with_min_inner_size([360.0, 140.0]),
     );
 
     ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
         let mut render_body = |ui: &mut Ui| {
-            ui.label(RichText::new("Create a new file inside the active project folder:").strong());
+            ui.label(RichText::new(t!("file_modals.new_file_prompt")).strong());
             ui.add_space(6.0);
             let resp = ui.add(
                 TextEdit::singleline(file_name_buffer)
                     .desired_width(f32::INFINITY)
-                    .hint_text("e.g. chapters/results.typ"),
+                    .hint_text(t!("file_modals.new_file_hint")),
             );
             let enter_pressed = resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             if enter_pressed {
@@ -53,7 +54,7 @@ pub fn render_new_file_modal(
             ui.add_space(4.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let create_btn = egui::Button::new(
-                    RichText::new("Create on Disk")
+                    RichText::new(t!("file_modals.create_btn"))
                         .strong()
                         .color(Color32::WHITE),
                 )
@@ -62,14 +63,14 @@ pub fn render_new_file_modal(
                 if ui.add(create_btn).clicked() {
                     trigger_create = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(t!("file_modals.cancel_btn")).clicked() {
                     close_clicked = true;
                 }
             });
         };
 
         if class == ViewportClass::Embedded {
-            Window::new("New File in Project")
+            Window::new(t!("file_modals.new_file_title"))
                 .open(&mut is_open)
                 .resizable(false)
                 .collapsible(false)
@@ -120,14 +121,18 @@ pub fn render_rename_file_modal(
     let viewport_id = ViewportId::from_hash_of("azo_type_rename_file_os_window");
     let builder = crate::platform::configure_viewport_builder(
         ViewportBuilder::default()
-            .with_title("Rename File")
+            .with_title(t!("file_modals.rename_file_title"))
             .with_inner_size([440.0, 160.0])
             .with_min_inner_size([360.0, 140.0]),
     );
 
     ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
         let mut render_body = |ui: &mut Ui| {
-            ui.label(RichText::new(format!("Rename '{}' to:", old_rel.display())).strong());
+            let prompt = t!(
+                "file_modals.rename_file_prompt",
+                name = old_rel.display().to_string()
+            );
+            ui.label(RichText::new(prompt).strong());
             ui.add_space(6.0);
             let resp =
                 ui.add(TextEdit::singleline(rename_input_buffer).desired_width(f32::INFINITY));
@@ -140,7 +145,7 @@ pub fn render_rename_file_modal(
             ui.add_space(4.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let rename_btn = egui::Button::new(
-                    RichText::new("Rename on Disk")
+                    RichText::new(t!("file_modals.rename_btn"))
                         .strong()
                         .color(Color32::WHITE),
                 )
@@ -149,14 +154,14 @@ pub fn render_rename_file_modal(
                 if ui.add(rename_btn).clicked() {
                     trigger_rename = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(t!("file_modals.cancel_btn")).clicked() {
                     close_clicked = true;
                 }
             });
         };
 
         if class == ViewportClass::Embedded {
-            Window::new("Rename File")
+            Window::new(t!("file_modals.rename_file_title"))
                 .open(&mut is_open)
                 .resizable(false)
                 .collapsible(false)

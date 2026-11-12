@@ -6,6 +6,7 @@ use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, Pos2, Rect, RichText, ScrollArea, Sense,
     Stroke, StrokeKind, Ui, Vec2,
 };
+use rust_i18n::t;
 
 use crate::compiler::{DiagnosticItem, RenderedPageTexture};
 use crate::ui::theme::ThemePalette;
@@ -32,15 +33,16 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Option
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("LIVE DOCUMENT PREVIEW")
+                    RichText::new(t!("preview.title"))
                         .size(11.5)
                         .strong()
                         .color(palette.text_muted),
                 );
 
                 ui.separator();
+                let pages_str = t!("preview.pages_count", count = params.page_textures.len());
                 ui.label(
-                    RichText::new(format!("{} Page(s)", params.page_textures.len()))
+                    RichText::new(pages_str)
                         .size(12.0)
                         .strong()
                         .color(palette.text_primary),
@@ -48,14 +50,18 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Option
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui
-                        .small_button("Fit Width")
-                        .on_hover_text("Reset preview zoom to 100%")
+                        .small_button(t!("preview.fit_width"))
+                        .on_hover_text(t!("preview.fit_width_tooltip"))
                         .clicked()
                     {
                         *params.zoom = 1.0;
                     }
+                    let scale_str = t!(
+                        "preview.scale",
+                        percent = format!("{:.0}", *params.zoom * 100.0)
+                    );
                     ui.label(
-                        RichText::new(format!("Scale: {:.0}%", *params.zoom * 100.0))
+                        RichText::new(scale_str)
                             .size(11.5)
                             .monospace()
                             .color(palette.text_muted),
@@ -96,7 +102,7 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Option
                             if params.page_textures.is_empty() {
                                 ui.add_space(40.0);
                                 ui.label(
-                                    RichText::new("No rendered pages available.")
+                                    RichText::new(t!("preview.no_pages"))
                                         .size(14.0)
                                         .color(palette.text_muted),
                                 );
@@ -143,14 +149,15 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Option
                                     );
 
                                     ui.add_space(6.0);
+                                    let page_str = t!(
+                                        "preview.page_x_of_y",
+                                        current = page.page_number,
+                                        total = params.page_textures.len()
+                                    );
                                     ui.label(
-                                        RichText::new(format!(
-                                            "Page {} of {}",
-                                            page.page_number,
-                                            params.page_textures.len()
-                                        ))
-                                        .size(11.0)
-                                        .color(palette.text_muted),
+                                        RichText::new(page_str)
+                                            .size(11.0)
+                                            .color(palette.text_muted),
                                     );
                                     ui.add_space(18.0);
                                 }
@@ -179,9 +186,12 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Option
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let title = if error_count > 0 {
-                        format!("[!] Typst Compiler Diagnostics ({} Error(s))", error_count)
+                        t!("preview.diagnostics_errors", count = error_count)
                     } else {
-                        format!("[!] Typst Compiler Warnings ({})", params.diagnostics.len())
+                        t!(
+                            "preview.diagnostics_warnings",
+                            count = params.diagnostics.len()
+                        )
                     };
                     ui.label(
                         RichText::new(title)
@@ -214,7 +224,7 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Option
                                     .small_button(
                                         RichText::new(&loc).monospace().color(badge_color),
                                     )
-                                    .on_hover_text("Click to open file in editor")
+                                    .on_hover_text(t!("preview.open_file_tooltip"))
                                     .clicked()
                                 {
                                     file_to_open = Some(diag.file.clone());
@@ -227,8 +237,9 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Option
                                 );
                             });
                             for hint in &diag.hints {
+                                let hint_str = t!("preview.hint", hint = hint);
                                 ui.label(
-                                    RichText::new(format!("  Hint: {}", hint))
+                                    RichText::new(hint_str)
                                         .italics()
                                         .size(11.5)
                                         .color(palette.text_muted),

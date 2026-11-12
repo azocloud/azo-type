@@ -51,7 +51,7 @@ pub fn locale_native_name(locale: &str) -> &'static str {
     }
 }
 
-/// Persistent application state stored via `eframe::Storage`.
+/// Persistent application state across restarts.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AppSavedState {
     /// Active user interface language locale (e.g. `"en"`, `"de"`).

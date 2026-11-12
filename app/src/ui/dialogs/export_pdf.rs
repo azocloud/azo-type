@@ -6,6 +6,7 @@ use egui::{
     Align, CentralPanel, Color32, Context, CornerRadius, Frame, Layout, Margin, RichText,
     ScrollArea, Stroke, Ui, ViewportBuilder, ViewportClass, ViewportId, Window,
 };
+use rust_i18n::t;
 
 use crate::core::pdf::{PdfArchivalStandard, PdfExportConfig, PdfVersionChoice};
 use crate::ui::theme::{apply_theme, ThemePalette};
@@ -37,7 +38,7 @@ pub fn render_export_pdf_dialog(
     let viewport_id = ViewportId::from_hash_of("azo_type_export_pdf_os_window");
     let builder = crate::platform::configure_viewport_builder(
         ViewportBuilder::default()
-            .with_title("Export PDF")
+            .with_title(t!("export_pdf.window_title"))
             .with_inner_size([560.0, 480.0])
             .with_min_inner_size([460.0, 380.0]),
     );
@@ -49,7 +50,7 @@ pub fn render_export_pdf_dialog(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Target Document:").strong());
+                        ui.label(RichText::new(t!("export_pdf.target_document")).strong());
                         ui.code(entry_file.display().to_string());
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.label(
@@ -69,14 +70,12 @@ pub fn render_export_pdf_dialog(
                         .corner_radius(CornerRadius::same(6))
                         .inner_margin(Margin::symmetric(12, 10))
                         .show(ui, |ui| {
-                            ui.label(RichText::new("1. PDF Version").strong().size(13.0));
                             ui.label(
-                                RichText::new(
-                                    "Choose the target PDF specification version for the exported document:",
-                                )
-                                .small()
-                                .weak(),
+                                RichText::new(t!("export_pdf.section_version"))
+                                    .strong()
+                                    .size(13.0),
                             );
+                            ui.label(RichText::new(t!("export_pdf.version_desc")).small().weak());
                             ui.add_space(6.0);
                             ui.horizontal_wrapped(|ui| {
                                 for &ver in PdfVersionChoice::ALL {
@@ -107,22 +106,16 @@ pub fn render_export_pdf_dialog(
                         .inner_margin(Margin::symmetric(12, 10))
                         .show(ui, |ui| {
                             ui.label(
-                                RichText::new("2. PDF Archival & Conformance Standard (PDF/A)")
+                                RichText::new(t!("export_pdf.section_standard"))
                                     .strong()
                                     .size(13.0),
                             );
-                            ui.label(
-                                RichText::new(
-                                    "Select an ISO 19005 archival standard (such as PDF/A-2a, PDF/A-2b, or PDF/A-3a):",
-                                )
-                                .small()
-                                .weak(),
-                            );
+                            ui.label(RichText::new(t!("export_pdf.standard_desc")).small().weak());
                             ui.add_space(6.0);
 
                             // Quick Preset Buttons for common standards
                             ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new("Quick Presets:").small());
+                                ui.label(RichText::new(t!("export_pdf.quick_presets")).small());
                                 let presets = [
                                     PdfArchivalStandard::None,
                                     PdfArchivalStandard::A2b,
@@ -178,10 +171,7 @@ pub fn render_export_pdf_dialog(
                             ui.add_space(4.0);
 
                             if ui
-                                .checkbox(
-                                    &mut config.pdf_ua1,
-                                    "Also enforce PDF/UA-1 (Universal Accessibility — ISO 14289-1)",
-                                )
+                                .checkbox(&mut config.pdf_ua1, t!("export_pdf.pdf_ua1_label"))
                                 .changed()
                             {
                                 *export_error = None;
@@ -207,7 +197,7 @@ pub fn render_export_pdf_dialog(
                                 !requires_tagged,
                                 egui::Checkbox::new(
                                     &mut config.tagged,
-                                    "Generate Tagged PDF (Document Accessibility Structure Tree)",
+                                    t!("export_pdf.tagged_pdf_label"),
                                 ),
                             );
                         });
@@ -232,7 +222,7 @@ pub fn render_export_pdf_dialog(
                             }
                             ui.horizontal_wrapped(|ui| {
                                 ui.label(
-                                    RichText::new("✓ Valid Standard Configuration")
+                                    RichText::new(t!("export_pdf.valid_config"))
                                         .color(Color32::from_rgb(52, 211, 153))
                                         .strong()
                                         .small(),
@@ -256,24 +246,24 @@ pub fn render_export_pdf_dialog(
                                 .corner_radius(CornerRadius::same(5))
                                 .inner_margin(Margin::symmetric(10, 6))
                                 .show(ui, |ui| {
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "Incompatible Version & Standard: {}",
-                                            validation_err
-                                        ))
-                                        .color(Color32::from_rgb(248, 113, 113))
-                                        .strong()
-                                        .small(),
+                                    let err_text = t!(
+                                        "export_pdf.incompatible_config",
+                                        error = validation_err.to_string()
                                     );
-                                    if let Some(rec) = config.archival_standard.recommended_version()
+                                    ui.label(
+                                        RichText::new(err_text)
+                                            .color(Color32::from_rgb(248, 113, 113))
+                                            .strong()
+                                            .small(),
+                                    );
+                                    if let Some(rec) =
+                                        config.archival_standard.recommended_version()
                                     {
-                                        if ui
-                                            .small_button(format!(
-                                                "Switch to compatible {}",
-                                                rec.label()
-                                            ))
-                                            .clicked()
-                                        {
+                                        let btn_label = t!(
+                                            "export_pdf.switch_compatible",
+                                            version = rec.label()
+                                        );
+                                        if ui.small_button(btn_label).clicked() {
                                             config.version = rec;
                                             *export_error = None;
                                         }
@@ -284,8 +274,9 @@ pub fn render_export_pdf_dialog(
 
                     if let Some(ref err_msg) = *export_error {
                         ui.add_space(4.0);
+                        let export_err_text = t!("export_pdf.export_error", error = err_msg);
                         ui.label(
-                            RichText::new(format!("Export Error: {}", err_msg))
+                            RichText::new(export_err_text)
                                 .color(Color32::from_rgb(248, 113, 113))
                                 .strong()
                                 .small(),
@@ -298,13 +289,13 @@ pub fn render_export_pdf_dialog(
 
                     let is_valid = config.build_standards().is_ok();
                     ui.horizontal(|ui| {
-                        if ui.button("Reset Defaults").clicked() {
+                        if ui.button(t!("export_pdf.reset_defaults")).clicked() {
                             *config = PdfExportConfig::default();
                             *export_error = None;
                         }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             let export_btn = egui::Button::new(
-                                RichText::new("Export PDF to Disk...")
+                                RichText::new(t!("export_pdf.export_btn"))
                                     .strong()
                                     .color(Color32::WHITE),
                             )
@@ -318,7 +309,7 @@ pub fn render_export_pdf_dialog(
                             if ui.add_enabled(is_valid, export_btn).clicked() {
                                 trigger_export = true;
                             }
-                            if ui.button("Cancel").clicked() {
+                            if ui.button(t!("export_pdf.cancel_btn")).clicked() {
                                 close_clicked = true;
                             }
                         });
@@ -327,7 +318,7 @@ pub fn render_export_pdf_dialog(
         };
 
         if class == ViewportClass::Embedded {
-            Window::new("Export PDF")
+            Window::new(t!("export_pdf.window_title"))
                 .open(&mut is_open)
                 .resizable(true)
                 .collapsible(false)

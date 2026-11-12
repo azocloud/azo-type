@@ -17,7 +17,7 @@
 
 | Module Path | Purpose (`//!` Summary) | Key Public Types / Entrypoints | Internal `crate::` Deps | Tests Location | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `app/src/app.rs` | Top-level application state orchestrator (`AzoTypeApp`), event loop, and channel dispatcher. | `IoEvent`, `TypstIdeApp`, `AzoTypeApp`, `apply_theme`, `set_language` | `collab`, `compiler`, `core`, `highlight`, `platform`, `project`, `ui`, `world` | *(covered via integration/UI)* | Top-level `eframe::App` state orchestrator; delegates view rendering to `ui/`. |
+| `app/src/app.rs` | Top-level application state orchestrator (`AzoTypeApp`), event loop, and channel dispatcher. | `IoEvent`, `TypstIdeApp`, `AzoTypeApp`, `set_language` | `collab`, `compiler`, `core`, `highlight`, `platform`, `project`, `ui`, `world` | *(covered via integration/UI)* | Top-level `eframe::App` state orchestrator; delegates view rendering to `ui/`. |
 | `app/src/collab/awareness.rs` | Ephemeral peer presence, active file tracking, and remote cursor awareness synchronization. | `PeerPresence`, `CollabAwareness`, `client_id`, `set_local_presence`, `encode_full_update`, `apply_remote_awareness_bytes` | *(none)* | `app/src/collab/awareness/tests.rs` | — |
 | `app/src/collab/doc.rs` | Multi-file Yrs CRDT document container (`CollabProjectDoc`), sticky cursors, and local undo manager. | `LOCAL_ORIGIN`, `REMOTE_ORIGIN`, `FILES_MAP_KEY`, `CollabFileEntry`, `CollabProjectDoc`, `with_client_id` | `core` | `app/src/collab/doc/tests.rs` | — |
 | `app/src/collab/mod.rs` | Peer-to-peer real-time collaborative editing subsystem (Yrs CRDT + Iroh QUIC transport). | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
@@ -25,7 +25,7 @@
 | `app/src/collab/protocol.rs` | Wire protocol definitions, tickets, and abstract transport trait for P2P collaboration. | `COLLAB_ALPN`, `COLLAB_PROTOCOL_VERSION`, `MAX_WIRE_FRAME_BYTES`, `TICKET_PREFIX`, `ConnectionRoute`, `badge_label` | *(none)* | *(covered via integration/UI)* | `SessionTicket` redacts secret bytes in `Debug` impl. |
 | `app/src/collab/session.rs` | Background asynchronous collaboration session actor coordinating CRDT state, transport, and UI channels. | `PeerLifecycleState`, `label`, `ConnectedPeerStatus`, `UiToSessionCmd`, `SessionToUiEvent`, `CollabSessionHandle` | `collab` | `app/src/collab/session/tests.rs` | Runs a dedicated `tokio` runtime on a background thread; communicates via `mpsc`. |
 | `app/src/collab/transport.rs` | Concrete `Iroh` QUIC peer-to-peer network transport implementation (`IrohCollabTransport`). | `inspect_connection_route`, `write_framed_message`, `read_framed_message`, `IrohTransport`, `bind_host`, `connect_with_ticket` | `collab` | `app/src/collab/transport/tests.rs` | — |
-| `app/src/collab/ui.rs` | Collaborative UI window, peer list badges, session controls, and in-editor remote cursor painting. | `CollabUiState`, `connected_peer_count`, `peers_in_file`, `render_collaboration_window`, `paint_remote_cursors_in_editor` | `collab`, `highlight` | *(covered via integration/UI)* | — |
+| `app/src/collab/ui.rs` | Collaborative UI window, peer list badges, session controls, and in-editor remote cursor painting. | `CollabUiState`, `connected_peer_count`, `peers_in_file`, `on_session_started`, `reset_session`, `render_collaboration_window` | `collab`, `highlight` | *(covered via integration/UI)* | — |
 | `app/src/compiler.rs` | Incremental Typst document compiler, rasterizer, PDF exporter, and diagnostic collector. | `DiagnosticItem`, `RenderedPageData`, `RenderedPageTexture`, `CompileSnapshot`, `compile_project`, `export_pdf_bytes_with_config` | `core`, `project`, `world` | `app/src/compiler/tests.rs` | — |
 | `app/src/core/diff.rs` | Pure text differencing and UTF-16 code-unit conversion utilities. | `Utf16TextDiff`, `CharSelection`, `caret`, `char_to_utf16_offset`, `utf16_to_char_offset`, `compute_utf16_diff` | *(none)* | `app/src/core/diff/tests.rs`, `app/tests/diff_tests.rs` | Converts between Rust `char` indices (`egui`) and UTF-16 offsets (`yrs`). |
 | `app/src/core/file_kind.rs` | File type identification and classification based on file extensions. | `FileKind`, `from_path`, `is_editable_text`, `icon`, `label` | *(none)* | `app/src/core/file_kind/tests.rs`, `app/tests/project_tests.rs` | — |
@@ -71,7 +71,7 @@
 | `app/src/compiler/tests.rs` | Unit tests for the Typst compiler, package fetching, and PDF export pipeline. |
 | `app/src/core/diff/tests.rs` | Unit tests for UTF-16 text differencing, emoji offsets, and collision path formatting. |
 | `app/src/core/file_kind/tests.rs` | Unit tests for file kind extension classification and text editability. |
-| `app/src/core/i18n/tests.rs` | Unit tests |
+| `app/src/core/i18n/tests.rs` | Unit tests for locale normalization, system language detection, and native display names. |
 | `app/src/core/outline/tests.rs` | Unit tests for Typst AST heading extraction and outline hierarchy construction. |
 | `app/src/core/pdf/tests.rs` | Unit tests for PDF export version choices and archival standard validation. |
 | `app/src/core/settings/tests.rs` | Unit tests for default IDE user preferences and settings initialization. |

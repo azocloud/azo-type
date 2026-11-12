@@ -9,6 +9,7 @@ use egui::{
     Pos2, Rect, RichText, ScrollArea, Stroke, TextEdit, Ui, Vec2, ViewportBuilder, ViewportClass,
     ViewportId, Window,
 };
+use rust_i18n::t;
 
 use crate::collab::awareness::PeerPresence;
 use crate::collab::doc::normalize_rel_path;
@@ -50,6 +51,26 @@ impl CollabUiState {
             .filter(|p| p.active_path.as_deref() == Some(target.as_str()))
             .collect()
     }
+
+    pub fn on_session_started(
+        &mut self,
+        is_host: bool,
+        ticket_str: Option<String>,
+        local_endpoint_id: String,
+    ) {
+        self.is_active = true;
+        self.is_host = is_host;
+        self.host_ticket = ticket_str;
+        self.local_endpoint_id = local_endpoint_id;
+        self.last_error = None;
+    }
+
+    pub fn reset_session(&mut self) {
+        self.is_active = false;
+        self.host_ticket = None;
+        self.peers.clear();
+        self.remote_presences.clear();
+    }
 }
 
 /// Renders the P2P Collaboration window (`Project > Collaboration (P2P)...`) as a native OS sub-window.
@@ -77,7 +98,7 @@ pub fn render_collaboration_window(
     let viewport_id = ViewportId::from_hash_of("azo_type_p2p_collab_os_window");
     let builder = crate::platform::configure_viewport_builder(
         ViewportBuilder::default()
-            .with_title("P2P Collaboration")
+            .with_title(t!("collab.window_title"))
             .with_inner_size([560.0, 500.0])
             .with_min_inner_size([440.0, 360.0]),
     );
@@ -103,7 +124,7 @@ pub fn render_collaboration_window(
                                     .strong(),
                             );
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if ui.small_button("Dismiss").clicked() {
+                                if ui.small_button(t!("collab.dismiss_btn")).clicked() {
                                     state.last_error = None;
                                 }
                             });
@@ -128,20 +149,24 @@ pub fn render_collaboration_window(
                 .corner_radius(CornerRadius::same(6))
                 .inner_margin(Margin::symmetric(12, 10))
                 .show(ui, |ui| {
-                    ui.label(RichText::new("YOUR COLLABORATOR IDENTITY").strong().size(11.5));
+                    ui.label(
+                        RichText::new(t!("collab.identity_heading"))
+                            .strong()
+                            .size(11.5),
+                    );
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.label("Display Name:");
+                        ui.label(t!("collab.display_name_label"));
                         let name_changed = ui
                             .add(
                                 TextEdit::singleline(user_name)
                                     .desired_width(190.0)
-                                    .hint_text("Your Name"),
+                                    .hint_text(t!("collab.display_name_hint")),
                             )
                             .changed();
 
                         ui.add_space(10.0);
-                        ui.label("Cursor Color:");
+                        ui.label(t!("collab.cursor_color_label"));
                         let color_changed = ui.color_edit_button_srgb(user_color).changed();
 
                         if (name_changed || color_changed) && state.is_active {
@@ -164,25 +189,21 @@ pub fn render_collaboration_window(
                 .show(ui, |ui| {
                     if !state.is_active {
                         ui.label(
-                            RichText::new("START OR JOIN A P2P SESSION (YRS CRDT + IROH QUIC)")
+                            RichText::new(t!("collab.session_heading"))
                                 .strong()
                                 .size(11.5),
                         );
                         ui.add_space(4.0);
-                        ui.label(
-                            RichText::new(format!(
-                                "Project Folder: {}",
-                                project_root.display()
-                            ))
-                            .small()
-                            .monospace()
-                            .weak(),
+                        let folder_str = t!(
+                            "collab.project_folder",
+                            path = project_root.display().to_string()
                         );
+                        ui.label(RichText::new(folder_str).small().monospace().weak());
                         ui.add_space(6.0);
 
                         ui.horizontal(|ui| {
                             let host_btn = egui::Button::new(
-                                RichText::new("Start Hosting Session")
+                                RichText::new(t!("collab.start_host_btn"))
                                     .strong()
                                     .color(Color32::WHITE),
                             )
@@ -190,8 +211,7 @@ pub fn render_collaboration_window(
 
                             if ui.add(host_btn).clicked() {
                                 state.last_error = None;
-                                state.status_banner =
-                                    Some("Starting iroh P2P host endpoint...".to_string());
+                                state.status_banner = Some(t!("collab.starting_host").to_string());
                                 session_handle.send(UiToSessionCmd::StartHosting {
                                     project_root: project_root.to_path_buf(),
                                     local_name: user_name.clone(),
@@ -200,39 +220,37 @@ pub fn render_collaboration_window(
                                 });
                             }
 
-                            ui.checkbox(
-                                &mut state.local_only_mode,
-                                "LAN / Localhost Only (Disable Relay)",
-                            );
+                            ui.checkbox(&mut state.local_only_mode, t!("collab.lan_only"));
                         });
 
                         ui.add_space(8.0);
                         ui.separator();
                         ui.add_space(6.0);
 
-                        ui.label(RichText::new("Join Existing Session with Invite Ticket:").strong());
+                        ui.label(RichText::new(t!("collab.join_heading")).strong());
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add(
                                 TextEdit::singleline(&mut state.join_ticket_input)
                                     .desired_width(350.0)
                                     .password(!state.reveal_ticket)
-                                    .hint_text("Paste typst-collab-v1:... ticket here"),
+                                    .hint_text(t!("collab.ticket_hint")),
                             );
-                            if ui
-                                .small_button(if state.reveal_ticket { "Hide" } else { "Show" })
-                                .clicked()
-                            {
+                            let hide_show = if state.reveal_ticket {
+                                t!("collab.hide_ticket")
+                            } else {
+                                t!("collab.show_ticket")
+                            };
+                            if ui.small_button(hide_show).clicked() {
                                 state.reveal_ticket = !state.reveal_ticket;
                             }
                             if ui
-                                .button(RichText::new("Join").strong())
+                                .button(RichText::new(t!("collab.join_btn")).strong())
                                 .clicked()
                                 && !state.join_ticket_input.trim().is_empty()
                             {
                                 state.last_error = None;
-                                state.status_banner =
-                                    Some("Dialing host via iroh ticket...".to_string());
+                                state.status_banner = Some(t!("collab.dialing_host").to_string());
                                 session_handle.send(UiToSessionCmd::JoinWithTicket {
                                     project_root: project_root.to_path_buf(),
                                     ticket_str: state.join_ticket_input.trim().to_string(),
@@ -246,9 +264,9 @@ pub fn render_collaboration_window(
                         // Active Session Header
                         ui.horizontal(|ui| {
                             let role_badge = if state.is_host {
-                                "ACTIVE SESSION (HOST)"
+                                t!("collab.active_session_host")
                             } else {
-                                "ACTIVE SESSION (PARTICIPANT)"
+                                t!("collab.active_session_participant")
                             };
                             ui.label(
                                 RichText::new(role_badge)
@@ -258,9 +276,9 @@ pub fn render_collaboration_window(
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 let end_label = if state.is_host {
-                                    "End Session"
+                                    t!("collab.end_session_btn")
                                 } else {
-                                    "Leave Session"
+                                    t!("collab.leave_session_btn")
                                 };
                                 let leave_btn = egui::Button::new(
                                     RichText::new(end_label).color(Color32::WHITE),
@@ -273,38 +291,29 @@ pub fn render_collaboration_window(
                         });
 
                         let short_ep: String = state.local_endpoint_id.chars().take(16).collect();
-                        ui.label(
-                            RichText::new(format!("Local Node ID: {}...", short_ep))
-                                .small()
-                                .monospace()
-                                .weak(),
-                        );
+                        let node_id_text = t!("collab.local_node_id", id = short_ep);
+                        ui.label(RichText::new(node_id_text).small().monospace().weak());
 
                         if let Some(ref ticket) = state.host_ticket {
                             ui.add_space(6.0);
                             ui.label(
-                                RichText::new(
-                                    "Security Notice: Treat this invite ticket like a password. Only share it over a trusted channel.",
-                                )
-                                .small()
-                                .color(Color32::from_rgb(251, 191, 36)),
+                                RichText::new(t!("collab.security_notice"))
+                                    .small()
+                                    .color(Color32::from_rgb(251, 191, 36)),
                             );
                             ui.add_space(4.0);
                             ui.horizontal(|ui| {
-                                if ui.button("Copy Invite Ticket").clicked() {
+                                if ui.button(t!("collab.copy_ticket_btn")).clicked() {
                                     ctx.copy_text(ticket.clone());
-                                    state.status_banner = Some(
-                                        "Invite ticket copied to clipboard.".to_string(),
-                                    );
+                                    state.status_banner =
+                                        Some(t!("collab.ticket_copied").to_string());
                                 }
-                                if ui
-                                    .button(if state.reveal_ticket {
-                                        "Mask Ticket"
-                                    } else {
-                                        "Reveal Ticket"
-                                    })
-                                    .clicked()
-                                {
+                                let mask_reveal = if state.reveal_ticket {
+                                    t!("collab.mask_ticket")
+                                } else {
+                                    t!("collab.reveal_ticket")
+                                };
+                                if ui.button(mask_reveal).clicked() {
                                     state.reveal_ticket = !state.reveal_ticket;
                                 }
                                 let preview = if state.reveal_ticket {
@@ -329,14 +338,11 @@ pub fn render_collaboration_window(
                 .inner_margin(Margin::symmetric(12, 10))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "CONNECTED PEERS ({})",
-                                state.connected_peer_count()
-                            ))
-                            .strong()
-                            .size(11.5),
+                        let header_text = t!(
+                            "collab.connected_peers_heading",
+                            count = state.connected_peer_count()
                         );
+                        ui.label(RichText::new(header_text).strong().size(11.5));
                     });
                     ui.separator();
 
@@ -347,9 +353,9 @@ pub fn render_collaboration_window(
                             if state.peers.is_empty() {
                                 ui.label(
                                     RichText::new(if state.is_active {
-                                        "Waiting for peers to join using the invite ticket..."
+                                        t!("collab.waiting_peers")
                                     } else {
-                                        "Offline mode — local files work normally without network."
+                                        t!("collab.offline_mode")
                                     })
                                     .weak()
                                     .small(),
@@ -391,19 +397,17 @@ pub fn render_collaboration_window(
                                                 .weak(),
                                         );
 
-                                        ui.label(
-                                            RichText::new(peer.state.label())
-                                                .small()
-                                                .color(match peer.state {
-                                                    PeerLifecycleState::Connected => {
-                                                        Color32::from_rgb(52, 211, 153)
-                                                    }
-                                                    PeerLifecycleState::Disconnected => {
-                                                        Color32::from_rgb(248, 113, 113)
-                                                    }
-                                                    _ => Color32::from_rgb(251, 191, 36),
-                                                }),
-                                        );
+                                        ui.label(RichText::new(peer.state.label()).small().color(
+                                            match peer.state {
+                                                PeerLifecycleState::Connected => {
+                                                    Color32::from_rgb(52, 211, 153)
+                                                }
+                                                PeerLifecycleState::Disconnected => {
+                                                    Color32::from_rgb(248, 113, 113)
+                                                }
+                                                _ => Color32::from_rgb(251, 191, 36),
+                                            },
+                                        ));
 
                                         // Direct vs Relay connection type badge
                                         let route_col = if peer.route.is_direct() {
@@ -424,11 +428,9 @@ pub fn render_collaboration_window(
                                         if let Some(active_file) =
                                             presence.and_then(|p| p.active_path.as_deref())
                                         {
-                                            ui.label(
-                                                RichText::new(format!("editing {}", active_file))
-                                                    .small()
-                                                    .italics(),
-                                            );
+                                            let editing_text =
+                                                t!("collab.editing_file", path = active_file);
+                                            ui.label(RichText::new(editing_text).small().italics());
                                         }
                                     });
                                     ui.add_space(3.0);
@@ -440,7 +442,7 @@ pub fn render_collaboration_window(
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button("Close").clicked() {
+                    if ui.button(t!("collab.close_btn")).clicked() {
                         close_clicked = true;
                     }
                 });
@@ -448,7 +450,7 @@ pub fn render_collaboration_window(
         };
 
         if class == ViewportClass::Embedded {
-            Window::new("P2P Collaboration")
+            Window::new(t!("collab.window_title"))
                 .open(&mut open)
                 .resizable(true)
                 .collapsible(false)

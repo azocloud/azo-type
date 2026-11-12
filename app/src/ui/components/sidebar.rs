@@ -6,6 +6,7 @@ use egui::{
     Align, CollapsingHeader, Color32, Context, CornerRadius, Frame, Layout, Margin, Pos2, RichText,
     ScrollArea, Sense, SidePanel, Stroke, Ui, Vec2,
 };
+use rust_i18n::t;
 
 use crate::collab::awareness::PeerPresence;
 use crate::core::diff::{normalize_rel_path, CharSelection};
@@ -65,22 +66,22 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("DISK PROJECT TREE")
+                    RichText::new(t!("sidebar.disk_tree_title"))
                         .size(11.5)
                         .strong()
                         .color(palette.text_muted),
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui
-                        .small_button("Refresh")
-                        .on_hover_text("Rescan project folder from disk (F5)")
+                        .small_button(t!("sidebar.refresh_button"))
+                        .on_hover_text(t!("sidebar.refresh_tooltip"))
                         .clicked()
                     {
                         output.rescan_tree = true;
                     }
                     if ui
-                        .small_button("+ File")
-                        .on_hover_text("Create a new file on disk")
+                        .small_button(t!("sidebar.new_file_button"))
+                        .on_hover_text(t!("sidebar.new_file_tooltip"))
                         .clicked()
                     {
                         output.show_new_file_modal = true;
@@ -92,7 +93,7 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
 
             let active_path = params.project.active_file.clone();
             let main_path = params.project.main_file.clone();
-            let project_title = format!("Folder: {}", params.project.project_name);
+            let project_title = t!("sidebar.folder_prefix", name = &params.project.project_name);
             let tree_snapshot = params.project.tree.clone();
 
             let total_sidebar_h = ui.available_height();
@@ -151,14 +152,15 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
 
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("DOCUMENT OUTLINE")
+                    RichText::new(t!("sidebar.outline_title"))
                         .size(11.5)
                         .strong()
                         .color(palette.text_muted),
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let count_str = t!("sidebar.headings_count", count = outline_items.len());
                     ui.label(
-                        RichText::new(format!("{} heading(s)", outline_items.len()))
+                        RichText::new(count_str)
                             .size(10.5)
                             .monospace()
                             .color(palette.text_muted),
@@ -195,11 +197,9 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                         .show(ui, |ui| {
                             if outline_tree.is_empty() {
                                 ui.label(
-                                    RichText::new(
-                                        "No Typst headings in active file.\nUse `= Heading`, `== Section`, or `=== Subsection` to build the hierarchy.",
-                                    )
-                                    .small()
-                                    .color(palette.text_muted),
+                                    RichText::new(t!("sidebar.no_headings"))
+                                        .small()
+                                        .color(palette.text_muted),
                                 );
                             } else {
                                 let root_len = outline_tree.len();
@@ -285,9 +285,9 @@ fn render_outline_tree_node(
                     .min_size(Vec2::new(12.0, 16.0)),
                 )
                 .on_hover_text(if is_open {
-                    "Collapse subheadings"
+                    t!("sidebar.collapse_subheadings")
                 } else {
-                    "Expand subheadings"
+                    t!("sidebar.expand_subheadings")
                 })
                 .clicked()
             {
@@ -360,20 +360,23 @@ fn render_outline_tree_node(
 
         let hover_msg = if is_external_file {
             format!(
-                "{} {} — {}\nFile: {} (Line {})\nClick to open & jump cursor here",
+                "{} {} — {}\n{}",
                 "=".repeat(node.item.level),
                 node.item.number_label,
                 node.item.title,
-                node.item.file.display(),
-                node.item.line_number
+                t!(
+                    "sidebar.jump_external_tooltip",
+                    file = node.item.file.display().to_string(),
+                    line = node.item.line_number
+                )
             )
         } else {
             format!(
-                "{} {} — {}\nLine {}\nClick to jump cursor here",
+                "{} {} — {}\n{}",
                 "=".repeat(node.item.level),
                 node.item.number_label,
                 node.item.title,
-                node.item.line_number
+                t!("sidebar.jump_local_tooltip", line = node.item.line_number)
             )
         };
 
@@ -514,7 +517,11 @@ fn render_fs_tree_node(
                                 .color(c)
                                 .strong(),
                         )
-                        .on_hover_text(format!("{} is editing {}", peer.name, norm_rel));
+                        .on_hover_text(t!(
+                            "sidebar.peer_editing_tooltip",
+                            name = &peer.name,
+                            path = &norm_rel
+                        ));
                     }
                 }
 
@@ -527,16 +534,16 @@ fn render_fs_tree_node(
                     ui.separator();
                     if *kind == FileKind::Typst
                         && !is_main
-                        && ui.button("Set as Main File").clicked()
+                        && ui.button(t!("sidebar.set_as_main")).clicked()
                     {
                         *new_main_path = Some(rel_path.clone());
                         ui.close_menu();
                     }
-                    if ui.button("Rename File...").clicked() {
+                    if ui.button(t!("sidebar.rename_file")).clicked() {
                         *rename_req = Some(rel_path.clone());
                         ui.close_menu();
                     }
-                    if !is_main && ui.button("Delete File").clicked() {
+                    if !is_main && ui.button(t!("sidebar.delete_file")).clicked() {
                         *delete_req = Some(rel_path.clone());
                         ui.close_menu();
                     }

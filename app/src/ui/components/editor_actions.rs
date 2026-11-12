@@ -5,6 +5,7 @@ use std::path::Path;
 use egui::text::{CCursor, CCursorRange};
 use egui::text_edit::TextEditOutput;
 use egui::{Context, RichText, Ui};
+use rust_i18n::t;
 
 use crate::core::file_kind::FileKind;
 use crate::platform::menu::MenuAction;
@@ -23,22 +24,25 @@ pub fn render_editor_context_menu(
 ) {
     ui.set_min_width(220.0);
     ui.label(
-        RichText::new(format!("Editor — {}", active_path.display()))
-            .small()
-            .strong()
-            .weak(),
+        RichText::new(t!(
+            "editor.context_title",
+            path = active_path.display().to_string()
+        ))
+        .small()
+        .strong()
+        .weak(),
     );
     ui.separator();
 
     if ui
-        .add_enabled(can_undo, egui::Button::new("Undo  (Ctrl+Z)"))
+        .add_enabled(can_undo, egui::Button::new(t!("menu.undo")))
         .clicked()
     {
         *context_action = Some(EditorContextAction::Undo);
         ui.close_menu();
     }
     if ui
-        .add_enabled(can_redo, egui::Button::new("Redo  (Ctrl+Y)"))
+        .add_enabled(can_redo, egui::Button::new(t!("menu.redo")))
         .clicked()
     {
         *context_action = Some(EditorContextAction::Redo);
@@ -48,72 +52,72 @@ pub fn render_editor_context_menu(
     ui.separator();
 
     if ui
-        .add_enabled(has_selection, egui::Button::new("Cut  (Ctrl+X)"))
+        .add_enabled(has_selection, egui::Button::new(t!("menu.cut")))
         .clicked()
     {
         *context_action = Some(EditorContextAction::Cut);
         ui.close_menu();
     }
     if ui
-        .add_enabled(has_selection, egui::Button::new("Copy  (Ctrl+C)"))
+        .add_enabled(has_selection, egui::Button::new(t!("menu.copy")))
         .clicked()
     {
         *context_action = Some(EditorContextAction::Copy);
         ui.close_menu();
     }
-    if ui.button("Paste  (Ctrl+V)").clicked() {
+    if ui.button(t!("menu.paste")).clicked() {
         *context_action = Some(EditorContextAction::Paste);
         ui.close_menu();
     }
-    if ui.button("Select All  (Ctrl+A)").clicked() {
+    if ui.button(t!("menu.select_all")).clicked() {
         *context_action = Some(EditorContextAction::SelectAll);
         ui.close_menu();
     }
 
     ui.separator();
 
-    if ui.button("Bold  (*...*)").clicked() {
+    if ui.button(t!("editor.bold_menu")).clicked() {
         *context_action = Some(EditorContextAction::WrapOrInsert("*bold*", "*", "*"));
         ui.close_menu();
     }
-    if ui.button("Italic  (_..._)").clicked() {
+    if ui.button(t!("editor.italic_menu")).clicked() {
         *context_action = Some(EditorContextAction::WrapOrInsert("_italic_", "_", "_"));
         ui.close_menu();
     }
-    if ui.button("Inline Code  (`...`)").clicked() {
+    if ui.button(t!("editor.inline_code")).clicked() {
         *context_action = Some(EditorContextAction::WrapOrInsert("`code`", "`", "`"));
         ui.close_menu();
     }
-    if ui.button("Inline Math  ($...$)").clicked() {
+    if ui.button(t!("editor.inline_math")).clicked() {
         *context_action = Some(EditorContextAction::WrapOrInsert("$x$", "$", "$"));
         ui.close_menu();
     }
 
-    ui.menu_button("Insert Typst Element", |ui| {
+    ui.menu_button(t!("editor.insert_typst_element"), |ui| {
         ui.set_min_width(210.0);
-        if ui.button("Section Heading (== ...)").clicked() {
+        if ui.button(t!("editor.insert_heading_menu")).clicked() {
             *context_action = Some(EditorContextAction::InsertSnippet("\n== New Section\n"));
             ui.close_menu();
         }
-        if ui.button("Display Math Block ($ ... $)").clicked() {
+        if ui.button(t!("editor.insert_math_menu")).clicked() {
             *context_action = Some(EditorContextAction::InsertSnippet(
                 "\n$ f(x) = integral_0^x e^(-t^2) dif t $\n",
             ));
             ui.close_menu();
         }
-        if ui.button("Formatted Table (#table)").clicked() {
+        if ui.button(t!("editor.insert_table_menu")).clicked() {
             *context_action = Some(EditorContextAction::InsertSnippet(
                 "\n#table(\n  columns: (1fr, 1fr),\n  [*Column A*], [*Column B*],\n  [Item 1], [Value 1],\n)\n",
             ));
             ui.close_menu();
         }
-        if ui.button("Figure / Image (#figure)").clicked() {
+        if ui.button(t!("editor.insert_figure_menu")).clicked() {
             *context_action = Some(EditorContextAction::InsertSnippet(
                 "\n#figure(\n  image(\"assets/diagram.svg\", width: 80%),\n  caption: [Figure caption],\n)\n",
             ));
             ui.close_menu();
         }
-        if ui.button("Code Block (```rust ... ```)").clicked() {
+        if ui.button(t!("editor.insert_code_menu")).clicked() {
             *context_action = Some(EditorContextAction::InsertSnippet(
                 "\n```rust\nfn main() {\n    println!(\"Hello, Typst!\");\n}\n```\n",
             ));
@@ -123,19 +127,19 @@ pub fn render_editor_context_menu(
 
     ui.separator();
 
-    if ui.button("Save File  (Ctrl+S)").clicked() {
+    if ui.button(t!("menu.save_file")).clicked() {
         *context_action = Some(EditorContextAction::Menu(MenuAction::SaveFile));
         ui.close_menu();
     }
-    if ui.button("Compile Document Now").clicked() {
+    if ui.button(t!("menu.compile_now")).clicked() {
         *context_action = Some(EditorContextAction::Menu(MenuAction::CompileNow));
         ui.close_menu();
     }
-    if ui.button("Export PDF...  (Ctrl+E)").clicked() {
+    if ui.button(t!("menu.export_pdf")).clicked() {
         *context_action = Some(EditorContextAction::Menu(MenuAction::ExportPdf));
         ui.close_menu();
     }
-    if file_kind == FileKind::Typst && ui.button("Set as Main Entrypoint").clicked() {
+    if file_kind == FileKind::Typst && ui.button(t!("menu.set_main")).clicked() {
         *context_action = Some(EditorContextAction::SetActiveAsMain);
         ui.close_menu();
     }

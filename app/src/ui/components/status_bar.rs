@@ -5,6 +5,7 @@ use std::path::Path;
 use egui::{
     Align, Color32, Context, CornerRadius, Frame, Layout, Margin, RichText, Stroke, TopBottomPanel,
 };
+use rust_i18n::t;
 
 use crate::ui::theme::ThemePalette;
 
@@ -51,16 +52,20 @@ pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) {
             ui.horizontal(|ui| {
                 let (dot_color, status_text) =
                     if params.compile_in_progress || params.pending_compile {
-                        (palette.syn_operator, "Compiling...".to_string())
+                        (palette.syn_operator, t!("status.compiling").to_string())
                     } else if params.error_count > 0 {
                         (
                             palette.syn_number,
-                            format!("{} Error(s)", params.error_count),
+                            t!("status.errors_count", count = params.error_count).to_string(),
                         )
                     } else {
                         (
                             Color32::from_rgb(0x44, 0x8C, 0x6B),
-                            format!("Compiled ({:.1} ms)", params.compile_duration_ms),
+                            t!(
+                                "status.compiled_duration",
+                                duration = format!("{:.1}", params.compile_duration_ms)
+                            )
+                            .to_string(),
                         )
                     };
 
@@ -69,22 +74,30 @@ pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) {
                 if params.warn_count > 0 {
                     ui.separator();
                     ui.label(
-                        RichText::new(format!("{} Warning(s)", params.warn_count))
-                            .color(palette.syn_operator)
-                            .small(),
+                        RichText::new(
+                            t!("status.warnings_count", count = params.warn_count).to_string(),
+                        )
+                        .color(palette.syn_operator)
+                        .small(),
                     );
                 }
 
                 ui.separator();
                 ui.label(
-                    RichText::new(format!("Main: {}", params.main_file.display()))
-                        .color(palette.text_primary)
-                        .small(),
+                    RichText::new(
+                        t!(
+                            "status.main_file",
+                            path = params.main_file.display().to_string()
+                        )
+                        .to_string(),
+                    )
+                    .color(palette.text_primary)
+                    .small(),
                 );
 
                 ui.separator();
                 ui.label(
-                    RichText::new(format!("Pages: {}", params.page_count))
+                    RichText::new(t!("status.page_count", count = params.page_count).to_string())
                         .color(palette.text_primary)
                         .small(),
                 );
@@ -92,15 +105,19 @@ pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) {
                 if params.collab_active {
                     ui.separator();
                     let role = if params.collab_is_host {
-                        "Host"
+                        t!("status.role_host")
                     } else {
-                        "Peer"
+                        t!("status.role_peer")
                     };
                     ui.label(
-                        RichText::new(format!(
-                            "P2P {}: {} peer(s)",
-                            role, params.collab_peer_count
-                        ))
+                        RichText::new(
+                            t!(
+                                "status.collab_status",
+                                role = role,
+                                count = params.collab_peer_count
+                            )
+                            .to_string(),
+                        )
                         .small()
                         .strong()
                         .color(palette.syn_keyword),
@@ -116,15 +133,22 @@ pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) {
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if let Some(active) = params.active_buffer {
-                        let saved_state = if active.dirty { "Modified" } else { "Saved" };
+                        let saved_state = if active.dirty {
+                            t!("status.state_modified")
+                        } else {
+                            t!("status.state_saved")
+                        };
                         ui.label(
-                            RichText::new(format!(
-                                "{} ({})  |  {} lines  |  {} bytes",
-                                active.rel_path.display(),
-                                saved_state,
-                                active.line_count,
-                                active.size_bytes
-                            ))
+                            RichText::new(
+                                t!(
+                                    "status.buffer_stats",
+                                    path = active.rel_path.display().to_string(),
+                                    state = saved_state,
+                                    lines = active.line_count,
+                                    bytes = active.size_bytes
+                                )
+                                .to_string(),
+                            )
                             .small()
                             .monospace()
                             .color(palette.text_muted),

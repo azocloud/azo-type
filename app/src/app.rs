@@ -19,18 +19,13 @@ use crate::compiler::{
 };
 use crate::highlight::ThemePalette;
 use crate::project::{DiskProject, FileKind};
+use crate::ui::theme::apply_theme;
 use crate::world::SharedWorldResources;
 
+pub use crate::core::settings::{IdeSettings, SettingsTab};
 #[cfg(target_os = "macos")]
 use crate::platform::menu::MacOsMenuBar;
 pub use crate::platform::menu::MenuAction;
-
-pub use crate::core::outline::{
-    assign_hierarchical_numbers, build_outline_tree, extract_document_outline,
-    extract_typst_ast_outline, extract_typst_markup_plain_text, DocumentOutlineItem,
-    OutlineTreeNode,
-};
-pub use crate::core::settings::{IdeSettings, SettingsTab};
 pub use crate::ui::components::EditorContextAction;
 
 pub enum IoEvent {
@@ -50,24 +45,16 @@ pub struct AzoTypeApp {
     pub show_sidebar: bool,
     pub editor_split_ratio: f32,
     pub zoom: f32,
-
-    // Settings sub-window state (opened via File > Settings)
     pub show_settings_window: bool,
     pub settings_tab: SettingsTab,
-
-    // Export PDF dialog state (opened via Export PDF button or File > Export PDF...)
     pub show_export_pdf_dialog: bool,
     pub pdf_export_config: PdfExportConfig,
     pub export_pdf_error: Option<String>,
-
-    // P2P Collaboration state & background actor handle
     pub collab_ui: CollabUiState,
     pub collab_session: CollabSessionHandle,
     pub pending_cursor_restore: Option<CharSelection>,
     pub pending_scroll_to_char: Option<usize>,
     pub last_sent_cursor: Option<(PathBuf, CharSelection)>,
-
-    // Compilation state
     pub last_compiled_revision: u64,
     pub last_compiled_dpi: f32,
     pub pending_compile: bool,
@@ -78,20 +65,14 @@ pub struct AzoTypeApp {
     pub page_textures: Vec<RenderedPageTexture>,
     pub compiled_outline: Vec<CompiledOutlineItem>,
     pub diagnostics: Vec<DiagnosticItem>,
-
-    // New file creation & rename modal/inline state
     pub show_new_file_input: bool,
     pub new_file_name: String,
     pub rename_target_file: Option<PathBuf>,
     pub rename_file_input: String,
     pub inspect_asset_mode: bool,
-
-    // Editor right-click context menu & selection preservation state
     pub last_editor_selection: Option<CharSelection>,
     pub clipboard_fallback: String,
     pub pending_editor_context_action: Option<EditorContextAction>,
-
-    // Status bar notification
     pub status_notice: String,
 
     // Channels for native file dialogs & background compilation
@@ -131,7 +112,7 @@ impl AzoTypeApp {
             .and_then(|f| DiskProject::open_folder(&f, settings.show_hidden_files).ok())
             .unwrap_or_default();
 
-        Self::apply_theme(&cc.egui_ctx, settings.dark_mode);
+        apply_theme(&cc.egui_ctx, settings.dark_mode);
 
         let initial_snapshot =
             compile_project(Arc::clone(&resources), &project, settings.render_dpi_scale);
@@ -142,13 +123,14 @@ impl AzoTypeApp {
         let collab_session = CollabSessionHandle::spawn(Some(cc.egui_ctx.clone()));
 
         let status_notice = if project.has_disk_backing() {
-            format!(
-                "Opened disk project '{}' ({})",
-                project.project_name,
-                project.root_dir.display()
+            rust_i18n::t!(
+                "app.status_opened_folder",
+                name = project.project_name.as_str(),
+                path = project.root_dir.display().to_string()
             )
+            .to_string()
         } else {
-            "Blank project ready (in-memory, unsaved)".to_string()
+            rust_i18n::t!("app.status_blank_ready").to_string()
         };
 
         #[cfg(target_os = "macos")]
@@ -203,10 +185,6 @@ impl AzoTypeApp {
         }
     }
 
-    pub fn apply_theme(ctx: &Context, dark_mode: bool) {
-        crate::ui::theme::apply_theme(ctx, dark_mode);
-    }
-
     pub fn set_language(&mut self, ctx: &Context, lang: String) {
         if self.language != lang {
             self.language = lang;
@@ -221,28 +199,22 @@ impl AzoTypeApp {
             MenuAction::OpenFolder => self.open_folder_dialog(ctx),
             MenuAction::RescanFolder => {
                 if let Err(e) = self.project.rescan_tree() {
-                    self.status_notice = format!("Rescan failed: {e}");
+                    self.status_notice =
+                        rust_i18n::t!("app.status_rescan_failed", error = e.to_string())
+                            .to_string();
                 } else {
-                    self.status_notice = format!(
-                        "Rescanned disk folder '{}'",
-                        self.project.root_dir.display()
-                    );
+                    let p = self.project.root_dir.display().to_string();
+                    self.status_notice =
+                        rust_i18n::t!("app.status_rescanned", path = p).to_string();
                     self.trigger_compile_now(ctx);
                 }
             }
             MenuAction::SaveFile => {
                 if !self.project.has_disk_backing() {
                     let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                    let name = self
-                        .project
-                        .active_file
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("main.typ");
-                    let data = self
-                        .project
-                        .read_file_bytes(&self.project.active_file)
-                        .unwrap_or_default();
+                    let f = &self.project.active_file;
+                    let name = f.file_name().and_then(|n| n.to_str()).unwrap_or("main.typ");
+                    let data = self.project.read_file_bytes(f).unwrap_or_default();
                     let tx = self.io_tx.clone();
                     let ctx_c = ctx.clone();
                     crate::platform::dialogs::spawn_save_file_dialog(
@@ -254,7 +226,10 @@ impl AzoTypeApp {
                         move |res| {
                             let _ = tx.send(match res {
                                 Ok(p) => IoEvent::FileSavedAs(p),
-                                Err(e) => IoEvent::StatusMessage(format!("Save error: {e}")),
+                                Err(e) => IoEvent::StatusMessage(
+                                    rust_i18n::t!("app.status_save_error", error = e.to_string())
+                                        .to_string(),
+                                ),
                             });
                         },
                         move || ctx_c.request_repaint(),
@@ -263,25 +238,26 @@ impl AzoTypeApp {
                     self.status_notice = match self.project.save_active_file() {
                         Ok(p) => {
                             self.trigger_compile_now(ctx);
-                            format!("Saved to disk: {}", p.display())
+                            rust_i18n::t!("app.status_saved_file", path = p.display().to_string())
+                                .to_string()
                         }
-                        Err(e) => format!("Save error: {e}"),
+                        Err(e) => rust_i18n::t!("app.status_save_error", error = e.to_string())
+                            .to_string(),
                     };
                 }
             }
             MenuAction::SaveAll => {
                 self.status_notice = if !self.project.has_disk_backing() {
-                    "In-memory document: use Save File (Ctrl+S) to choose a path".to_string()
+                    rust_i18n::t!("app.status_unsaved_warning").to_string()
                 } else {
                     match self.project.save_all_files() {
                         Ok(n) => {
                             self.trigger_compile_now(ctx);
-                            format!(
-                                "Saved {n} modified file(s) in {}",
-                                self.project.root_dir.display()
-                            )
+                            let p = self.project.root_dir.display().to_string();
+                            rust_i18n::t!("app.status_saved_all", count = n, path = p).to_string()
                         }
-                        Err(e) => format!("Save all error: {e}"),
+                        Err(e) => rust_i18n::t!("app.status_save_error", error = e.to_string())
+                            .to_string(),
                     }
                 };
             }
@@ -295,7 +271,7 @@ impl AzoTypeApp {
             MenuAction::ToggleWordWrap => self.settings.word_wrap = !self.settings.word_wrap,
             MenuAction::ToggleTheme => {
                 self.settings.dark_mode = !self.settings.dark_mode;
-                Self::apply_theme(ctx, self.settings.dark_mode);
+                apply_theme(ctx, self.settings.dark_mode);
             }
             MenuAction::ZoomIn => self.zoom = (self.zoom + 0.15).clamp(0.4, 2.5),
             MenuAction::ZoomOut => self.zoom = (self.zoom - 0.15).clamp(0.4, 2.5),
@@ -364,18 +340,28 @@ impl AzoTypeApp {
                             let name = proj.project_name.clone();
                             let root_str = proj.root_dir.display().to_string();
                             self.project = proj;
-                            self.status_notice =
-                                format!("Opened project '{}' ({})", name, root_str);
+                            self.status_notice = rust_i18n::t!(
+                                "app.status_opened_folder",
+                                name = name.as_str(),
+                                path = root_str
+                            )
+                            .to_string();
                             self.trigger_compile_now(ctx);
                         }
                         Err(err) => {
-                            self.status_notice = format!("Could not open folder: {}", err);
+                            self.status_notice = rust_i18n::t!(
+                                "app.status_cannot_open_folder",
+                                error = err.to_string()
+                            )
+                            .to_string();
                         }
                     }
                 }
                 IoEvent::FileSavedAs(path) => {
                     let _ = self.project.save_active_to_path(&path);
-                    self.status_notice = format!("Saved file to {}", path.display());
+                    self.status_notice =
+                        rust_i18n::t!("app.status_saved_file", path = path.display().to_string())
+                            .to_string();
                     self.trigger_compile_now(ctx);
                 }
                 IoEvent::StatusMessage(msg) => self.status_notice = msg,
@@ -392,22 +378,16 @@ impl AzoTypeApp {
                     local_endpoint_id,
                     files,
                 } => {
-                    self.collab_ui.is_active = true;
-                    self.collab_ui.is_host = is_host;
-                    self.collab_ui.host_ticket = ticket_str;
-                    self.collab_ui.local_endpoint_id = local_endpoint_id;
-                    self.collab_ui.last_error = None;
+                    self.collab_ui
+                        .on_session_started(is_host, ticket_str, local_endpoint_id);
                     if !files.is_empty() {
                         self.project.sync_from_crdt_files(&files);
                         need_compile = true;
                     }
                 }
                 SessionToUiEvent::SessionStopped { reason } => {
-                    self.collab_ui.is_active = false;
+                    self.collab_ui.reset_session();
                     self.collab_ui.is_host = false;
-                    self.collab_ui.host_ticket = None;
-                    self.collab_ui.peers.clear();
-                    self.collab_ui.remote_presences.clear();
                     self.collab_ui.status_banner = Some(reason.clone());
                     self.status_notice = reason;
                 }
@@ -505,13 +485,11 @@ impl AzoTypeApp {
         let project_snapshot = self.project.clone();
         let config = self.pdf_export_config.clone();
         let entry_file = self.project.effective_compile_entrypoint();
-        let default_pdf_name = format!(
-            "{}.pdf",
-            entry_file
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("document")
-        );
+        let stem = entry_file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("document");
+        let default_pdf_name = format!("{stem}.pdf");
         let start_dir = if self.project.has_disk_backing() {
             self.project.root_dir.clone()
         } else {
@@ -524,10 +502,13 @@ impl AzoTypeApp {
                 self.export_pdf_error = None;
                 self.show_export_pdf_dialog = false;
                 let size_kb = pdf_bytes.len() as f64 / 1024.0;
-                self.status_notice = format!(
-                    "Compiled {} ({:.1} KB) — Choose destination on disk...",
-                    badge, size_kb
-                );
+                let size_str = format!("{size_kb:.1}");
+                self.status_notice = rust_i18n::t!(
+                    "app.status_pdf_exporting",
+                    badge = badge.as_str(),
+                    size = size_str.as_str()
+                )
+                .to_string();
                 let tx = self.io_tx.clone();
                 let ctx_clone = ctx.clone();
 
@@ -539,9 +520,13 @@ impl AzoTypeApp {
                     pdf_bytes,
                     move |res| {
                         let msg = match res {
-                            Ok(p) => {
-                                format!("Exported {badge} to '{}' ({size_kb:.1} KB)", p.display())
-                            }
+                            Ok(p) => rust_i18n::t!(
+                                "app.status_pdf_exported",
+                                badge = badge.as_str(),
+                                path = p.display().to_string(),
+                                size = size_str.as_str()
+                            )
+                            .to_string(),
                             Err(e) => format!("PDF write failed: {e}"),
                         };
                         let _ = tx.send(IoEvent::StatusMessage(msg));
@@ -553,10 +538,12 @@ impl AzoTypeApp {
                 let first_err = diags
                     .first()
                     .map(|d| d.message.clone())
-                    .unwrap_or_else(|| "PDF compilation failed.".to_string());
+                    .unwrap_or_else(|| rust_i18n::t!("app.status_pdf_export_failed").to_string());
                 self.export_pdf_error = Some(first_err.clone());
                 self.diagnostics = diags;
-                self.status_notice = format!("Cannot export PDF: {}", first_err);
+                self.status_notice =
+                    rust_i18n::t!("app.status_cannot_export_pdf", error = first_err.as_str())
+                        .to_string();
             }
         }
     }
@@ -576,6 +563,21 @@ impl AzoTypeApp {
         );
         if trigger_export {
             self.export_pdf_action(ctx);
+        }
+    }
+
+    fn on_active_text_modified(&mut self, ctx: &Context, new_text: Option<String>) {
+        self.project
+            .mark_active_modified(self.settings.auto_save_on_edit);
+        if let (true, Some(t)) = (self.collab_ui.is_active, new_text) {
+            self.collab_session.send(UiToSessionCmd::LocalTextEdited {
+                rel_path: self.project.active_file.clone(),
+                new_text: t,
+            });
+        }
+        if self.settings.auto_compile {
+            self.pending_compile = true;
+            self.last_edit_time = ctx.input(|i| i.time);
         }
     }
 
@@ -604,24 +606,13 @@ impl AzoTypeApp {
         }
 
         if let Some(snippet) = output.snippet_to_insert {
-            let auto_save = self.settings.auto_save_on_edit;
-            let active_rel = self.project.active_file.clone();
-            let mut updated_text = None;
-            if let Some(buf) = self.project.active_buffer_mut() {
-                if let Some(ref mut text) = buf.text {
+            let updated = self.project.active_buffer_mut().and_then(|buf| {
+                buf.text.as_mut().map(|text| {
                     text.push_str(snippet);
-                    updated_text = Some(text.clone());
-                    self.project.mark_active_modified(auto_save);
-                    self.pending_compile = true;
-                    self.last_edit_time = ctx.input(|i| i.time);
-                }
-            }
-            if let (true, Some(new_text)) = (self.collab_ui.is_active, updated_text) {
-                self.collab_session.send(UiToSessionCmd::LocalTextEdited {
-                    rel_path: active_rel,
-                    new_text,
-                });
-            }
+                    text.clone()
+                })
+            });
+            self.on_active_text_modified(ctx, updated);
         }
 
         if let Some(act) = output.pending_action {
@@ -646,13 +637,16 @@ impl AzoTypeApp {
                             initial_text,
                         });
                     }
-                    self.status_notice = format!(
-                        "Created '{}' on disk",
-                        self.project.root_dir.join(&rel).display()
-                    );
+                    let disk_p = self.project.root_dir.join(&rel).display().to_string();
+                    self.status_notice =
+                        rust_i18n::t!("app.status_created_file", path = disk_p).to_string();
                     self.trigger_compile_now(ctx);
                 }
-                Err(e) => self.status_notice = format!("Create file failed: {e}"),
+                Err(e) => {
+                    self.status_notice =
+                        rust_i18n::t!("app.status_create_failed", error = e.to_string())
+                            .to_string();
+                }
             }
         }
 
@@ -670,11 +664,18 @@ impl AzoTypeApp {
                             new_rel_path: new_rel.clone(),
                         });
                     }
+                    let old_s = old_rel.display().to_string();
+                    let new_s = new_rel.display().to_string();
                     self.status_notice =
-                        format!("Renamed '{}' -> '{}'", old_rel.display(), new_rel.display());
+                        rust_i18n::t!("app.status_renamed_file", old = old_s, new = new_s)
+                            .to_string();
                     self.trigger_compile_now(ctx);
                 }
-                Err(e) => self.status_notice = format!("Rename failed: {e}"),
+                Err(e) => {
+                    self.status_notice =
+                        rust_i18n::t!("app.status_rename_failed", error = e.to_string())
+                            .to_string();
+                }
             }
         }
     }
@@ -685,7 +686,7 @@ impl AzoTypeApp {
             ctx,
             &mut self.show_settings_window,
             &mut self.settings,
-            &mut self.language,
+            &self.language,
             &mut self.settings_tab,
             &self.project.root_dir,
         );
@@ -697,7 +698,7 @@ impl AzoTypeApp {
             self.open_folder_dialog(ctx);
         }
         if output.theme_changed {
-            Self::apply_theme(ctx, self.settings.dark_mode);
+            apply_theme(ctx, self.settings.dark_mode);
         }
         if output.rescan_needed {
             let _ = self.project.rescan_tree();
@@ -795,7 +796,8 @@ impl AzoTypeApp {
         }
         if let Some(main_p) = output.new_main_path {
             self.project.set_main_file(main_p.clone());
-            self.status_notice = format!("Set '{}' as main Typst file", main_p.display());
+            let path_s = main_p.display().to_string();
+            self.status_notice = rust_i18n::t!("app.status_set_main", path = path_s).to_string();
             self.trigger_compile_now(ctx);
         }
         if let Some(rel_to_rename) = output.rename_req {
@@ -810,10 +812,16 @@ impl AzoTypeApp {
                             rel_path: rel_to_delete.clone(),
                         });
                     }
-                    self.status_notice = format!("Deleted '{}' from disk", rel_to_delete.display());
+                    let del_s = rel_to_delete.display().to_string();
+                    self.status_notice =
+                        rust_i18n::t!("app.status_deleted_file", path = del_s).to_string();
                     self.trigger_compile_now(ctx);
                 }
-                Err(e) => self.status_notice = format!("Delete failed: {e}"),
+                Err(e) => {
+                    self.status_notice =
+                        rust_i18n::t!("app.status_delete_failed", error = e.to_string())
+                            .to_string();
+                }
             }
         }
     }
@@ -847,14 +855,14 @@ impl AzoTypeApp {
             },
         );
 
-        if let Some(target_tab) = output.select_tab {
-            let _ = self.project.open_file(&target_tab);
+        if let Some(tab) = output.select_tab {
+            let _ = self.project.open_file(&tab);
             if self.settings.auto_compile {
                 self.trigger_compile_now(ctx);
             }
         }
-        if let Some(target_tab) = output.close_tab {
-            self.project.close_tab(&target_tab);
+        if let Some(tab) = output.close_tab {
+            self.project.close_tab(&tab);
             if self.settings.auto_compile {
                 self.trigger_compile_now(ctx);
             }
@@ -865,19 +873,7 @@ impl AzoTypeApp {
         }
 
         if output.text_changed {
-            let auto_save = self.settings.auto_save_on_edit;
-            self.project.mark_active_modified(auto_save);
-            if let (true, Some(new_text)) = (self.collab_ui.is_active, output.edited_text_snapshot)
-            {
-                self.collab_session.send(UiToSessionCmd::LocalTextEdited {
-                    rel_path: active_path.clone(),
-                    new_text,
-                });
-            }
-            if self.settings.auto_compile {
-                self.pending_compile = true;
-                self.last_edit_time = ctx.input(|i| i.time);
-            }
+            self.on_active_text_modified(ctx, output.edited_text_snapshot);
         }
 
         if let Some(act) = output.context_action {
@@ -889,8 +885,9 @@ impl AzoTypeApp {
                     if FileKind::from_path(&active_path) == FileKind::Typst =>
                 {
                     self.project.set_main_file(active_path.clone());
+                    let p_str = active_path.display().to_string();
                     self.status_notice =
-                        format!("Set '{}' as Main Entrypoint", active_path.display());
+                        rust_i18n::t!("app.status_set_main", path = p_str).to_string();
                     self.trigger_compile_now(ctx);
                 }
                 _ => {}
@@ -924,15 +921,6 @@ impl AzoTypeApp {
         ) {
             let _ = self.project.open_file(&file_to_open);
         }
-    }
-
-    fn handle_screenshot_lifecycle(&mut self, ctx: &Context) {
-        crate::services::handle_screenshot_lifecycle(
-            ctx,
-            self.screenshot_path.as_deref(),
-            &mut self.frame_count,
-            &mut self.screenshot_requested,
-        );
     }
 }
 
@@ -1084,13 +1072,21 @@ impl eframe::App for AzoTypeApp {
             &self.collab_session,
         );
 
-        self.handle_screenshot_lifecycle(ctx);
+        crate::services::handle_screenshot_lifecycle(
+            ctx,
+            self.screenshot_path.as_deref(),
+            &mut self.frame_count,
+            &mut self.screenshot_requested,
+        );
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        let state = crate::core::AppSavedState {
-            language: self.language.clone(),
-        };
-        eframe::set_value(storage, eframe::APP_KEY, &state);
+        eframe::set_value(
+            storage,
+            eframe::APP_KEY,
+            &crate::core::AppSavedState {
+                language: self.language.clone(),
+            },
+        );
     }
 }

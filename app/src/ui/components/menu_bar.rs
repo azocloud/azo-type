@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use egui::{Align, Context, CornerRadius, Frame, Layout, Margin, RichText, Stroke, TopBottomPanel};
+use rust_i18n::t;
 
 use crate::core::file_kind::FileKind;
 use crate::platform::menu::MenuAction;
@@ -67,159 +68,159 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                 ui.spacing_mut().item_spacing.x = 8.0;
 
                 // FILE MENU
-                ui.menu_button(RichText::new("File").strong(), |ui| {
+                ui.menu_button(RichText::new(t!("menu.file")).strong(), |ui| {
                     ui.set_min_width(220.0);
-                    if ui.button("New File in Project...  (Ctrl+N)").clicked() {
+                    if ui.button(t!("menu.file_new")).clicked() {
                         output.pending_action = Some(MenuAction::NewFile);
                         ui.close_menu();
                     }
-                    if ui.button("Open Project Folder...  (Ctrl+O)").clicked() {
+                    if ui.button(t!("menu.file_open")).clicked() {
                         output.pending_action = Some(MenuAction::OpenFolder);
                         ui.close_menu();
                     }
-                    if ui.button("Rescan Folder on Disk  (F5)").clicked() {
+                    if ui.button(t!("menu.rescan_folder")).clicked() {
                         output.pending_action = Some(MenuAction::RescanFolder);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Save Active File  (Ctrl+S)").clicked() {
+                    if ui.button(t!("menu.save_file")).clicked() {
                         output.pending_action = Some(MenuAction::SaveFile);
                         ui.close_menu();
                     }
-                    if ui.button("Save All Project Files").clicked() {
+                    if ui.button(t!("menu.save_all")).clicked() {
                         output.pending_action = Some(MenuAction::SaveAll);
                         ui.close_menu();
                     }
-                    if ui.button("Export PDF...  (Ctrl+E)").clicked() {
+                    if ui.button(t!("menu.export_pdf")).clicked() {
                         output.pending_action = Some(MenuAction::ExportPdf);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Settings...  (Ctrl+,)").clicked() {
+                    if ui.button(t!("menu.settings")).clicked() {
                         output.pending_action = Some(MenuAction::OpenSettings);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Quit").clicked() {
+                    if ui.button(t!("menu.quit")).clicked() {
                         output.pending_action = Some(MenuAction::Quit);
                         ui.close_menu();
                     }
                 });
 
                 // EDIT MENU
-                ui.menu_button(RichText::new("Edit").strong(), |ui| {
+                ui.menu_button(RichText::new(t!("menu.edit")).strong(), |ui| {
                     ui.set_min_width(210.0);
-                    if ui.button("Undo  (Ctrl+Z)").clicked() {
+                    if ui.button(t!("menu.undo")).clicked() {
                         output.editor_action = Some(EditorContextAction::Undo);
                         ui.close_menu();
                     }
-                    if ui.button("Redo  (Ctrl+Y)").clicked() {
+                    if ui.button(t!("menu.redo")).clicked() {
                         output.editor_action = Some(EditorContextAction::Redo);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Cut  (Ctrl+X)").clicked() {
+                    if ui.button(t!("menu.cut")).clicked() {
                         output.editor_action = Some(EditorContextAction::Cut);
                         ui.close_menu();
                     }
-                    if ui.button("Copy  (Ctrl+C)").clicked() {
+                    if ui.button(t!("menu.copy")).clicked() {
                         output.editor_action = Some(EditorContextAction::Copy);
                         ui.close_menu();
                     }
-                    if ui.button("Paste  (Ctrl+V)").clicked() {
+                    if ui.button(t!("menu.paste")).clicked() {
                         output.editor_action = Some(EditorContextAction::Paste);
                         ui.close_menu();
                     }
-                    if ui.button("Select All  (Ctrl+A)").clicked() {
+                    if ui.button(t!("menu.select_all")).clicked() {
                         output.editor_action = Some(EditorContextAction::SelectAll);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Insert Section Heading").clicked() {
+                    if ui.button(t!("menu.insert_heading")).clicked() {
                         output.snippet_to_insert = Some("\n\n== New Section\n");
                         ui.close_menu();
                     }
-                    if ui.button("Insert Display Math ($ ... $)").clicked() {
+                    if ui.button(t!("menu.insert_math")).clicked() {
                         output.snippet_to_insert =
                             Some("\n$ f(x) = integral_0^x e^(-t^2) dif t $\n");
                         ui.close_menu();
                     }
-                    if ui.button("Insert Formatted Table").clicked() {
+                    if ui.button(t!("menu.insert_table")).clicked() {
                         output.snippet_to_insert = Some(
                             "\n#table(\n  columns: (1fr, 1fr),\n  [*Column A*], [*Column B*],\n  [Item 1], [Value 1],\n)\n",
                         );
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Settings...  (Ctrl+,)").clicked() {
+                    if ui.button(t!("menu.settings")).clicked() {
                         output.pending_action = Some(MenuAction::OpenSettings);
                         ui.close_menu();
                     }
                 });
 
                 // VIEW MENU
-                ui.menu_button(RichText::new("View").strong(), |ui| {
+                ui.menu_button(RichText::new(t!("menu.view")).strong(), |ui| {
                     ui.set_min_width(210.0);
                     let sidebar_txt = if params.show_sidebar {
-                        "Hide Project File Tree  (Ctrl+B)"
+                        t!("menu.hide_sidebar")
                     } else {
-                        "Show Project File Tree  (Ctrl+B)"
+                        t!("menu.show_sidebar")
                     };
                     if ui.button(sidebar_txt).clicked() {
                         output.pending_action = Some(MenuAction::ToggleSidebar);
                         ui.close_menu();
                     }
                     let wrap_txt = if params.word_wrap {
-                        "Disable Automatic Line Wrapping"
+                        t!("menu.disable_word_wrap")
                     } else {
-                        "Enable Automatic Line Wrapping"
+                        t!("menu.enable_word_wrap")
                     };
                     if ui.button(wrap_txt).clicked() {
                         output.pending_action = Some(MenuAction::ToggleWordWrap);
                         ui.close_menu();
                     }
                     let theme_txt = if params.dark_mode {
-                        "Switch to Light Theme"
+                        t!("menu.theme_light")
                     } else {
-                        "Switch to Dark Theme"
+                        t!("menu.theme_dark")
                     };
                     if ui.button(theme_txt).clicked() {
                         output.pending_action = Some(MenuAction::ToggleTheme);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Zoom In Preview (+)").clicked() {
+                    if ui.button(t!("menu.zoom_in")).clicked() {
                         output.pending_action = Some(MenuAction::ZoomIn);
                         ui.close_menu();
                     }
-                    if ui.button("Zoom Out Preview (-)").clicked() {
+                    if ui.button(t!("menu.zoom_out")).clicked() {
                         output.pending_action = Some(MenuAction::ZoomOut);
                         ui.close_menu();
                     }
-                    if ui.button("Reset Preview Zoom (100%)").clicked() {
+                    if ui.button(t!("menu.zoom_reset")).clicked() {
                         output.pending_action = Some(MenuAction::ZoomReset);
                         ui.close_menu();
                     }
                 });
 
                 // PROJECT MENU
-                ui.menu_button(RichText::new("Project").strong(), |ui| {
+                ui.menu_button(RichText::new(t!("menu.project")).strong(), |ui| {
                     ui.set_min_width(220.0);
-                    if ui.button("Collaboration (P2P)...").clicked() {
+                    if ui.button(t!("menu.collab")).clicked() {
                         output.pending_action = Some(MenuAction::OpenCollab);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Compile Document Now").clicked() {
+                    if ui.button(t!("menu.compile_now")).clicked() {
                         output.pending_action = Some(MenuAction::CompileNow);
                         ui.close_menu();
                     }
-                    if ui.button("Export PDF...  (Ctrl+E)").clicked() {
+                    if ui.button(t!("menu.export_pdf")).clicked() {
                         output.pending_action = Some(MenuAction::ExportPdf);
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.button("Set Active File as Main Entrypoint").clicked() {
+                    if ui.button(t!("menu.set_main")).clicked() {
                         if FileKind::from_path(params.active_file) == FileKind::Typst {
                             output.set_active_as_main = true;
                             output.pending_action = Some(MenuAction::CompileNow);
@@ -242,10 +243,14 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                         });
 
                     ui.label(
-                        RichText::new(format!("Folder: {}", params.project_root.display()))
-                            .small()
-                            .monospace()
-                            .weak(),
+                        RichText::new(format!(
+                            "{}: {}",
+                            t!("menu.folder_label"),
+                            params.project_root.display()
+                        ))
+                        .small()
+                        .monospace()
+                        .weak(),
                     );
                 });
             });

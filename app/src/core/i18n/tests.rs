@@ -1,3 +1,5 @@
+//! Unit tests for locale normalization, system language detection, and native display names.
+
 use super::*;
 
 #[test]
@@ -29,9 +31,9 @@ fn test_locale_native_names() {
 #[test]
 fn test_translation_switching() {
     rust_i18n::set_locale("en");
-    assert_eq!(rust_i18n::t!("settings.language_label"), "Language");
+    assert_eq!(rust_i18n::t!("settings.language_label"), "Language:");
     rust_i18n::set_locale("de");
-    assert_eq!(rust_i18n::t!("settings.language_label"), "Sprache");
+    assert_eq!(rust_i18n::t!("settings.language_label"), "Sprache:");
     rust_i18n::set_locale("en");
 }
 

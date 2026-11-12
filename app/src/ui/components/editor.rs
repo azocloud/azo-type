@@ -7,6 +7,7 @@ use egui::{
     Align, Align2, Context, CornerRadius, FontFamily, FontId, Frame, Layout, Margin, Pos2, Rect,
     RichText, ScrollArea, Stroke, TextEdit, Ui, Vec2,
 };
+use rust_i18n::t;
 
 use crate::collab::awareness::PeerPresence;
 use crate::collab::ui::paint_remote_cursors_in_editor;
@@ -102,7 +103,7 @@ pub fn render_editor_pane(
                     if tabs.len() > 1
                         && ui
                             .small_button(RichText::new("×").color(palette.text_muted))
-                            .on_hover_text(format!("Close tab {}", short_name))
+                            .on_hover_text(t!("editor.close_tab_tooltip", name = short_name))
                             .clicked()
                     {
                         output.close_tab = Some(tab_path.clone());
@@ -120,36 +121,36 @@ pub fn render_editor_pane(
 
                 if active_kind == FileKind::Typst {
                     if ui
-                        .small_button("= Heading")
-                        .on_hover_text("Append a section heading")
+                        .small_button(t!("editor.heading_btn"))
+                        .on_hover_text(t!("editor.heading_tooltip"))
                         .clicked()
                     {
                         snippet_to_insert = Some("\n\n== New Section\n");
                     }
                     if ui
-                        .small_button("*Bold*")
-                        .on_hover_text("Insert bold markup")
+                        .small_button(t!("editor.bold_btn"))
+                        .on_hover_text(t!("editor.bold_tooltip"))
                         .clicked()
                     {
                         snippet_to_insert = Some(" *bold text* ");
                     }
                     if ui
-                        .small_button("_Italic_")
-                        .on_hover_text("Insert italic markup")
+                        .small_button(t!("editor.italic_btn"))
+                        .on_hover_text(t!("editor.italic_tooltip"))
                         .clicked()
                     {
                         snippet_to_insert = Some(" _emphasized_ ");
                     }
                     if ui
-                        .small_button("$ Math $")
-                        .on_hover_text("Insert a display math equation block")
+                        .small_button(t!("editor.math_btn"))
+                        .on_hover_text(t!("editor.math_tooltip"))
                         .clicked()
                     {
                         snippet_to_insert = Some("\n$ f(x) = integral_0^x e^(-t^2) dif t $\n");
                     }
                     if ui
-                        .small_button("+ Table")
-                        .on_hover_text("Insert a formatted table snippet")
+                        .small_button(t!("editor.table_btn"))
+                        .on_hover_text(t!("editor.table_tooltip"))
                         .clicked()
                     {
                         snippet_to_insert = Some(
@@ -157,8 +158,8 @@ pub fn render_editor_pane(
                         );
                     }
                     if ui
-                        .small_button("+ Figure")
-                        .on_hover_text("Insert figure with assets/diagram.svg")
+                        .small_button(t!("editor.figure_btn"))
+                        .on_hover_text(t!("editor.figure_tooltip"))
                         .clicked()
                     {
                         snippet_to_insert = Some(
@@ -167,9 +168,9 @@ pub fn render_editor_pane(
                     }
                 } else if active_kind == FileKind::Svg {
                     let mode_text = if *params.inspect_asset_mode {
-                        "Edit SVG XML"
+                        t!("editor.edit_svg")
                     } else {
-                        "Asset Metadata"
+                        t!("editor.asset_metadata")
                     };
                     if ui.small_button(mode_text).clicked() {
                         *params.inspect_asset_mode = !*params.inspect_asset_mode;
@@ -189,7 +190,7 @@ pub fn render_editor_pane(
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui
                         .small_button("A+")
-                        .on_hover_text("Increase editor font size")
+                        .on_hover_text(t!("editor.increase_font"))
                         .clicked()
                     {
                         *params.editor_font_size =
@@ -197,17 +198,15 @@ pub fn render_editor_pane(
                     }
                     if ui
                         .small_button("A-")
-                        .on_hover_text("Decrease editor font size")
+                        .on_hover_text(t!("editor.decrease_font"))
                         .clicked()
                     {
                         *params.editor_font_size =
                             (*params.editor_font_size - 1.0).clamp(10.0, 22.0);
                     }
                     if ui
-                        .selectable_label(*params.word_wrap, "↩ Wrap")
-                        .on_hover_text(
-                            "Toggle automatic line wrapping at editor panel width (also in File > Settings)",
-                        )
+                        .selectable_label(*params.word_wrap, t!("editor.wrap_toggle"))
+                        .on_hover_text(t!("editor.wrap_tooltip"))
                         .clicked()
                     {
                         *params.word_wrap = !*params.word_wrap;
@@ -227,7 +226,7 @@ pub fn render_editor_pane(
 
     let Some(file) = params.project.active_buffer_mut() else {
         ui.centered_and_justified(|ui| {
-            ui.label("Select a file from the Disk Project Tree.");
+            ui.label(t!("editor.no_file_selected"));
         });
         return output;
     };
@@ -242,18 +241,21 @@ pub fn render_editor_pane(
             .show(ui, |ui| {
                 ui.heading(format!("{} {}", file.kind.icon(), file.rel_path.display()));
                 ui.add_space(6.0);
-                ui.label(format!("Disk Path: {}", file.abs_path.display()));
-                ui.label(format!("Asset Type: {}", file.kind.label()));
-                ui.label(format!("File Size: {} bytes", file.size_bytes));
+                ui.label(t!(
+                    "editor.disk_path",
+                    path = file.abs_path.display().to_string()
+                ));
+                ui.label(t!("editor.asset_type", r#type = file.kind.label()));
+                ui.label(t!("editor.file_size", bytes = file.size_bytes));
                 ui.add_space(8.0);
-                ui.label("Embed in any Typst file using:");
+                ui.label(t!("editor.embed_hint"));
                 ui.code(format!(
                     "#image(\"{}\", width: 80%)",
                     file.rel_path.to_string_lossy().replace('\\', "/")
                 ));
                 if file.text.is_some() {
                     ui.add_space(8.0);
-                    if ui.button("Switch to Source Code Editor").clicked() {
+                    if ui.button(t!("editor.switch_to_editor")).clicked() {
                         exit_inspect = true;
                     }
                 }

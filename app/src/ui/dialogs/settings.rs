@@ -6,6 +6,7 @@ use egui::{
     Align, CentralPanel, Context, CornerRadius, Frame, Layout, Margin, RichText, Slider, Stroke,
     Ui, ViewportBuilder, ViewportClass, ViewportId, Window,
 };
+use rust_i18n::t;
 
 use crate::core::settings::{IdeSettings, SettingsTab};
 use crate::ui::theme::{apply_theme, ThemePalette, DESIGN_SYSTEM_CSS_TOKENS};
@@ -25,7 +26,7 @@ pub fn render_settings_dialog(
     ctx: &Context,
     open: &mut bool,
     settings: &mut IdeSettings,
-    language: &mut String,
+    language: &str,
     active_tab: &mut SettingsTab,
     project_root: &Path,
 ) -> SettingsModalOutput {
@@ -44,7 +45,7 @@ pub fn render_settings_dialog(
     let viewport_id = ViewportId::from_hash_of("azo_type_settings_os_window");
     let builder = crate::platform::configure_viewport_builder(
         ViewportBuilder::default()
-            .with_title("Settings")
+            .with_title(t!("settings.window_title"))
             .with_inner_size([540.0, 440.0])
             .with_min_inner_size([440.0, 340.0]),
     );
@@ -55,17 +56,17 @@ pub fn render_settings_dialog(
                 ui.selectable_value(
                     active_tab,
                     SettingsTab::Appearance,
-                    RichText::new("Appearance").strong(),
+                    RichText::new(t!("settings.tab_appearance")).strong(),
                 );
                 ui.selectable_value(
                     active_tab,
                     SettingsTab::EditorAndDisk,
-                    RichText::new("Editor & Filesystem").strong(),
+                    RichText::new(t!("settings.tab_editor")).strong(),
                 );
                 ui.selectable_value(
                     active_tab,
                     SettingsTab::CompilerAndPreview,
-                    RichText::new("Compiler & Preview").strong(),
+                    RichText::new(t!("settings.tab_compiler")).strong(),
                 );
             });
             ui.separator();
@@ -73,17 +74,17 @@ pub fn render_settings_dialog(
 
             match active_tab {
                 SettingsTab::Appearance => {
-                    ui.heading("Theme & Visual Appearance");
+                    ui.heading(t!("settings.heading_appearance"));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        ui.label(rust_i18n::t!("settings.language_label"));
+                        ui.label(t!("settings.language_label"));
                         let current_name = crate::core::locale_native_name(language);
                         egui::ComboBox::from_id_salt("settings_language_combo")
                             .selected_text(current_name)
                             .show_ui(ui, |ui| {
                                 for loc in rust_i18n::available_locales!() {
                                     let name = crate::core::locale_native_name(loc);
-                                    if ui.selectable_label(loc == language.as_str(), name).clicked() {
+                                    if ui.selectable_label(loc == language, name).clicked() {
                                         output.language_changed = Some(loc.to_string());
                                     }
                                 }
@@ -92,15 +93,15 @@ pub fn render_settings_dialog(
 
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        ui.label("Color Theme:");
+                        ui.label(t!("settings.theme_label"));
                         if ui
-                            .radio_value(&mut settings.dark_mode, true, "Dark Mode (#1C1B22)")
+                            .radio_value(&mut settings.dark_mode, true, t!("settings.theme_dark"))
                             .changed()
                         {
                             output.theme_changed = true;
                         }
                         if ui
-                            .radio_value(&mut settings.dark_mode, false, "Light Mode (#FFFFFF)")
+                            .radio_value(&mut settings.dark_mode, false, t!("settings.theme_light"))
                             .changed()
                         {
                             output.theme_changed = true;
@@ -109,24 +110,21 @@ pub fn render_settings_dialog(
 
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        ui.label("Editor Font Size:");
+                        ui.label(t!("settings.font_size_label"));
                         ui.add(
                             Slider::new(&mut settings.editor_font_size, 10.0..=22.0).suffix(" pt"),
                         );
                     });
 
                     ui.add_space(8.0);
-                    ui.checkbox(
-                        &mut settings.word_wrap,
-                        "Wrap long lines automatically to editor panel width (with end-of-line ↩ indicator)",
-                    );
+                    ui.checkbox(&mut settings.word_wrap, t!("settings.word_wrap_label"));
                     ui.checkbox(
                         &mut settings.show_line_numbers,
-                        "Show line numbers gutter in code editor",
+                        t!("settings.line_numbers_label"),
                     );
                     ui.checkbox(
                         &mut settings.syntax_highlighting,
-                        "Enable real-time Typst syntax highlighting",
+                        t!("settings.syntax_highlighting_label"),
                     );
 
                     ui.add_space(8.0);
@@ -138,22 +136,21 @@ pub fn render_settings_dialog(
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
-                                    RichText::new("Design System Tokens")
+                                    RichText::new(t!("settings.design_system_tokens"))
                                         .small()
                                         .strong()
                                         .color(palette.text_primary),
                                 );
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if ui
-                                        .small_button("Copy CSS Tokens")
-                                        .on_hover_text(
-                                            "Copy standardized :root and [data-theme=\"dark\"] CSS variables",
-                                        )
+                                        .small_button(t!("settings.copy_css_tokens"))
+                                        .on_hover_text(t!("settings.copy_css_tooltip"))
                                         .clicked()
                                     {
                                         ctx.copy_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
                                         if let Ok(mut cb) = arboard::Clipboard::new() {
-                                            let _ = cb.set_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
+                                            let _ =
+                                                cb.set_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
                                         }
                                     }
                                 });
@@ -189,61 +186,57 @@ pub fn render_settings_dialog(
                         });
                 }
                 SettingsTab::EditorAndDisk => {
-                    ui.heading("Filesystem & Project Behavior");
+                    ui.heading(t!("settings.heading_editor"));
                     ui.add_space(8.0);
                     ui.label(
                         RichText::new(format!(
-                            "Active Project Directory: {}",
+                            "{}: {}",
+                            t!("settings.project_folder_label"),
                             project_root.display()
                         ))
                         .monospace()
                         .small(),
                     );
                     ui.add_space(6.0);
-                    ui.checkbox(
-                        &mut settings.word_wrap,
-                        "Wrap long lines automatically to editor panel width (with end-of-line ↩ indicator)",
-                    );
+                    ui.checkbox(&mut settings.word_wrap, t!("settings.word_wrap_label"));
                     ui.checkbox(
                         &mut settings.auto_save_on_edit,
-                        "Automatically save modified buffers to disk on edit",
+                        t!("settings.auto_save_label"),
                     );
                     if ui
                         .checkbox(
                             &mut settings.show_hidden_files,
-                            "Show hidden dotfiles in project tree",
+                            t!("settings.show_hidden_label"),
                         )
                         .changed()
                     {
                         output.rescan_needed = true;
                     }
                     ui.add_space(8.0);
-                    if ui.button("Open Another Project Folder...").clicked() {
+                    if ui.button(t!("settings.choose_folder_btn")).clicked() {
                         output.open_folder_requested = true;
                     }
                 }
                 SettingsTab::CompilerAndPreview => {
-                    ui.heading("Typst Compiler & Live Preview");
+                    ui.heading(t!("settings.heading_compiler"));
                     ui.add_space(8.0);
                     ui.checkbox(
                         &mut settings.auto_compile,
-                        "Automatically compile Typst document while typing",
+                        t!("settings.auto_compile_label"),
                     );
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        ui.label("Compile Debounce Delay:");
-                        ui.add(
-                            Slider::new(&mut settings.debounce_ms, 50..=800).suffix(" ms"),
-                        );
+                        ui.label(t!("settings.debounce_label"));
+                        ui.add(Slider::new(&mut settings.debounce_ms, 50..=800).suffix(" ms"));
                     });
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        ui.label("Preview Rasterization DPI:");
+                        ui.label(t!("settings.dpi_scale_label"));
                         if ui
                             .selectable_value(
                                 &mut settings.render_dpi_scale,
                                 1.5,
-                                "1.5x Fast",
+                                t!("settings.dpi_fast"),
                             )
                             .changed()
                         {
@@ -253,7 +246,7 @@ pub fn render_settings_dialog(
                             .selectable_value(
                                 &mut settings.render_dpi_scale,
                                 2.0,
-                                "2.0x Crisp (Default)",
+                                t!("settings.dpi_crisp"),
                             )
                             .changed()
                         {
@@ -263,7 +256,7 @@ pub fn render_settings_dialog(
                             .selectable_value(
                                 &mut settings.render_dpi_scale,
                                 3.0,
-                                "3.0x Ultra HiDPI",
+                                t!("settings.dpi_hidpi"),
                             )
                             .changed()
                         {
@@ -276,7 +269,7 @@ pub fn render_settings_dialog(
             ui.add_space(14.0);
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Reset to Defaults").clicked() {
+                if ui.button(t!("settings.reset_defaults")).clicked() {
                     let prev_dark = settings.dark_mode;
                     *settings = IdeSettings::default();
                     if prev_dark != settings.dark_mode {
@@ -285,7 +278,7 @@ pub fn render_settings_dialog(
                     output.dpi_changed = true;
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button("Close").clicked() {
+                    if ui.button(t!("settings.close_btn")).clicked() {
                         close_clicked = true;
                     }
                 });
@@ -293,7 +286,7 @@ pub fn render_settings_dialog(
         };
 
         if class == ViewportClass::Embedded {
-            Window::new("Settings")
+            Window::new(t!("settings.window_title"))
                 .open(&mut is_open)
                 .resizable(true)
                 .collapsible(false)
