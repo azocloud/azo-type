@@ -1,0 +1,7 @@
+# Cargo configuration for azo-type
+# Configures the mold linker for all Linux targets to speed up link times.
+
+[target.'cfg(target_os = "linux")']
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
