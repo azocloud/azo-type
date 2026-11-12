@@ -4,9 +4,15 @@ A cross-platform native Rust desktop GUI IDE for [Typst](https://typst.app/) fea
 
 ---
 
+## Warning
+
+Early pre alpha with many issues.
+
 ## Screenshot
 
 ![App UI](assets/screenshot.png)
+
+---
 
 ## Architecture Overview
 
