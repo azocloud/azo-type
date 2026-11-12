@@ -4,6 +4,10 @@ A cross-platform native Rust desktop GUI IDE for [Typst](https://typst.app/) fea
 
 ---
 
+## Screenshot
+
+![App UI](assets/screenshot.png)
+
 ## Architecture Overview
 
 The codebase is organized into clean, modular architectural layers following dependency inversion principles:
