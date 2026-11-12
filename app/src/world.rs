@@ -33,7 +33,7 @@ impl Downloader for ReqwestDownloader {
                 .map_err(io::Error::other)?;
             rt.block_on(async move {
                 let client = reqwest::Client::builder()
-                    .user_agent("typst-studio-ide/0.3.0")
+                    .user_agent("azo-type/0.3.0")
                     .build()
                     .map_err(io::Error::other)?;
                 let response = client

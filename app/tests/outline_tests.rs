@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use typst_ide::app::{DocumentOutlineItem, TypstIdeApp};
+use azo_type::app::{DocumentOutlineItem, TypstIdeApp};
 
-use typst_ide::project::{DiskProject, FileKind};
+use azo_type::project::{DiskProject, FileKind};
 
 #[test]
 fn extracts_typst_headings_at_various_depths() {

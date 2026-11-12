@@ -1,4 +1,4 @@
-use typst_ide::collab::doc::{
+use azo_type::collab::doc::{
     char_to_utf16_offset, compute_utf16_diff, format_collision_path, normalize_rel_path,
     utf16_to_char_offset,
 };

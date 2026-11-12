@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn test_merman_package_import_and_pdf_standards_export() {
     let temp_dir =
-        std::env::temp_dir().join(format!("typst_ide_merman_test_{}", uuid::Uuid::new_v4()));
+        std::env::temp_dir().join(format!("azo_type_merman_test_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     let test_typ_content = r#"// --- Pakete für Mermaid-Diagramme ---

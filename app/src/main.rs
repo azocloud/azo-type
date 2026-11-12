@@ -1,10 +1,10 @@
 //! Binary entrypoint launching the native `eframe` desktop window and parsing CLI arguments.
 
-use typst_ide::app::TypstIdeApp;
+use azo_type::app::TypstIdeApp;
 
 fn parse_cli_args() -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) {
     let args: Vec<String> = std::env::args().collect();
-    typst_ide::parse_cli_args_from(&args)
+    azo_type::parse_cli_args_from(&args)
 }
 
 fn main() -> eframe::Result<()> {

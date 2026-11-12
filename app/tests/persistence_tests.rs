@@ -1,7 +1,7 @@
 use std::fs;
 
-use typst_ide::collab::doc::{CollabFileEntry, CollabProjectDoc};
-use typst_ide::collab::persistence::CollabPersistence;
+use azo_type::collab::doc::{CollabFileEntry, CollabProjectDoc};
+use azo_type::collab::persistence::CollabPersistence;
 
 #[test]
 fn saves_and_reloads_crdt_snapshot_retaining_all_files() {

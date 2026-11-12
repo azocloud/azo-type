@@ -1,4 +1,4 @@
-use typst_ide::compiler::{PdfArchivalStandard, PdfExportConfig, PdfVersionChoice};
+use azo_type::compiler::{PdfArchivalStandard, PdfExportConfig, PdfVersionChoice};
 
 #[test]
 fn validates_default_pdf_configuration() {

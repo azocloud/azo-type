@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use typst_ide::project::{DiskProject, FileKind, OpenBuffer};
+use azo_type::project::{DiskProject, FileKind, OpenBuffer};
 
 #[test]
 fn opens_existing_folder_and_collects_files() {

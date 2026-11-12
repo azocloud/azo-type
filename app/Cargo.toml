@@ -1,9 +1,9 @@
 [package]
-name = "typst-ide"
+name = "azo-type"
 version = "0.3.0"
 edition = "2021"
 description = "Native Cross-Platform Typst IDE with P2P Real-Time Collaborative Editing"
-authors = ["Typst IDE Architect"]
+authors = ["Azo Type Architect"]
 
 [dependencies]
 egui = "0.31.1"

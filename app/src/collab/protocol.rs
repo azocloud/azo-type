@@ -9,7 +9,7 @@ use iroh::{EndpointAddr, EndpointId, RelayUrl, TransportAddr};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
-pub const COLLAB_ALPN: &[u8] = b"typst-studio/collab/v1";
+pub const COLLAB_ALPN: &[u8] = b"azo-type/collab/v1";
 pub const COLLAB_PROTOCOL_VERSION: u32 = 1;
 pub const MAX_WIRE_FRAME_BYTES: usize = 8 * 1024 * 1024; // 8 MiB hard limit
 pub const TICKET_PREFIX: &str = "typst-collab-v1:";

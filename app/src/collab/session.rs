@@ -134,7 +134,7 @@ impl CollabSessionHandle {
         let (ui_tx, ui_rx) = std_mpsc::channel();
 
         std::thread::Builder::new()
-            .name("typst-collab-actor".to_string())
+            .name("azo-type-collab-actor".to_string())
             .spawn(move || {
                 let rt = tokio::runtime::Builder::new_multi_thread()
                     .worker_threads(2)

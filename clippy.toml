@@ -1,4 +1,4 @@
-# Central Clippy linter configuration for typst-ide
+# Central Clippy linter configuration for Azo Type
 cognitive-complexity-threshold = 35
 too-many-arguments-threshold = 12
 type-complexity-threshold = 300

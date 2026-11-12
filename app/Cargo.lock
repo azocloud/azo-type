@@ -516,6 +516,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be5eb007b7cacc6c660343e96f650fedf4b5a77512399eb952ca6642cf8d13f7"
 
 [[package]]
+name = "azo-type"
+version = "0.3.0"
+dependencies = [
+ "arboard",
+ "base64 0.22.1",
+ "chrono",
+ "comemo",
+ "ecow",
+ "eframe",
+ "egui",
+ "image",
+ "iroh",
+ "muda",
+ "rand 0.8.8",
+ "reqwest",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tokio",
+ "typst",
+ "typst-assets",
+ "typst-kit",
+ "typst-layout",
+ "typst-pdf",
+ "typst-render",
+ "typst-syntax",
+ "uuid",
+ "yrs",
+]
+
+[[package]]
 name = "backon"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6714,37 +6745,6 @@ dependencies = [
  "typst-timing",
  "typst-utils",
  "unicode-math-class",
-]
-
-[[package]]
-name = "typst-ide"
-version = "0.3.0"
-dependencies = [
- "arboard",
- "base64 0.22.1",
- "chrono",
- "comemo",
- "ecow",
- "eframe",
- "egui",
- "image",
- "iroh",
- "muda",
- "rand 0.8.8",
- "reqwest",
- "rfd",
- "serde",
- "serde_json",
- "tokio",
- "typst",
- "typst-assets",
- "typst-kit",
- "typst-layout",
- "typst-pdf",
- "typst-render",
- "typst-syntax",
- "uuid",
- "yrs",
 ]
 
 [[package]]
