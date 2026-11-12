@@ -36,7 +36,7 @@ pub fn render_export_pdf_dialog(
 
     let viewport_id = ViewportId::from_hash_of("azo_type_export_pdf_os_window");
     let builder = ViewportBuilder::default()
-        .with_title("Export PDF — Version & Standards")
+        .with_title("Export PDF")
         .with_inner_size([560.0, 480.0])
         .with_min_inner_size([460.0, 380.0]);
 
@@ -325,7 +325,7 @@ pub fn render_export_pdf_dialog(
         };
 
         if class == ViewportClass::Embedded {
-            Window::new("Export PDF — Version & Standards")
+            Window::new("Export PDF")
                 .open(&mut is_open)
                 .resizable(true)
                 .collapsible(false)

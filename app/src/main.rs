@@ -11,7 +11,7 @@ fn main() -> eframe::Result<()> {
     let (initial_folder, screenshot_path) = parse_cli_args();
 
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Azo Type — Native Desktop Typst IDE")
+        .with_title("Azo Type")
         .with_inner_size([1360.0, 860.0])
         .with_min_inner_size([800.0, 520.0]);
 

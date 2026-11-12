@@ -41,7 +41,7 @@ pub fn render_settings_dialog(
 
     let viewport_id = ViewportId::from_hash_of("azo_type_settings_os_window");
     let builder = ViewportBuilder::default()
-        .with_title("Settings — Azo Type")
+        .with_title("Settings")
         .with_inner_size([540.0, 440.0])
         .with_min_inner_size([440.0, 340.0]);
 
@@ -273,7 +273,7 @@ pub fn render_settings_dialog(
         };
 
         if class == ViewportClass::Embedded {
-            Window::new("Settings — Azo Type")
+            Window::new("Settings")
                 .open(&mut is_open)
                 .resizable(true)
                 .collapsible(false)

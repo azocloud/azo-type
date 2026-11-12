@@ -11,7 +11,7 @@ This document provides a comprehensive inventory of all user workflows, UI capab
   - [ ] Specifying screenshot destination via `--screenshot <path>` or `--screenshot=<path>`.
   - [ ] Fallback: If no directory is supplied, ensures and opens `./sample-project` on disk.
 - [ ] **Window Configuration**:
-  - [ ] Title set to `"Azo Type — Native Desktop Typst IDE"`.
+  - [ ] Title set to `"Azo Type"`.
   - [ ] Default window dimensions `1360 x 860`, minimum size `800 x 520`.
   - [ ] Platform-specific window adjustments (e.g., Windows `WindowLevel::AlwaysOnBottom` when `--screenshot` is active; macOS `with_activate_ignoring_other_apps(false)`).
 - [ ] **Headless / CI Screenshot Capture**:

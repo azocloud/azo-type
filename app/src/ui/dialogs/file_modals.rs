@@ -29,7 +29,7 @@ pub fn render_new_file_modal(
 
     let viewport_id = ViewportId::from_hash_of("azo_type_new_file_os_window");
     let builder = ViewportBuilder::default()
-        .with_title("New File in Project — Azo Type")
+        .with_title("New File in Project")
         .with_inner_size([440.0, 160.0])
         .with_min_inner_size([360.0, 140.0]);
 
@@ -117,7 +117,7 @@ pub fn render_rename_file_modal(
 
     let viewport_id = ViewportId::from_hash_of("azo_type_rename_file_os_window");
     let builder = ViewportBuilder::default()
-        .with_title("Rename File — Azo Type")
+        .with_title("Rename File")
         .with_inner_size([440.0, 160.0])
         .with_min_inner_size([360.0, 140.0]);
 
