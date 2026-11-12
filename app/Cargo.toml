@@ -48,3 +48,13 @@ rand = "0.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.21.2", default-features = false }
+
+[lints.rust]
+unused_must_use = "warn"
+
+[lints.clippy]
+if_same_then_else = "warn"
+collapsible_match = "warn"
+derivable_impls = "warn"
+dbg_macro = "warn"
+todo = "warn"
