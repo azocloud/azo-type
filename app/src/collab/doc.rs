@@ -52,10 +52,7 @@ impl CharSelection {
 
 /// Converts an `egui` `char` index (Unicode scalar count) into a `yrs` UTF-16 code unit offset.
 pub fn char_to_utf16_offset(s: &str, char_idx: usize) -> u32 {
-    s.chars()
-        .take(char_idx)
-        .map(|c| c.len_utf16() as u32)
-        .sum()
+    s.chars().take(char_idx).map(|c| c.len_utf16() as u32).sum()
 }
 
 /// Converts a `yrs` UTF-16 code unit offset back into an `egui` `char` index (Unicode scalar count).
@@ -130,10 +127,7 @@ pub fn normalize_rel_path(path: &str) -> String {
 pub fn format_collision_path(raw_path: &str, file_id: &str) -> String {
     let short_id: String = file_id.chars().take(6).collect();
     let path = Path::new(raw_path);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = path.extension().and_then(|e| e.to_str());
     let parent = path
         .parent()
@@ -246,8 +240,8 @@ impl CollabProjectDoc {
     /// Applies a remote binary v1 update using `REMOTE_ORIGIN` so it does NOT echo back to peers
     /// and does NOT pollute the local user's Undo stack.
     pub fn apply_remote_update_v1(&mut self, update_bytes: &[u8]) -> Result<(), String> {
-        let update = Update::decode_v1(update_bytes)
-            .map_err(|e| format!("Malformed Yrs update: {}", e))?;
+        let update =
+            Update::decode_v1(update_bytes).map_err(|e| format!("Malformed Yrs update: {}", e))?;
         let mut txn = self.doc.transact_mut_with(Origin::from(REMOTE_ORIGIN));
         txn.apply_update(update)
             .map_err(|e| format!("Update apply error: {}", e))
@@ -261,8 +255,8 @@ impl CollabProjectDoc {
         active_file_id: Option<&str>,
         current_selection: Option<CharSelection>,
     ) -> Result<Option<CharSelection>, String> {
-        let update = Update::decode_v1(update_bytes)
-            .map_err(|e| format!("Malformed Yrs update: {}", e))?;
+        let update =
+            Update::decode_v1(update_bytes).map_err(|e| format!("Malformed Yrs update: {}", e))?;
 
         let sticky_pair = if let (Some(fid), Some(sel)) = (active_file_id, current_selection) {
             self.capture_sticky_selection(fid, sel)
@@ -276,13 +270,12 @@ impl CollabProjectDoc {
                 .map_err(|e| format!("Update apply error: {}", e))?;
         }
 
-        let restored = if let (Some(fid), Some((sticky_prim, sticky_sec))) =
-            (active_file_id, sticky_pair)
-        {
-            self.resolve_sticky_selection(fid, sticky_prim, sticky_sec)
-        } else {
-            current_selection
-        };
+        let restored =
+            if let (Some(fid), Some((sticky_prim, sticky_sec))) = (active_file_id, sticky_pair) {
+                self.resolve_sticky_selection(fid, sticky_prim, sticky_sec)
+            } else {
+                current_selection
+            };
 
         Ok(restored)
     }
@@ -736,9 +729,6 @@ mod tests {
 
         // Peer A hits Undo: only " + LocalA" should be undone, preserving " + RemoteB"!
         assert!(peer_a.undo_file(&fid));
-        assert_eq!(
-            peer_a.file_content(&fid).as_deref(),
-            Some("Base + RemoteB")
-        );
+        assert_eq!(peer_a.file_content(&fid).as_deref(), Some("Base + RemoteB"));
     }
 }

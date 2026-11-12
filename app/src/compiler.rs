@@ -28,13 +28,8 @@ pub enum PdfVersionChoice {
 }
 
 impl PdfVersionChoice {
-    pub const ALL: &'static [PdfVersionChoice] = &[
-        Self::V1_4,
-        Self::V1_5,
-        Self::V1_6,
-        Self::V1_7,
-        Self::V2_0,
-    ];
+    pub const ALL: &'static [PdfVersionChoice] =
+        &[Self::V1_4, Self::V1_5, Self::V1_6, Self::V1_7, Self::V2_0];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -353,16 +348,10 @@ pub fn export_pdf_bytes_with_config(
                     ),
                 ..PdfOptions::default()
             };
-            typst_pdf::pdf(&doc, &options).map_err(|errs| {
-                errs.iter()
-                    .map(|e| extract_diagnostic(&world, e))
-                    .collect()
-            })
+            typst_pdf::pdf(&doc, &options)
+                .map_err(|errs| errs.iter().map(|e| extract_diagnostic(&world, e)).collect())
         }
-        Err(errs) => Err(errs
-            .iter()
-            .map(|e| extract_diagnostic(&world, e))
-            .collect()),
+        Err(errs) => Err(errs.iter().map(|e| extract_diagnostic(&world, e)).collect()),
     }
 }
 
@@ -474,10 +463,7 @@ fn extract_diagnostic(world: &EditorWorld, diag: &SourceDiagnostic) -> Diagnosti
     }
 }
 
-pub fn upload_page_textures(
-    ctx: &Context,
-    pages: &[RenderedPageData],
-) -> Vec<RenderedPageTexture> {
+pub fn upload_page_textures(ctx: &Context, pages: &[RenderedPageData]) -> Vec<RenderedPageTexture> {
     pages
         .iter()
         .map(|p| {
@@ -502,10 +488,8 @@ mod tests {
 
     #[test]
     fn test_merman_package_import_and_pdf_standards_export() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "typst_ide_merman_test_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let temp_dir =
+            std::env::temp_dir().join(format!("typst_ide_merman_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let test_typ_content = r#"// --- Pakete für Mermaid-Diagramme ---
@@ -529,11 +513,7 @@ mod tests {
         let resources = Arc::new(SharedWorldResources::new());
 
         let snapshot = compile_project(Arc::clone(&resources), &project, 2.0);
-        let errors: Vec<_> = snapshot
-            .diagnostics
-            .iter()
-            .filter(|d| d.is_error)
-            .collect();
+        let errors: Vec<_> = snapshot.diagnostics.iter().filter(|d| d.is_error).collect();
         assert!(
             errors.is_empty(),
             "Expected @preview/merman:0.5.0 compilation to succeed, got errors: {:?}",

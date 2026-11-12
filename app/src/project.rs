@@ -369,7 +369,11 @@ impl DiskProject {
         Ok(rel_path)
     }
 
-    pub fn rename_file_on_disk(&mut self, old_rel: &Path, new_rel_str: &str) -> Result<PathBuf, String> {
+    pub fn rename_file_on_disk(
+        &mut self,
+        old_rel: &Path,
+        new_rel_str: &str,
+    ) -> Result<PathBuf, String> {
         let trimmed = new_rel_str.trim().trim_start_matches(['/', '\\']);
         if trimmed.is_empty() {
             return Err("New file name cannot be empty".to_string());
@@ -529,7 +533,9 @@ pub fn ensure_sample_project_on_disk() -> PathBuf {
         .exists()
         .then(|| fs::read_to_string(&main_path).ok())
         .flatten()
-        .map(|s| s.contains("= Executive Summary") && !s.contains("=== Package & Universe Resolution"))
+        .map(|s| {
+            s.contains("= Executive Summary") && !s.contains("=== Package & Universe Resolution")
+        })
         .unwrap_or(true);
     if !main_path.exists() || needs_sample_refresh {
         let main_typ = r##"#import "template.typ": project, callout, metric-grid

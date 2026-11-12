@@ -553,8 +553,7 @@ pub fn paint_remote_cursors_in_editor(
         }
 
         // 2. Draw vertical colored caret bar
-        let caret_local =
-            galley.pos_from_cursor(&galley.from_ccursor(CCursor::new(caret_char)));
+        let caret_local = galley.pos_from_cursor(&galley.from_ccursor(CCursor::new(caret_char)));
         let caret_rect = caret_local.translate(galley_pos.to_vec2());
         let top = Pos2::new(caret_rect.min.x, caret_rect.min.y);
         let bottom = Pos2::new(caret_rect.min.x, caret_rect.max.y);

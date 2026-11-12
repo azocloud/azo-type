@@ -1,41 +1,8 @@
-pub mod app;
-pub mod collab;
-pub mod compiler;
-pub mod highlight;
-pub mod project;
-pub mod world;
+use typst_ide::app::TypstIdeApp;
 
-use std::path::PathBuf;
-
-use app::TypstIdeApp;
-
-fn parse_cli_args() -> (Option<PathBuf>, Option<PathBuf>) {
+fn parse_cli_args() -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) {
     let args: Vec<String> = std::env::args().collect();
-    let mut screenshot_path = None;
-    let mut folder_path = None;
-
-    let mut idx = 1;
-    while idx < args.len() {
-        if args[idx] == "--screenshot" {
-            if let Some(path_str) = args.get(idx + 1) {
-                screenshot_path = Some(PathBuf::from(path_str));
-                idx += 2;
-                continue;
-            }
-        } else if let Some(rest) = args[idx].strip_prefix("--screenshot=") {
-            screenshot_path = Some(PathBuf::from(rest));
-            idx += 1;
-            continue;
-        } else if !args[idx].starts_with('-') && folder_path.is_none() {
-            let candidate = PathBuf::from(&args[idx]);
-            if candidate.is_dir() {
-                folder_path = Some(candidate);
-            }
-        }
-        idx += 1;
-    }
-
-    (folder_path, screenshot_path)
+    typst_ide::parse_cli_args_from(&args)
 }
 
 fn main() -> eframe::Result<()> {

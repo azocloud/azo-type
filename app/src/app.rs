@@ -213,11 +213,8 @@ impl TypstIdeApp {
 
         Self::apply_theme(&cc.egui_ctx, settings.dark_mode);
 
-        let initial_snapshot = compile_project(
-            Arc::clone(&resources),
-            &project,
-            settings.render_dpi_scale,
-        );
+        let initial_snapshot =
+            compile_project(Arc::clone(&resources), &project, settings.render_dpi_scale);
         let page_textures = upload_page_textures(&cc.egui_ctx, &initial_snapshot.pages);
 
         let (io_tx, io_rx) = mpsc::channel();
@@ -362,8 +359,10 @@ impl TypstIdeApp {
                 if let Err(e) = self.project.rescan_tree() {
                     self.status_notice = format!("Rescan failed: {}", e);
                 } else {
-                    self.status_notice =
-                        format!("Rescanned disk folder '{}'", self.project.root_dir.display());
+                    self.status_notice = format!(
+                        "Rescanned disk folder '{}'",
+                        self.project.root_dir.display()
+                    );
                     self.trigger_compile_now(ctx);
                 }
             }
@@ -585,14 +584,17 @@ impl TypstIdeApp {
                 triggered = Some(MenuAction::RescanFolder);
             } else if collab_active && i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
             {
-                self.collab_session
-                    .send(UiToSessionCmd::LocalRedo { rel_path: active_rel.clone() });
+                self.collab_session.send(UiToSessionCmd::LocalRedo {
+                    rel_path: active_rel.clone(),
+                });
             } else if collab_active && i.consume_key(Modifiers::COMMAND, Key::Y) {
-                self.collab_session
-                    .send(UiToSessionCmd::LocalRedo { rel_path: active_rel.clone() });
+                self.collab_session.send(UiToSessionCmd::LocalRedo {
+                    rel_path: active_rel.clone(),
+                });
             } else if collab_active && i.consume_key(Modifiers::COMMAND, Key::Z) {
-                self.collab_session
-                    .send(UiToSessionCmd::LocalUndo { rel_path: active_rel.clone() });
+                self.collab_session.send(UiToSessionCmd::LocalUndo {
+                    rel_path: active_rel.clone(),
+                });
             }
         });
         if let Some(action) = triggered {
@@ -1363,10 +1365,7 @@ impl TypstIdeApp {
                 let path_str = self.new_file_name.trim().to_string();
                 match self.project.create_file_on_disk(&path_str) {
                     Ok(rel) => {
-                        let initial_text = self
-                            .project
-                            .read_source_text(&rel)
-                            .unwrap_or_default();
+                        let initial_text = self.project.read_source_text(&rel).unwrap_or_default();
                         if self.collab_ui.is_active {
                             self.collab_session.send(UiToSessionCmd::LocalFileCreated {
                                 rel_path: rel.clone(),
@@ -1403,9 +1402,7 @@ impl TypstIdeApp {
 
             ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
                 let mut render_body = |ui: &mut Ui| {
-                    ui.label(
-                        RichText::new(format!("Rename '{}' to:", old_rel.display())).strong(),
-                    );
+                    ui.label(RichText::new(format!("Rename '{}' to:", old_rel.display())).strong());
                     ui.add_space(6.0);
                     let resp = ui.add(
                         TextEdit::singleline(&mut self.rename_file_input)
@@ -1468,11 +1465,8 @@ impl TypstIdeApp {
                                 new_rel_path: new_rel.clone(),
                             });
                         }
-                        self.status_notice = format!(
-                            "Renamed '{}' -> '{}'",
-                            old_rel.display(),
-                            new_rel.display()
-                        );
+                        self.status_notice =
+                            format!("Renamed '{}' -> '{}'", old_rel.display(), new_rel.display());
                         open = false;
                         self.trigger_compile_now(ctx);
                     }
@@ -1798,20 +1792,17 @@ impl TypstIdeApp {
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let (dot_color, status_text) = if self.compile_in_progress || self.pending_compile
-                    {
-                        (palette.syn_operator, "Compiling...".to_string())
-                    } else if error_count > 0 {
-                        (
-                            palette.syn_number,
-                            format!("{} Error(s)", error_count),
-                        )
-                    } else {
-                        (
-                            Color32::from_rgb(0x44, 0x8C, 0x6B),
-                            format!("Compiled ({:.1} ms)", self.compile_duration_ms),
-                        )
-                    };
+                    let (dot_color, status_text) =
+                        if self.compile_in_progress || self.pending_compile {
+                            (palette.syn_operator, "Compiling...".to_string())
+                        } else if error_count > 0 {
+                            (palette.syn_number, format!("{} Error(s)", error_count))
+                        } else {
+                            (
+                                Color32::from_rgb(0x44, 0x8C, 0x6B),
+                                format!("Compiled ({:.1} ms)", self.compile_duration_ms),
+                            )
+                        };
 
                     ui.label(RichText::new(status_text).color(dot_color).strong().small());
 
@@ -1826,12 +1817,9 @@ impl TypstIdeApp {
 
                     ui.separator();
                     ui.label(
-                        RichText::new(format!(
-                            "Main: {}",
-                            self.project.main_file.display()
-                        ))
-                        .color(palette.text_primary)
-                        .small(),
+                        RichText::new(format!("Main: {}", self.project.main_file.display()))
+                            .color(palette.text_primary)
+                            .small(),
                     );
 
                     ui.separator();
@@ -1884,7 +1872,7 @@ impl TypstIdeApp {
             });
     }
 
-    fn extract_typst_markup_plain_text(node: &SyntaxNode) -> String {
+    pub fn extract_typst_markup_plain_text(node: &SyntaxNode) -> String {
         fn visit(n: &SyntaxNode, out: &mut String) {
             match n.kind() {
                 SyntaxKind::LineComment
@@ -1920,7 +1908,7 @@ impl TypstIdeApp {
         raw.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
-    fn extract_typst_ast_outline(
+    pub fn extract_typst_ast_outline(
         text: &str,
         current_file: &Path,
         project: Option<&DiskProject>,
@@ -1942,8 +1930,9 @@ impl TypstIdeApp {
                 SyntaxKind::Heading => {
                     if let Some(heading) = node.cast::<ast::Heading>() {
                         let level = heading.depth().get();
-                        let title =
-                            TypstIdeApp::extract_typst_markup_plain_text(heading.body().to_untyped());
+                        let title = TypstIdeApp::extract_typst_markup_plain_text(
+                            heading.body().to_untyped(),
+                        );
                         if !title.is_empty() {
                             let byte_offset = node.offset().min(text.len());
                             let char_offset = text[..byte_offset].chars().count();
@@ -2115,7 +2104,7 @@ impl TypstIdeApp {
         build_slice(&indexed, active_idx)
     }
 
-    fn extract_document_outline(
+    pub fn extract_document_outline(
         text: &str,
         kind: FileKind,
         current_file: &Path,
@@ -2136,13 +2125,12 @@ impl TypstIdeApp {
                     .map(|p| p.effective_compile_entrypoint() == current_file)
                     .unwrap_or(false);
                 if is_main_entrypoint && !compiled_outline.is_empty() {
-                    let mut merged = Vec::with_capacity(compiled_outline.len().max(ast_items.len()));
+                    let mut merged =
+                        Vec::with_capacity(compiled_outline.len().max(ast_items.len()));
                     let mut used_ast = vec![false; ast_items.len()];
                     for comp in compiled_outline {
-                        if let Some((ast_idx, ast_match)) = ast_items
-                            .iter()
-                            .enumerate()
-                            .find(|(i, a)| {
+                        if let Some((ast_idx, ast_match)) =
+                            ast_items.iter().enumerate().find(|(i, a)| {
                                 !used_ast[*i]
                                     && a.file == comp.file
                                     && (a.title == comp.title || a.line_number == comp.line)
@@ -2320,7 +2308,8 @@ impl TypstIdeApp {
                     .clicked()
                 {
                     is_open = !is_open;
-                    ui.ctx().data_mut(|d| d.insert_persisted(collapse_id, is_open));
+                    ui.ctx()
+                        .data_mut(|d| d.insert_persisted(collapse_id, is_open));
                 }
             } else {
                 ui.add_space(2.0);
@@ -2372,13 +2361,15 @@ impl TypstIdeApp {
                 node.item.title.clone()
             };
 
-            let mut title_rt = RichText::new(display_title).size(11.8).color(if node.is_current {
-                palette.text_primary
-            } else if node.item.level == 1 {
-                palette.text_primary.gamma_multiply(0.92)
-            } else {
-                palette.text_muted
-            });
+            let mut title_rt = RichText::new(display_title)
+                .size(11.8)
+                .color(if node.is_current {
+                    palette.text_primary
+                } else if node.item.level == 1 {
+                    palette.text_primary.gamma_multiply(0.92)
+                } else {
+                    palette.text_muted
+                });
             if node.is_current || node.item.level == 1 {
                 title_rt = title_rt.strong();
             }
@@ -2718,29 +2709,25 @@ impl TypstIdeApp {
                 children,
             } => {
                 let header = format!("{}/", name);
-                CollapsingHeader::new(
-                    RichText::new(header)
-                        .strong()
-                        .color(palette.text_primary),
-                )
-                .default_open(true)
-                .show(ui, |ui| {
-                    for child in children {
-                        Self::render_fs_tree_node(
-                            ui,
-                            child,
-                            project,
-                            palette,
-                            active_path,
-                            main_path,
-                            remote_presences,
-                            clicked_path,
-                            new_main_path,
-                            rename_req,
-                            delete_req,
-                        );
-                    }
-                });
+                CollapsingHeader::new(RichText::new(header).strong().color(palette.text_primary))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        for child in children {
+                            Self::render_fs_tree_node(
+                                ui,
+                                child,
+                                project,
+                                palette,
+                                active_path,
+                                main_path,
+                                remote_presences,
+                                clicked_path,
+                                new_main_path,
+                                rename_req,
+                                delete_req,
+                            );
+                        }
+                    });
             }
             FsTreeNode::File {
                 name,
@@ -4427,7 +4414,10 @@ mod tests {
     #[test]
     fn test_word_wrap_enabled_by_default() {
         let settings = IdeSettings::default();
-        assert!(settings.word_wrap, "Automatic line wrapping must be on by default");
+        assert!(
+            settings.word_wrap,
+            "Automatic line wrapping must be on by default"
+        );
     }
 
     #[test]
@@ -4462,14 +4452,24 @@ mod tests {
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].item.title, "Executive Summary");
         assert_eq!(tree[0].children.len(), 2);
-        assert_eq!(tree[0].children[0].item.title, "Filesystem & Compilation Pipeline");
+        assert_eq!(
+            tree[0].children[0].item.title,
+            "Filesystem & Compilation Pipeline"
+        );
         assert_eq!(tree[0].children[0].children.len(), 1);
-        assert_eq!(tree[0].children[0].children[0].item.title, "Mathematical Formulation");
+        assert_eq!(
+            tree[0].children[0].children[0].item.title,
+            "Mathematical Formulation"
+        );
         assert!(tree[0].children[0].children[0].is_current);
         assert_eq!(tree[0].children[1].item.title, "Functional Subheading");
 
         // Verify char_offset points accurately to the heading line in the buffer
-        let h2_slice: String = sample.chars().skip(outline[1].char_offset).take(5).collect();
+        let h2_slice: String = sample
+            .chars()
+            .skip(outline[1].char_offset)
+            .take(5)
+            .collect();
         assert_eq!(h2_slice, "== Fi");
     }
 }

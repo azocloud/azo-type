@@ -71,7 +71,9 @@ impl CollabPersistence {
 
         for (rel_path, disk_text) in disk_files {
             if let Some(existing_id) = doc.find_file_id_by_path(Path::new(&rel_path)) {
-                id_map.path_to_id.insert(rel_path.clone(), existing_id.clone());
+                id_map
+                    .path_to_id
+                    .insert(rel_path.clone(), existing_id.clone());
                 doc.apply_local_text_edit(&existing_id, &disk_text);
             } else {
                 let fid = id_map
@@ -96,9 +98,7 @@ impl CollabPersistence {
 
         let mut id_map = PersistedFileIdMap::default();
         for entry in doc.list_files() {
-            id_map
-                .path_to_id
-                .insert(entry.resolved_path, entry.file_id);
+            id_map.path_to_id.insert(entry.resolved_path, entry.file_id);
         }
         self.save_file_id_map(&id_map)?;
         Ok(())
@@ -116,7 +116,10 @@ impl CollabPersistence {
         for entry in entries {
             let rel = PathBuf::from(&entry.resolved_path);
             // Prevent path traversal outside root_dir
-            if rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            if rel
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
                 continue;
             }
             let abs = self.root_dir.join(&rel);
@@ -162,7 +165,11 @@ impl CollabPersistence {
         for entry in sorted {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') || name == "target" || name == "shots" || name == "node_modules" {
+            if name.starts_with('.')
+                || name == "target"
+                || name == "shots"
+                || name == "node_modules"
+            {
                 continue;
             }
             if path.is_dir() {

@@ -80,13 +80,13 @@ pub struct ThemePalette {
 impl ThemePalette {
     /// Section 2: Dark Mode Specification
     pub const DARK: Self = Self {
-        editor_canvas: Color32::from_rgb(0x1C, 0x1B, 0x22),        // #1C1B22
-        chrome_sidebar: Color32::from_rgb(0x2B, 0x2A, 0x33),       // #2B2A33
-        preview_workspace: Color32::from_rgb(0x23, 0x22, 0x2B),    // #23222B
-        panel_border: Color32::from_rgb(0x38, 0x37, 0x42),         // #383742
+        editor_canvas: Color32::from_rgb(0x1C, 0x1B, 0x22), // #1C1B22
+        chrome_sidebar: Color32::from_rgb(0x2B, 0x2A, 0x33), // #2B2A33
+        preview_workspace: Color32::from_rgb(0x23, 0x22, 0x2B), // #23222B
+        panel_border: Color32::from_rgb(0x38, 0x37, 0x42),  // #383742
         active_line_highlight: Color32::from_rgb(0x26, 0x25, 0x30), // #262530
-        text_primary: Color32::from_rgb(0xBF, 0xBF, 0xE0),         // #BFBFE0
-        text_muted: Color32::from_rgb(0x6E, 0x6D, 0x7A),           // #6E6D7A
+        text_primary: Color32::from_rgb(0xBF, 0xBF, 0xE0),  // #BFBFE0
+        text_muted: Color32::from_rgb(0x6E, 0x6D, 0x7A),    // #6E6D7A
 
         widget_inactive_bg: Color32::from_rgb(0x32, 0x31, 0x3B),
         widget_hovered_bg: Color32::from_rgb(0x3C, 0x3B, 0x47),
@@ -94,25 +94,25 @@ impl ThemePalette {
         selection_bg: Color32::from_rgb(0x35, 0x4A, 0x73),
         selection_stroke: Color32::from_rgb(0x82, 0xAA, 0xFF),
 
-        syn_comment: Color32::from_rgb(0x75, 0x75, 0x82),          // #757582
-        syn_keyword: Color32::from_rgb(0x82, 0xAA, 0xFF),          // #82AAFF
-        syn_string: Color32::from_rgb(0x44, 0x8C, 0x6B),           // #448C6B
+        syn_comment: Color32::from_rgb(0x75, 0x75, 0x82), // #757582
+        syn_keyword: Color32::from_rgb(0x82, 0xAA, 0xFF), // #82AAFF
+        syn_string: Color32::from_rgb(0x44, 0x8C, 0x6B),  // #448C6B
         syn_property_or_func: Color32::from_rgb(0xC7, 0x92, 0xEA), // #C792EA
-        syn_number: Color32::from_rgb(0xCE, 0x55, 0x55),           // #CE5555
-        syn_operator: Color32::from_rgb(0xF3, 0xB0, 0x5A),         // #F3B05A
-        syn_default: Color32::from_rgb(0xE6, 0xE6, 0xE6),          // #E6E6E6
-        syn_markup: Color32::from_rgb(0xE6, 0xE6, 0xE6),           // #E6E6E6
+        syn_number: Color32::from_rgb(0xCE, 0x55, 0x55),  // #CE5555
+        syn_operator: Color32::from_rgb(0xF3, 0xB0, 0x5A), // #F3B05A
+        syn_default: Color32::from_rgb(0xE6, 0xE6, 0xE6), // #E6E6E6
+        syn_markup: Color32::from_rgb(0xE6, 0xE6, 0xE6),  // #E6E6E6
     };
 
     /// Section 3: Light Mode Specification
     pub const LIGHT: Self = Self {
-        editor_canvas: Color32::from_rgb(0xFF, 0xFF, 0xFF),        // #FFFFFF
-        chrome_sidebar: Color32::from_rgb(0xF4, 0xF4, 0xF6),       // #F4F4F6
-        preview_workspace: Color32::from_rgb(0xE8, 0xE8, 0xEC),    // #E8E8EC
-        panel_border: Color32::from_rgb(0xD8, 0xD8, 0xE0),         // #D8D8E0
+        editor_canvas: Color32::from_rgb(0xFF, 0xFF, 0xFF), // #FFFFFF
+        chrome_sidebar: Color32::from_rgb(0xF4, 0xF4, 0xF6), // #F4F4F6
+        preview_workspace: Color32::from_rgb(0xE8, 0xE8, 0xEC), // #E8E8EC
+        panel_border: Color32::from_rgb(0xD8, 0xD8, 0xE0),  // #D8D8E0
         active_line_highlight: Color32::from_rgb(0xEB, 0xF3, 0xFE), // #EBF3FE
-        text_primary: Color32::from_rgb(0x1E, 0x1E, 0x24),         // #1E1E24
-        text_muted: Color32::from_rgb(0xA0, 0xA0, 0xAA),           // #A0A0AA
+        text_primary: Color32::from_rgb(0x1E, 0x1E, 0x24),  // #1E1E24
+        text_muted: Color32::from_rgb(0xA0, 0xA0, 0xAA),    // #A0A0AA
 
         widget_inactive_bg: Color32::from_rgb(0xEA, 0xEA, 0xEF),
         widget_hovered_bg: Color32::from_rgb(0xDF, 0xDF, 0xE7),
@@ -120,14 +120,14 @@ impl ThemePalette {
         selection_bg: Color32::from_rgb(0xC8, 0xDE, 0xFC),
         selection_stroke: Color32::from_rgb(0x0B, 0x60, 0xB0),
 
-        syn_comment: Color32::from_rgb(0x8A, 0x8A, 0x93),          // #8A8A93
-        syn_keyword: Color32::from_rgb(0xB8, 0x3A, 0x4B),          // #B83A4B
-        syn_string: Color32::from_rgb(0x1C, 0x7D, 0x52),           // #1C7D52
+        syn_comment: Color32::from_rgb(0x8A, 0x8A, 0x93), // #8A8A93
+        syn_keyword: Color32::from_rgb(0xB8, 0x3A, 0x4B), // #B83A4B
+        syn_string: Color32::from_rgb(0x1C, 0x7D, 0x52),  // #1C7D52
         syn_property_or_func: Color32::from_rgb(0x0B, 0x60, 0xB0), // #0B60B0
-        syn_number: Color32::from_rgb(0xC7, 0x5C, 0x14),           // #C75C14
-        syn_operator: Color32::from_rgb(0x2E, 0x2E, 0x38),         // #2E2E38
-        syn_default: Color32::from_rgb(0x2E, 0x2E, 0x38),          // #2E2E38
-        syn_markup: Color32::from_rgb(0x1C, 0x1C, 0x20),           // #1C1C20
+        syn_number: Color32::from_rgb(0xC7, 0x5C, 0x14),  // #C75C14
+        syn_operator: Color32::from_rgb(0x2E, 0x2E, 0x38), // #2E2E38
+        syn_default: Color32::from_rgb(0x2E, 0x2E, 0x38), // #2E2E38
+        syn_markup: Color32::from_rgb(0x1C, 0x1C, 0x20),  // #1C1C20
     };
 
     #[inline]
@@ -179,15 +179,7 @@ fn append_highlighted_node(
         }
     } else {
         for child in &children {
-            append_highlighted_node(
-                child,
-                source,
-                current_tag,
-                dark_mode,
-                palette,
-                font_id,
-                job,
-            );
+            append_highlighted_node(child, source, current_tag, dark_mode, palette, font_id, job);
         }
     }
 }
@@ -210,7 +202,8 @@ fn format_for_leaf(
 
     // 1. Named parameters & attributes (`font:`, `lang:`, `width:`, `inset:`, etc.)
     // When an identifier (or its trailing colon in dark mode) is the key of a `SyntaxKind::Named` node:
-    if parent_kind == Some(SyntaxKind::Named) && matches!(kind, SyntaxKind::Ident | SyntaxKind::Colon)
+    if parent_kind == Some(SyntaxKind::Named)
+        && matches!(kind, SyntaxKind::Ident | SyntaxKind::Colon)
     {
         if kind == SyntaxKind::Ident {
             format.color = palette.syn_property_or_func;
@@ -303,10 +296,7 @@ fn format_for_leaf(
             Tag::Number => {
                 format.color = palette.syn_number;
             }
-            Tag::Operator
-            | Tag::MathDelimiter
-            | Tag::MathOperator
-            | Tag::ListMarker => {
+            Tag::Operator | Tag::MathDelimiter | Tag::MathOperator | Tag::ListMarker => {
                 format.color = palette.syn_operator;
             }
             Tag::Heading | Tag::Strong => {

@@ -7,9 +7,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::collab::awareness::{CollabAwareness, PeerPresence};
-use crate::collab::doc::{
-    normalize_rel_path, CharSelection, CollabFileEntry, CollabProjectDoc,
-};
+use crate::collab::doc::{normalize_rel_path, CharSelection, CollabFileEntry, CollabProjectDoc};
 use crate::collab::persistence::CollabPersistence;
 use crate::collab::transport::{
     CollabTransport, ConnectionRoute, IrohTransport, SessionTicket, TransportEvent, WireMessage,
@@ -186,10 +184,7 @@ struct SessionActor {
 }
 
 impl SessionActor {
-    fn new(
-        ui_tx: std_mpsc::Sender<SessionToUiEvent>,
-        egui_ctx: Option<egui::Context>,
-    ) -> Self {
+    fn new(ui_tx: std_mpsc::Sender<SessionToUiEvent>, egui_ctx: Option<egui::Context>) -> Self {
         Self {
             ui_tx,
             egui_ctx,
@@ -375,11 +370,9 @@ impl SessionActor {
                 };
                 let fid = match state.doc.find_file_id_by_path(&rel_path) {
                     Some(id) => id,
-                    None => state.doc.create_file(
-                        None,
-                        &rel_path.to_string_lossy(),
-                        &new_text,
-                    ),
+                    None => state
+                        .doc
+                        .create_file(None, &rel_path.to_string_lossy(), &new_text),
                 };
                 if state.doc.apply_local_text_edit(&fid, &new_text) {
                     state.dirty_for_snapshot = true;
@@ -525,9 +518,12 @@ impl SessionActor {
 
                     // Initiate Yrs SyncStep1: send our StateVector and full current state diff
                     let sv = state.doc.encode_state_vector_v1();
-                    state
-                        .transport
-                        .send_to_peer(&peer_id, WireMessage::SyncStep1 { state_vector_v1: sv });
+                    state.transport.send_to_peer(
+                        &peer_id,
+                        WireMessage::SyncStep1 {
+                            state_vector_v1: sv,
+                        },
+                    );
                 }
                 self.broadcast_local_awareness();
                 self.emit_to_ui(SessionToUiEvent::PeerListChanged { peers: peers_list });
@@ -612,15 +608,17 @@ impl SessionActor {
                         Err(err) => {
                             state.transport.disconnect_peer(from_peer_id);
                             self.emit_to_ui(SessionToUiEvent::CollabError {
-                                message: format!("Disconnected peer with invalid SyncStep1: {}", err),
+                                message: format!(
+                                    "Disconnected peer with invalid SyncStep1: {}",
+                                    err
+                                ),
                             });
                         }
                     }
                 }
             }
 
-            WireMessage::SyncStep2 { update_v1 }
-            | WireMessage::CrdtUpdate { update_v1, .. } => {
+            WireMessage::SyncStep2 { update_v1 } | WireMessage::CrdtUpdate { update_v1, .. } => {
                 self.apply_incoming_crdt_update(from_peer_id, &update_v1);
             }
 
@@ -788,17 +786,23 @@ mod tests {
 
     #[test]
     fn test_two_sessions_sync_multi_file_project_over_iroh() {
-        let temp_base = std::env::temp_dir().join(format!(
-            "typst_collab_test_{}",
-            uuid::Uuid::new_v4()
-        ));
+        let temp_base =
+            std::env::temp_dir().join(format!("typst_collab_test_{}", uuid::Uuid::new_v4()));
         let host_dir = temp_base.join("host_proj");
         let join_dir = temp_base.join("join_proj");
         std::fs::create_dir_all(&host_dir).unwrap();
         std::fs::create_dir_all(&join_dir).unwrap();
 
-        std::fs::write(host_dir.join("main.typ"), "= Shared Document\n\nInitial text.\n").unwrap();
-        std::fs::write(host_dir.join("second.typ"), "== Second File\n\nContent B.\n").unwrap();
+        std::fs::write(
+            host_dir.join("main.typ"),
+            "= Shared Document\n\nInitial text.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            host_dir.join("second.typ"),
+            "== Second File\n\nContent B.\n",
+        )
+        .unwrap();
 
         let host_handle = CollabSessionHandle::spawn(None);
         let join_handle = CollabSessionHandle::spawn(None);
@@ -837,8 +841,7 @@ mod tests {
         let sync_start = Instant::now();
         let mut bob_synced = false;
         while sync_start.elapsed() < Duration::from_secs(6) {
-            if let Some(SessionToUiEvent::RemoteFilesUpdated { files, .. }) =
-                join_handle.try_recv()
+            if let Some(SessionToUiEvent::RemoteFilesUpdated { files, .. }) = join_handle.try_recv()
             {
                 if files.len() >= 2 {
                     bob_synced = true;
@@ -864,11 +867,8 @@ mod tests {
         let edit_wait = Instant::now();
         let mut host_got_second = false;
         let mut join_got_main = false;
-        while edit_wait.elapsed() < Duration::from_secs(6)
-            && (!host_got_second || !join_got_main)
-        {
-            if let Some(SessionToUiEvent::RemoteFilesUpdated { files, .. }) =
-                host_handle.try_recv()
+        while edit_wait.elapsed() < Duration::from_secs(6) && (!host_got_second || !join_got_main) {
+            if let Some(SessionToUiEvent::RemoteFilesUpdated { files, .. }) = host_handle.try_recv()
             {
                 if files
                     .iter()
@@ -877,8 +877,7 @@ mod tests {
                     host_got_second = true;
                 }
             }
-            if let Some(SessionToUiEvent::RemoteFilesUpdated { files, .. }) =
-                join_handle.try_recv()
+            if let Some(SessionToUiEvent::RemoteFilesUpdated { files, .. }) = join_handle.try_recv()
             {
                 if files
                     .iter()
@@ -890,7 +889,10 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        assert!(host_got_second, "Host should receive Bob's edit to second.typ");
+        assert!(
+            host_got_second,
+            "Host should receive Bob's edit to second.typ"
+        );
         assert!(join_got_main, "Bob should receive Alice's edit to main.typ");
 
         host_handle.send(UiToSessionCmd::LeaveSession);

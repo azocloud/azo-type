@@ -61,17 +61,12 @@ impl PeerEndpointInfo {
             .endpoint_id
             .parse()
             .map_err(|e| format!("Invalid endpoint ID: {}", e))?;
-        let addrs = self
-            .ip_addrs
-            .iter()
-            .copied()
-            .map(TransportAddr::Ip)
-            .chain(
-                self.relay_urls
-                    .iter()
-                    .filter_map(|u| u.parse::<RelayUrl>().ok())
-                    .map(TransportAddr::Relay),
-            );
+        let addrs = self.ip_addrs.iter().copied().map(TransportAddr::Ip).chain(
+            self.relay_urls
+                .iter()
+                .filter_map(|u| u.parse::<RelayUrl>().ok())
+                .map(TransportAddr::Relay),
+        );
         Ok(EndpointAddr::from_parts(id, addrs))
     }
 }
@@ -297,10 +292,7 @@ pub fn inspect_connection_route(conn: &Connection) -> ConnectionRoute {
     }
 }
 
-pub async fn write_framed_message(
-    send: &mut SendStream,
-    msg: &WireMessage,
-) -> Result<(), String> {
+pub async fn write_framed_message(send: &mut SendStream, msg: &WireMessage) -> Result<(), String> {
     let bytes = serde_json::to_vec(msg).map_err(|e| format!("Serialize error: {}", e))?;
     if bytes.len() > MAX_WIRE_FRAME_BYTES {
         return Err(format!(
@@ -414,11 +406,7 @@ impl IrohTransport {
                         Err(_) => return,
                     };
                     Self::handle_incoming_peer_connection(
-                        conn,
-                        secret,
-                        host_name,
-                        peers_conn,
-                        ev_tx,
+                        conn, secret, host_name, peers_conn, ev_tx,
                     )
                     .await;
                 });
@@ -670,16 +658,7 @@ impl IrohTransport {
             route,
         });
 
-        Self::spawn_peer_io_loops(
-            peer_id,
-            conn,
-            send,
-            recv,
-            peer_rx,
-            peers,
-            event_tx,
-            true,
-        );
+        Self::spawn_peer_io_loops(peer_id, conn, send, recv, peer_rx, peers, event_tx, true);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -735,7 +714,8 @@ impl IrohTransport {
                         if is_host
                             && matches!(
                                 msg,
-                                WireMessage::CrdtUpdate { .. } | WireMessage::AwarenessUpdate { .. }
+                                WireMessage::CrdtUpdate { .. }
+                                    | WireMessage::AwarenessUpdate { .. }
                             )
                         {
                             let map = peers.lock().await;
@@ -891,14 +871,10 @@ mod tests {
         assert!(bad_res.is_err());
 
         // 2. Connect with the valid ticket
-        let client_transport = IrohTransport::connect_with_ticket(
-            ticket,
-            "ClientBob".to_string(),
-            true,
-            client_ev_tx,
-        )
-        .await
-        .expect("connect client");
+        let client_transport =
+            IrohTransport::connect_with_ticket(ticket, "ClientBob".to_string(), true, client_ev_tx)
+                .await
+                .expect("connect client");
 
         // Wait for PeerConnected on both sides
         let host_ev = tokio::time::timeout(Duration::from_secs(5), async {
