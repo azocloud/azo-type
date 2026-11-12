@@ -11,9 +11,12 @@ eframe = { version = "0.31.1", default-features = false, features = [
     "accesskit",
     "default_fonts",
     "glow",
+    "persistence",
     "wayland",
     "x11",
 ] }
+rust-i18n = "3"
+sys-locale = "0.3"
 typst = "0.15.1"
 typst-layout = "0.15.1"
 typst-render = "0.15.1"

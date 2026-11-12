@@ -1,0 +1,7 @@
+_version: 1
+app:
+  title: "Azo Type"
+settings:
+  language_label: "Language"
+menu:
+  file_open: "Open Folder..."

@@ -29,6 +29,7 @@
 | `app/src/compiler.rs` | Incremental Typst document compiler, rasterizer, PDF exporter, and diagnostic collector. | `DiagnosticItem`, `RenderedPageData`, `RenderedPageTexture`, `CompileSnapshot`, `compile_project`, `export_pdf_bytes_with_config` | `core`, `project`, `world` | `app/src/compiler/tests.rs` | — |
 | `app/src/core/diff.rs` | Pure text differencing and UTF-16 code-unit conversion utilities. | `Utf16TextDiff`, `CharSelection`, `caret`, `char_to_utf16_offset`, `utf16_to_char_offset`, `compute_utf16_diff` | *(none)* | `app/src/core/diff/tests.rs`, `app/tests/diff_tests.rs` | Converts between Rust `char` indices (`egui`) and UTF-16 offsets (`yrs`). |
 | `app/src/core/file_kind.rs` | File type identification and classification based on file extensions. | `FileKind`, `from_path`, `is_editable_text`, `icon`, `label` | *(none)* | `app/src/core/file_kind/tests.rs`, `app/tests/project_tests.rs` | — |
+| `app/src/core/i18n.rs` | Cross-platform locale normalization, system language detection, and native display names. | `normalize_locale_tag`, `resolve_locale`, `detect_system_locale`, `locale_native_name` | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/core/mod.rs` | Core domain models, algorithms, and data types. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/core/outline.rs` | Pure document outline extraction, AST traversal, and hierarchical numbering. | `SourceResolver`, `CompiledOutlineItem`, `DocumentOutlineItem`, `OutlineTreeNode`, `extract_typst_markup_plain_text`, `extract_typst_ast_outline` | `core` | `app/src/core/outline/tests.rs`, `app/tests/outline_tests.rs` | Uses `SourceResolver` trait to stay independent of filesystem I/O. |
 | `app/src/core/pdf.rs` | PDF export configuration, PDF versions, and PDF/A archival standards. | `PdfVersionChoice`, `ALL`, `label`, `short_label`, `to_standard`, `PdfArchivalStandard` | *(none)* | `app/src/core/pdf/tests.rs`, `app/tests/pdf_config_tests.rs` | — |
@@ -70,6 +71,7 @@
 | `app/src/compiler/tests.rs` | Unit tests for the Typst compiler, package fetching, and PDF export pipeline. |
 | `app/src/core/diff/tests.rs` | Unit tests for UTF-16 text differencing, emoji offsets, and collision path formatting. |
 | `app/src/core/file_kind/tests.rs` | Unit tests for file kind extension classification and text editability. |
+| `app/src/core/i18n/tests.rs` | Unit tests |
 | `app/src/core/outline/tests.rs` | Unit tests for Typst AST heading extraction and outline hierarchy construction. |
 | `app/src/core/pdf/tests.rs` | Unit tests for PDF export version choices and archival standard validation. |
 | `app/src/core/settings/tests.rs` | Unit tests for default IDE user preferences and settings initialization. |

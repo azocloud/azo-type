@@ -1,5 +1,7 @@
 //! Library root for `azo-type`, exposing domain, platform, collaboration, compiler, and UI modules.
 
+rust_i18n::i18n!("locales", fallback = "en");
+
 use std::path::PathBuf;
 
 pub mod app;
