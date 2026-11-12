@@ -2,25 +2,21 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
-use egui::text::{CCursor, CCursorRange, LayoutJob};
 use egui::{
-    Align, Align2, CollapsingHeader, Color32, Context, CornerRadius, CursorIcon, FontFamily,
-    FontId, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea, Sense,
-    SidePanel, Stroke, StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2,
+    Align, Context, CornerRadius, CursorIcon, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect,
+    Sense, Stroke, Ui, Vec2,
 };
 
 use crate::collab::awareness::PeerPresence;
-use crate::collab::doc::{normalize_rel_path, CharSelection};
+use crate::collab::doc::CharSelection;
 use crate::collab::session::{CollabSessionHandle, SessionToUiEvent, UiToSessionCmd};
-use crate::collab::ui::{
-    paint_remote_cursors_in_editor, render_collaboration_window, CollabUiState,
-};
+use crate::collab::ui::{render_collaboration_window, CollabUiState};
 use crate::compiler::{
     compile_project, export_pdf_bytes_with_config, upload_page_textures, CompileSnapshot,
     CompiledOutlineItem, DiagnosticItem, PdfExportConfig, RenderedPageData, RenderedPageTexture,
 };
-use crate::highlight::{highlight_typst_code, ThemePalette};
-use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind, FsTreeNode};
+use crate::highlight::ThemePalette;
+use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind};
 use crate::world::SharedWorldResources;
 use typst::syntax::SyntaxNode;
 
@@ -34,20 +30,7 @@ pub use crate::core::outline::{
     OutlineTreeNode,
 };
 pub use crate::core::settings::{IdeSettings, SettingsTab};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EditorContextAction {
-    Undo,
-    Redo,
-    Cut,
-    Copy,
-    Paste,
-    SelectAll,
-    WrapOrInsert(&'static str, &'static str, &'static str),
-    InsertSnippet(&'static str),
-    Menu(MenuAction),
-    SetActiveAsMain,
-}
+pub use crate::ui::components::EditorContextAction;
 
 pub enum IoEvent {
     FolderPicked(PathBuf),
@@ -560,211 +543,22 @@ impl TypstIdeApp {
     /// On macOS, the menu bar is part of the OS at the top of the screen via `muda` and is NOT rendered in-window.
     #[cfg(not(target_os = "macos"))]
     fn render_desktop_menu_bar(&mut self, ctx: &Context) {
-        let palette = ThemePalette::for_mode(self.settings.dark_mode);
-        let menu_bg = palette.chrome_sidebar;
-        let border_col = palette.panel_border;
+        let output = crate::ui::components::render_desktop_menu_bar(
+            ctx,
+            crate::ui::components::MenuBarParams {
+                dark_mode: self.settings.dark_mode,
+                show_sidebar: self.show_sidebar,
+                word_wrap: self.settings.word_wrap,
+                project_root: &self.project.root_dir,
+                active_file: &self.project.active_file,
+            },
+        );
 
-        let mut pending_action: Option<MenuAction> = None;
-        let mut snippet_to_insert: Option<&'static str> = None;
-        let mut editor_action: Option<EditorContextAction> = None;
-
-        TopBottomPanel::top("desktop_os_menu_bar")
-            .frame(
-                Frame::new()
-                    .fill(menu_bg)
-                    .corner_radius(CornerRadius::ZERO)
-                    .inner_margin(Margin::symmetric(10, 4))
-                    .stroke(Stroke::new(1.0_f32, border_col)),
-            )
-            .show(ctx, |ui| {
-                egui::menu::bar(ui, |ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-
-                    // FILE MENU
-                    ui.menu_button(RichText::new("File").strong(), |ui| {
-                        ui.set_min_width(220.0);
-                        if ui.button("New File in Project...  (Ctrl+N)").clicked() {
-                            pending_action = Some(MenuAction::NewFile);
-                            ui.close_menu();
-                        }
-                        if ui.button("Open Project Folder...  (Ctrl+O)").clicked() {
-                            pending_action = Some(MenuAction::OpenFolder);
-                            ui.close_menu();
-                        }
-                        if ui.button("Rescan Folder on Disk  (F5)").clicked() {
-                            pending_action = Some(MenuAction::RescanFolder);
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Save Active File  (Ctrl+S)").clicked() {
-                            pending_action = Some(MenuAction::SaveFile);
-                            ui.close_menu();
-                        }
-                        if ui.button("Save All Project Files").clicked() {
-                            pending_action = Some(MenuAction::SaveAll);
-                            ui.close_menu();
-                        }
-                        if ui.button("Export PDF...  (Ctrl+E)").clicked() {
-                            pending_action = Some(MenuAction::ExportPdf);
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Settings...  (Ctrl+,)").clicked() {
-                            pending_action = Some(MenuAction::OpenSettings);
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Quit").clicked() {
-                            pending_action = Some(MenuAction::Quit);
-                            ui.close_menu();
-                        }
-                    });
-
-                    // EDIT MENU
-                    ui.menu_button(RichText::new("Edit").strong(), |ui| {
-                        ui.set_min_width(210.0);
-                        if ui.button("Undo  (Ctrl+Z)").clicked() {
-                            editor_action = Some(EditorContextAction::Undo);
-                            ui.close_menu();
-                        }
-                        if ui.button("Redo  (Ctrl+Y)").clicked() {
-                            editor_action = Some(EditorContextAction::Redo);
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Cut  (Ctrl+X)").clicked() {
-                            editor_action = Some(EditorContextAction::Cut);
-                            ui.close_menu();
-                        }
-                        if ui.button("Copy  (Ctrl+C)").clicked() {
-                            editor_action = Some(EditorContextAction::Copy);
-                            ui.close_menu();
-                        }
-                        if ui.button("Paste  (Ctrl+V)").clicked() {
-                            editor_action = Some(EditorContextAction::Paste);
-                            ui.close_menu();
-                        }
-                        if ui.button("Select All  (Ctrl+A)").clicked() {
-                            editor_action = Some(EditorContextAction::SelectAll);
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Insert Section Heading").clicked() {
-                            snippet_to_insert = Some("\n\n== New Section\n");
-                            ui.close_menu();
-                        }
-                        if ui.button("Insert Display Math ($ ... $)").clicked() {
-                            snippet_to_insert =
-                                Some("\n$ f(x) = integral_0^x e^(-t^2) dif t $\n");
-                            ui.close_menu();
-                        }
-                        if ui.button("Insert Formatted Table").clicked() {
-                            snippet_to_insert = Some(
-                                "\n#table(\n  columns: (1fr, 1fr),\n  [*Column A*], [*Column B*],\n  [Item 1], [Value 1],\n)\n",
-                            );
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Settings...  (Ctrl+,)").clicked() {
-                            pending_action = Some(MenuAction::OpenSettings);
-                            ui.close_menu();
-                        }
-                    });
-
-                    // VIEW MENU
-                    ui.menu_button(RichText::new("View").strong(), |ui| {
-                        ui.set_min_width(210.0);
-                        let sidebar_txt = if self.show_sidebar {
-                            "Hide Project File Tree  (Ctrl+B)"
-                        } else {
-                            "Show Project File Tree  (Ctrl+B)"
-                        };
-                        if ui.button(sidebar_txt).clicked() {
-                            pending_action = Some(MenuAction::ToggleSidebar);
-                            ui.close_menu();
-                        }
-                        let wrap_txt = if self.settings.word_wrap {
-                            "Disable Automatic Line Wrapping"
-                        } else {
-                            "Enable Automatic Line Wrapping"
-                        };
-                        if ui.button(wrap_txt).clicked() {
-                            pending_action = Some(MenuAction::ToggleWordWrap);
-                            ui.close_menu();
-                        }
-                        let theme_txt = if self.settings.dark_mode {
-                            "Switch to Light Theme"
-                        } else {
-                            "Switch to Dark Theme"
-                        };
-                        if ui.button(theme_txt).clicked() {
-                            pending_action = Some(MenuAction::ToggleTheme);
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Zoom In Preview (+)").clicked() {
-                            pending_action = Some(MenuAction::ZoomIn);
-                            ui.close_menu();
-                        }
-                        if ui.button("Zoom Out Preview (-)").clicked() {
-                            pending_action = Some(MenuAction::ZoomOut);
-                            ui.close_menu();
-                        }
-                        if ui.button("Reset Preview Zoom (100%)").clicked() {
-                            pending_action = Some(MenuAction::ZoomReset);
-                            ui.close_menu();
-                        }
-                    });
-
-                    // PROJECT MENU
-                    ui.menu_button(RichText::new("Project").strong(), |ui| {
-                        ui.set_min_width(220.0);
-                        if ui.button("Collaboration (P2P)...").clicked() {
-                            pending_action = Some(MenuAction::OpenCollab);
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui.button("Compile Document Now").clicked() {
-                            pending_action = Some(MenuAction::CompileNow);
-                            ui.close_menu();
-                        }
-                        if ui.button("Export PDF...  (Ctrl+E)").clicked() {
-                            pending_action = Some(MenuAction::ExportPdf);
-                            ui.close_menu();
-                        }
-                        ui.separator();
-                        if ui
-                            .button("Set Active File as Main Entrypoint")
-                            .clicked()
-                        {
-                            let active = self.project.active_file.clone();
-                            if FileKind::from_path(&active) == FileKind::Typst {
-                                self.project.set_main_file(active);
-                                pending_action = Some(MenuAction::CompileNow);
-                            }
-                            ui.close_menu();
-                        }
-                    });
-
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(format!(
-                                "Folder: {}",
-                                self.project.root_dir.display()
-                            ))
-                            .small()
-                            .monospace()
-                            .weak(),
-                        );
-                    });
-                });
-            });
-
-        if let Some(act) = editor_action {
+        if let Some(act) = output.editor_action {
             self.pending_editor_context_action = Some(act);
         }
 
-        if let Some(snippet) = snippet_to_insert {
+        if let Some(snippet) = output.snippet_to_insert {
             let auto_save = self.settings.auto_save_on_edit;
             let active_rel = self.project.active_file.clone();
             let mut updated_text = None;
@@ -785,7 +579,7 @@ impl TypstIdeApp {
             }
         }
 
-        if let Some(act) = pending_action {
+        if let Some(act) = output.pending_action {
             self.dispatch_menu_action(ctx, act);
         }
     }
@@ -869,101 +663,37 @@ impl TypstIdeApp {
     }
 
     fn render_bottom_status_bar(&mut self, ctx: &Context) {
-        let palette = ThemePalette::for_mode(self.settings.dark_mode);
-        let bar_bg = palette.chrome_sidebar;
-        let border_col = palette.panel_border;
+        let active_buf_info =
+            self.project
+                .active_buffer()
+                .map(|b| crate::ui::components::StatusBarBufferInfo {
+                    rel_path: &b.rel_path,
+                    dirty: b.dirty,
+                    line_count: b.text.as_ref().map(|t| t.lines().count()).unwrap_or(0),
+                    size_bytes: b.size_bytes,
+                });
 
         let error_count = self.diagnostics.iter().filter(|d| d.is_error).count();
         let warn_count = self.diagnostics.iter().filter(|d| !d.is_error).count();
 
-        TopBottomPanel::bottom("bottom_status_bar")
-            .frame(
-                Frame::new()
-                    .fill(bar_bg)
-                    .corner_radius(CornerRadius::ZERO)
-                    .inner_margin(Margin::symmetric(12, 5))
-                    .stroke(Stroke::new(1.0_f32, border_col)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    let (dot_color, status_text) =
-                        if self.compile_in_progress || self.pending_compile {
-                            (palette.syn_operator, "Compiling...".to_string())
-                        } else if error_count > 0 {
-                            (palette.syn_number, format!("{} Error(s)", error_count))
-                        } else {
-                            (
-                                Color32::from_rgb(0x44, 0x8C, 0x6B),
-                                format!("Compiled ({:.1} ms)", self.compile_duration_ms),
-                            )
-                        };
-
-                    ui.label(RichText::new(status_text).color(dot_color).strong().small());
-
-                    if warn_count > 0 {
-                        ui.separator();
-                        ui.label(
-                            RichText::new(format!("{} Warning(s)", warn_count))
-                                .color(palette.syn_operator)
-                                .small(),
-                        );
-                    }
-
-                    ui.separator();
-                    ui.label(
-                        RichText::new(format!("Main: {}", self.project.main_file.display()))
-                            .color(palette.text_primary)
-                            .small(),
-                    );
-
-                    ui.separator();
-                    ui.label(
-                        RichText::new(format!("Pages: {}", self.page_textures.len()))
-                            .color(palette.text_primary)
-                            .small(),
-                    );
-
-                    ui.separator();
-                    if self.collab_ui.is_active {
-                        let role = if self.collab_ui.is_host {
-                            "Host"
-                        } else {
-                            "Peer"
-                        };
-                        let n_peers = self.collab_ui.connected_peer_count();
-                        ui.label(
-                            RichText::new(format!("P2P {}: {} peer(s)", role, n_peers))
-                                .small()
-                                .strong()
-                                .color(palette.syn_keyword),
-                        );
-                        ui.separator();
-                    }
-                    ui.label(
-                        RichText::new(&self.status_notice)
-                            .small()
-                            .color(palette.text_muted),
-                    );
-
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if let Some(active) = self.project.active_buffer() {
-                            let saved_state = if active.dirty { "Modified" } else { "Saved" };
-                            ui.label(
-                                RichText::new(format!(
-                                    "{} ({})  |  {} lines  |  {} bytes",
-                                    active.rel_path.display(),
-                                    saved_state,
-                                    active.line_count(),
-                                    active.size_bytes
-                                ))
-                                .small()
-                                .monospace()
-                                .color(palette.text_muted),
-                            );
-                        }
-                    });
-                });
-            });
+        crate::ui::components::render_status_bar(
+            ctx,
+            crate::ui::components::StatusBarParams {
+                dark_mode: self.settings.dark_mode,
+                compile_in_progress: self.compile_in_progress,
+                pending_compile: self.pending_compile,
+                error_count,
+                warn_count,
+                compile_duration_ms: self.compile_duration_ms,
+                main_file: &self.project.main_file,
+                page_count: self.page_textures.len(),
+                collab_active: self.collab_ui.is_active,
+                collab_is_host: self.collab_ui.is_host,
+                collab_peer_count: self.collab_ui.connected_peer_count(),
+                status_notice: &self.status_notice,
+                active_buffer: active_buf_info,
+            },
+        );
     }
 
     pub fn extract_typst_markup_plain_text(node: &SyntaxNode) -> String {
@@ -1008,1536 +738,136 @@ impl TypstIdeApp {
         )
     }
 
-    fn render_outline_tree_node(
-        ui: &mut Ui,
-        node: &OutlineTreeNode,
-        depth: usize,
-        is_last: bool,
-        active_file: &Path,
-        palette: &ThemePalette,
-        navigate_to_item: &mut Option<DocumentOutlineItem>,
-    ) {
-        let has_children = !node.children.is_empty();
-        let collapse_id = ui.make_persistent_id((
-            "outline_tree_node",
-            &node.item.file,
-            node.item.line_number,
-            &node.item.title,
-        ));
-        let mut is_open = ui
-            .ctx()
-            .data_mut(|d| *d.get_persisted_mut_or(collapse_id, true));
-
-        let indent_w = (depth as f32) * 14.0;
-        let row_resp = ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            if indent_w > 0.0 {
-                let (guide_rect, _) =
-                    ui.allocate_exact_size(Vec2::new(indent_w, 18.0), Sense::hover());
-                // Draw vertical hierarchy guide lines for ancestor levels
-                for lvl in 0..depth {
-                    let gx = guide_rect.min.x + (lvl as f32) * 14.0 + 6.0;
-                    let max_y = if lvl + 1 == depth && is_last && !has_children {
-                        guide_rect.center().y
-                    } else {
-                        guide_rect.max.y
-                    };
-                    ui.painter().line_segment(
-                        [Pos2::new(gx, guide_rect.min.y), Pos2::new(gx, max_y)],
-                        Stroke::new(1.0_f32, palette.panel_border),
-                    );
-                    if lvl + 1 == depth {
-                        ui.painter().line_segment(
-                            [
-                                Pos2::new(gx, guide_rect.center().y),
-                                Pos2::new(gx + 6.0, guide_rect.center().y),
-                            ],
-                            Stroke::new(1.0_f32, palette.panel_border),
-                        );
-                    }
-                }
-            }
-
-            if has_children {
-                let arrow = if is_open { "▼" } else { "▶" };
-                if ui
-                    .add(
-                        egui::Button::new(
-                            RichText::new(arrow)
-                                .size(9.5)
-                                .monospace()
-                                .color(palette.text_muted),
-                        )
-                        .frame(false)
-                        .min_size(Vec2::new(12.0, 16.0)),
-                    )
-                    .on_hover_text(if is_open {
-                        "Collapse subheadings"
-                    } else {
-                        "Expand subheadings"
-                    })
-                    .clicked()
-                {
-                    is_open = !is_open;
-                    ui.ctx()
-                        .data_mut(|d| d.insert_persisted(collapse_id, is_open));
-                }
-            } else {
-                ui.add_space(2.0);
-                ui.label(
-                    RichText::new("•")
-                        .size(10.5)
-                        .monospace()
-                        .color(palette.text_muted),
-                );
-            }
-
-            // Typst hierarchy badge (`= 1`, `== 1.1`, `=== 1.2.1`)
-            let badge_color = match node.item.level {
-                1 => palette.syn_keyword,
-                2 => palette.syn_property_or_func,
-                3 => palette.syn_string,
-                _ => palette.syn_operator,
-            };
-            let eq_prefix = "=".repeat(node.item.level.min(4));
-            let badge_text = if node.item.number_label.is_empty() {
-                eq_prefix
-            } else {
-                format!("{} {}", eq_prefix, node.item.number_label)
-            };
-            ui.label(
-                RichText::new(badge_text)
-                    .size(10.0)
-                    .monospace()
-                    .strong()
-                    .color(badge_color),
-            );
-
-            let is_external_file = node.item.file != active_file;
-            let max_chars = if is_external_file {
-                16usize.saturating_sub(depth * 2)
-            } else {
-                20usize.saturating_sub(depth * 2)
-            }
-            .max(10);
-            let display_title = if node.item.title.chars().count() > max_chars {
-                let truncated: String = node
-                    .item
-                    .title
-                    .chars()
-                    .take(max_chars.saturating_sub(1))
-                    .collect();
-                format!("{}…", truncated.trim_end())
-            } else {
-                node.item.title.clone()
-            };
-
-            let mut title_rt = RichText::new(display_title)
-                .size(11.8)
-                .color(if node.is_current {
-                    palette.text_primary
-                } else if node.item.level == 1 {
-                    palette.text_primary.gamma_multiply(0.92)
-                } else {
-                    palette.text_muted
-                });
-            if node.is_current || node.item.level == 1 {
-                title_rt = title_rt.strong();
-            }
-
-            let hover_msg = if is_external_file {
-                format!(
-                    "{} {} — {}\nFile: {} (Line {})\nClick to open & jump cursor here",
-                    "=".repeat(node.item.level),
-                    node.item.number_label,
-                    node.item.title,
-                    node.item.file.display(),
-                    node.item.line_number
-                )
-            } else {
-                format!(
-                    "{} {} — {}\nLine {}\nClick to jump cursor here",
-                    "=".repeat(node.item.level),
-                    node.item.number_label,
-                    node.item.title,
-                    node.item.line_number
-                )
-            };
-
-            let resp = ui
-                .selectable_label(node.is_current, title_rt)
-                .on_hover_text(hover_msg);
-            if resp.clicked() {
-                *navigate_to_item = Some(node.item.clone());
-            }
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let loc_label = if is_external_file {
-                    let short_f = node
-                        .item
-                        .file
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("ext");
-                    format!("{}:L{}", short_f, node.item.line_number)
-                } else {
-                    format!("L{}", node.item.line_number)
-                };
-                ui.label(
-                    RichText::new(loc_label)
-                        .size(9.5)
-                        .monospace()
-                        .color(palette.text_muted),
-                );
-            });
-        });
-
-        let _ = row_resp;
-
-        if has_children && is_open {
-            let child_len = node.children.len();
-            for (c_idx, child) in node.children.iter().enumerate() {
-                Self::render_outline_tree_node(
-                    ui,
-                    child,
-                    depth + 1,
-                    c_idx + 1 == child_len,
-                    active_file,
-                    palette,
-                    navigate_to_item,
-                );
-            }
-        }
-    }
-
     fn render_left_file_panel(&mut self, ctx: &Context) {
-        if !self.show_sidebar {
-            return;
+        let output = crate::ui::components::render_sidebar(
+            ctx,
+            crate::ui::components::SidebarParams {
+                dark_mode: self.settings.dark_mode,
+                show_sidebar: self.show_sidebar,
+                project: &self.project,
+                remote_presences: &self.collab_ui.remote_presences,
+                compiled_outline: &self.compiled_outline,
+                last_editor_selection: self.last_editor_selection,
+            },
+        );
+
+        if output.rescan_tree {
+            let _ = self.project.rescan_tree();
         }
-
-        let palette = ThemePalette::for_mode(self.settings.dark_mode);
-        let panel_bg = palette.chrome_sidebar;
-        let border_col = palette.panel_border;
-
-        SidePanel::left("left_file_tree_panel")
-            .resizable(true)
-            .default_width(265.0)
-            .width_range(195.0..=450.0)
-            .frame(
-                Frame::new()
-                    .fill(panel_bg)
-                    .corner_radius(CornerRadius::ZERO)
-                    .inner_margin(Margin::symmetric(10, 10))
-                    .stroke(Stroke::new(1.0_f32, border_col)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("DISK PROJECT TREE")
-                            .size(11.5)
-                            .strong()
-                            .color(palette.text_muted),
-                    );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui
-                            .small_button("Refresh")
-                            .on_hover_text("Rescan project folder from disk (F5)")
-                            .clicked()
-                        {
-                            let _ = self.project.rescan_tree();
-                        }
-                        if ui
-                            .small_button("+ File")
-                            .on_hover_text("Create a new file on disk")
-                            .clicked()
-                        {
-                            self.show_new_file_input = true;
-                        }
-                    });
-                });
-
-                ui.add_space(6.0);
-
-                let mut clicked_path: Option<PathBuf> = None;
-                let mut new_main_path: Option<PathBuf> = None;
-                let mut rename_req: Option<PathBuf> = None;
-                let mut delete_req: Option<PathBuf> = None;
-
-                let active_path = self.project.active_file.clone();
-                let main_path = self.project.main_file.clone();
-                let project_title = format!("Folder: {}", self.project.project_name);
-                let tree_snapshot = self.project.tree.clone();
-                let presences_snapshot = self.collab_ui.remote_presences.clone();
-
-                let total_sidebar_h = ui.available_height();
-                let tree_max_h = (total_sidebar_h * 0.42).max(125.0);
-
-                ScrollArea::vertical()
-                    .id_salt("file_tree_scroll")
-                    .max_height(tree_max_h)
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        CollapsingHeader::new(
-                            RichText::new(project_title)
-                                .strong()
-                                .color(palette.text_primary),
-                        )
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            for node in &tree_snapshot {
-                                Self::render_fs_tree_node(
-                                    ui,
-                                    node,
-                                    &self.project,
-                                    &palette,
-                                    &active_path,
-                                    &main_path,
-                                    &presences_snapshot,
-                                    &mut clicked_path,
-                                    &mut new_main_path,
-                                    &mut rename_req,
-                                    &mut delete_req,
-                                );
-                            }
-                        });
-                    });
-
-                ui.add_space(8.0);
-                ui.separator();
-                ui.add_space(6.0);
-
-                // Document Outline Hierarchy Panel for the currently open text editor file
-                let outline_items = self
-                    .project
-                    .active_buffer()
-                    .and_then(|buf| {
-                        buf.text.as_deref().map(|txt| {
-                            Self::extract_document_outline(
-                                txt,
-                                buf.kind,
-                                &buf.rel_path,
-                                Some(&self.project),
-                                &self.compiled_outline,
-                            )
-                        })
-                    })
-                    .unwrap_or_default();
-
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("DOCUMENT OUTLINE")
-                            .size(11.5)
-                            .strong()
-                            .color(palette.text_muted),
-                    );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(
-                            RichText::new(format!("{} heading(s)", outline_items.len()))
-                                .size(10.5)
-                                .monospace()
-                                .color(palette.text_muted),
-                        );
-                    });
-                });
-
-                ui.add_space(4.0);
-
-                let current_cursor_char = self
-                    .last_editor_selection
-                    .map(|s| s.primary_char)
-                    .unwrap_or(0);
-                let active_outline_idx = outline_items
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find(|(_, item)| {
-                        item.file == active_path && item.char_offset <= current_cursor_char
-                    })
-                    .map(|(idx, _)| idx);
-
-                let outline_tree = Self::build_outline_tree(&outline_items, active_outline_idx);
-                let mut navigate_to_item: Option<DocumentOutlineItem> = None;
-
-                Frame::new()
-                    .fill(palette.editor_canvas)
-                    .corner_radius(CornerRadius::same(5))
-                    .inner_margin(Margin::symmetric(8, 8))
-                    .stroke(Stroke::new(1.0_f32, border_col))
-                    .show(ui, |ui| {
-                        ScrollArea::vertical()
-                            .id_salt("document_outline_scroll")
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                if outline_tree.is_empty() {
-                                    ui.label(
-                                        RichText::new(
-                                            "No Typst headings in active file.\nUse `= Heading`, `== Section`, or `=== Subsection` to build the hierarchy.",
-                                        )
-                                        .small()
-                                        .color(palette.text_muted),
-                                    );
-                                } else {
-                                    let root_len = outline_tree.len();
-                                    for (idx, root_node) in outline_tree.iter().enumerate() {
-                                        Self::render_outline_tree_node(
-                                            ui,
-                                            root_node,
-                                            0,
-                                            idx + 1 == root_len,
-                                            &active_path,
-                                            &palette,
-                                            &mut navigate_to_item,
-                                        );
-                                    }
-                                }
-                            });
-                    });
-
-                if let Some(target_item) = navigate_to_item {
-                    if target_item.file != self.project.active_file {
-                        let _ = self.project.open_file(&target_item.file);
-                    }
-                    let sel = CharSelection {
-                        primary_char: target_item.char_offset,
-                        secondary_char: target_item.char_offset,
-                    };
-                    self.pending_cursor_restore = Some(sel);
-                    self.pending_scroll_to_char = Some(target_item.char_offset);
-                    self.last_editor_selection = Some(sel);
-                    self.inspect_asset_mode = false;
-                    self.status_notice = format!(
-                        "Navigated to '{} {}' ({}:{})",
-                        target_item.number_label,
-                        target_item.title,
-                        target_item.file.display(),
-                        target_item.line_number
-                    );
+        if output.show_new_file_modal {
+            self.show_new_file_input = true;
+        }
+        if let Some(target_item) = output.navigate_to_item {
+            if target_item.file != self.project.active_file {
+                let _ = self.project.open_file(&target_item.file);
+            }
+            let sel = CharSelection {
+                primary_char: target_item.char_offset,
+                secondary_char: target_item.char_offset,
+            };
+            self.pending_cursor_restore = Some(sel);
+            self.pending_scroll_to_char = Some(target_item.char_offset);
+            self.last_editor_selection = Some(sel);
+            self.inspect_asset_mode = false;
+            self.status_notice = format!(
+                "Navigated to '{} {}' ({}:{})",
+                target_item.number_label,
+                target_item.title,
+                target_item.file.display(),
+                target_item.line_number
+            );
+        }
+        if let Some(rel_path) = output.clicked_path {
+            if let Err(e) = self.project.open_file(&rel_path) {
+                self.status_notice = format!("Could not open file: {}", e);
+            } else {
+                if let Some(buf) = self.project.active_buffer() {
+                    self.inspect_asset_mode =
+                        matches!(buf.kind, FileKind::Image | FileKind::Binary);
                 }
-
-                if let Some(rel_path) = clicked_path {
-                    if let Err(e) = self.project.open_file(&rel_path) {
-                        self.status_notice = format!("Could not open file: {}", e);
-                    } else {
-                        if let Some(buf) = self.project.active_buffer() {
-                            self.inspect_asset_mode =
-                                matches!(buf.kind, FileKind::Image | FileKind::Binary);
-                        }
-                        if self.settings.auto_compile {
-                            self.trigger_compile_now(ctx);
-                        }
-                    }
-                }
-                if let Some(main_p) = new_main_path {
-                    self.project.set_main_file(main_p.clone());
-                    self.status_notice =
-                        format!("Set '{}' as main Typst file", main_p.display());
+                if self.settings.auto_compile {
                     self.trigger_compile_now(ctx);
                 }
-                if let Some(rel_to_rename) = rename_req {
-                    self.rename_file_input = rel_to_rename.to_string_lossy().to_string();
-                    self.rename_target_file = Some(rel_to_rename);
-                }
-                if let Some(rel_to_delete) = delete_req {
-                    match self.project.delete_file_on_disk(&rel_to_delete) {
-                        Ok(()) => {
-                            if self.collab_ui.is_active {
-                                self.collab_session.send(
-                                    UiToSessionCmd::LocalFileDeleted {
-                                        rel_path: rel_to_delete.clone(),
-                                    },
-                                );
-                            }
-                            self.status_notice =
-                                format!("Deleted '{}' from disk", rel_to_delete.display());
-                            self.trigger_compile_now(ctx);
-                        }
-                        Err(e) => {
-                            self.status_notice = format!("Delete failed: {}", e);
-                        }
-                    }
-                }
-            });
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn render_fs_tree_node(
-        ui: &mut Ui,
-        node: &FsTreeNode,
-        project: &DiskProject,
-        palette: &ThemePalette,
-        active_path: &Path,
-        main_path: &Path,
-        remote_presences: &[PeerPresence],
-        clicked_path: &mut Option<PathBuf>,
-        new_main_path: &mut Option<PathBuf>,
-        rename_req: &mut Option<PathBuf>,
-        delete_req: &mut Option<PathBuf>,
-    ) {
-        match node {
-            FsTreeNode::Directory {
-                name,
-                rel_path: _,
-                children,
-            } => {
-                let header = format!("{}/", name);
-                CollapsingHeader::new(RichText::new(header).strong().color(palette.text_primary))
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        for child in children {
-                            Self::render_fs_tree_node(
-                                ui,
-                                child,
-                                project,
-                                palette,
-                                active_path,
-                                main_path,
-                                remote_presences,
-                                clicked_path,
-                                new_main_path,
-                                rename_req,
-                                delete_req,
-                            );
-                        }
-                    });
             }
-            FsTreeNode::File {
-                name,
-                rel_path,
-                abs_path,
-                kind,
-                ..
-            } => {
-                let is_active = rel_path == active_path;
-                let is_main = rel_path == main_path;
-                let dirty = project
-                    .buffers
-                    .get(rel_path)
-                    .map(|b| b.dirty)
-                    .unwrap_or(false);
-
-                let norm_rel = normalize_rel_path(&rel_path.to_string_lossy());
-
-                ui.horizontal(|ui| {
-                    let dirty_mark = if dirty { " *" } else { "" };
-                    let main_badge = if is_main { " ★" } else { "" };
-                    let label_text =
-                        format!("{} {}{}{}", kind.icon(), name, main_badge, dirty_mark);
-                    let mut rich = RichText::new(label_text).size(12.5).color(if is_active {
-                        palette.text_primary
-                    } else {
-                        palette.text_muted
-                    });
-                    if is_active {
-                        rich = rich.strong();
+        }
+        if let Some(main_p) = output.new_main_path {
+            self.project.set_main_file(main_p.clone());
+            self.status_notice = format!("Set '{}' as main Typst file", main_p.display());
+            self.trigger_compile_now(ctx);
+        }
+        if let Some(rel_to_rename) = output.rename_req {
+            self.rename_file_input = rel_to_rename.to_string_lossy().to_string();
+            self.rename_target_file = Some(rel_to_rename);
+        }
+        if let Some(rel_to_delete) = output.delete_req {
+            match self.project.delete_file_on_disk(&rel_to_delete) {
+                Ok(()) => {
+                    if self.collab_ui.is_active {
+                        self.collab_session.send(UiToSessionCmd::LocalFileDeleted {
+                            rel_path: rel_to_delete.clone(),
+                        });
                     }
-                    let resp = ui
-                        .selectable_label(is_active, rich)
-                        .on_hover_text(abs_path.display().to_string());
-                    if resp.clicked() {
-                        *clicked_path = Some(rel_path.clone());
-                    }
-
-                    // Show colored badges for remote peers currently viewing/editing this file
-                    for peer in remote_presences {
-                        if peer.active_path.as_deref() == Some(norm_rel.as_str()) {
-                            let c = Color32::from_rgb(
-                                peer.color_rgb[0],
-                                peer.color_rgb[1],
-                                peer.color_rgb[2],
-                            );
-                            ui.label(
-                                RichText::new(format!("● {}", peer.name))
-                                    .size(10.5)
-                                    .color(c)
-                                    .strong(),
-                            )
-                            .on_hover_text(format!("{} is editing {}", peer.name, norm_rel));
-                        }
-                    }
-
-                    resp.context_menu(|ui| {
-                        ui.label(
-                            RichText::new(abs_path.display().to_string())
-                                .monospace()
-                                .small(),
-                        );
-                        ui.separator();
-                        if *kind == FileKind::Typst
-                            && !is_main
-                            && ui.button("Set as Main File").clicked()
-                        {
-                            *new_main_path = Some(rel_path.clone());
-                            ui.close_menu();
-                        }
-                        if ui.button("Rename File...").clicked() {
-                            *rename_req = Some(rel_path.clone());
-                            ui.close_menu();
-                        }
-                        if !is_main && ui.button("Delete File").clicked() {
-                            *delete_req = Some(rel_path.clone());
-                            ui.close_menu();
-                        }
-                    });
-                });
+                    self.status_notice = format!("Deleted '{}' from disk", rel_to_delete.display());
+                    self.trigger_compile_now(ctx);
+                }
+                Err(e) => {
+                    self.status_notice = format!("Delete failed: {}", e);
+                }
             }
         }
     }
 
     fn render_editor_pane(&mut self, ctx: &Context, ui: &mut Ui) {
-        let dark_mode = self.settings.dark_mode;
-        let palette = ThemePalette::for_mode(dark_mode);
-        let border_col = palette.panel_border;
         let active_path = self.project.active_file.clone();
-        let active_kind = FileKind::from_path(&active_path);
-
-        // Docked Chrome Header for Open File Tabs & Quick Formatting Toolbar
-        Frame::new()
-            .fill(palette.chrome_sidebar)
-            .stroke(Stroke::new(1.0_f32, border_col))
-            .corner_radius(CornerRadius::ZERO)
-            .inner_margin(Margin::symmetric(10, 6))
-            .show(ui, |ui| {
-                // 1. Open File Tabs Bar
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    let tabs = self.project.open_tabs.clone();
-                    let mut select_tab = None;
-                    let mut close_tab = None;
-
-                    for tab_path in &tabs {
-                        let is_active = *tab_path == active_path;
-                        let short_name = tab_path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("file");
-                        let icon = FileKind::from_path(tab_path).icon();
-                        let dirty = self
-                            .project
-                            .buffers
-                            .get(tab_path)
-                            .map(|b| b.dirty)
-                            .unwrap_or(false);
-                        let dirty_suffix = if dirty { " *" } else { "" };
-                        let tab_label = format!("{} {}{}", icon, short_name, dirty_suffix);
-                        let tab_text = RichText::new(tab_label).size(12.0).color(if is_active {
-                            palette.text_primary
-                        } else {
-                            palette.text_muted
-                        });
-
-                        if ui
-                            .selectable_label(is_active, tab_text)
-                            .on_hover_text(
-                                self.project.root_dir.join(tab_path).display().to_string(),
-                            )
-                            .clicked()
-                        {
-                            select_tab = Some(tab_path.clone());
-                        }
-                        if tabs.len() > 1
-                            && ui
-                                .small_button(RichText::new("×").color(palette.text_muted))
-                                .on_hover_text(format!("Close tab {}", short_name))
-                                .clicked()
-                        {
-                            close_tab = Some(tab_path.clone());
-                        }
-                        ui.separator();
-                    }
-
-                    if let Some(p) = select_tab {
-                        let _ = self.project.open_file(&p);
-                        if self.settings.auto_compile {
-                            self.trigger_compile_now(ctx);
-                        }
-                    }
-                    if let Some(p) = close_tab {
-                        self.project.close_tab(&p);
-                        if self.settings.auto_compile {
-                            self.trigger_compile_now(ctx);
-                        }
-                    }
-                });
-
-                ui.separator();
-
-                // 2. Quick Formatting & Snippet Toolbar
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 5.0;
-                    let mut snippet_to_insert: Option<&'static str> = None;
-
-                    if active_kind == FileKind::Typst {
-                        if ui
-                            .small_button("= Heading")
-                            .on_hover_text("Append a section heading")
-                            .clicked()
-                        {
-                            snippet_to_insert = Some("\n\n== New Section\n");
-                        }
-                        if ui
-                            .small_button("*Bold*")
-                            .on_hover_text("Insert bold markup")
-                            .clicked()
-                        {
-                            snippet_to_insert = Some(" *bold text* ");
-                        }
-                        if ui
-                            .small_button("_Italic_")
-                            .on_hover_text("Insert italic markup")
-                            .clicked()
-                        {
-                            snippet_to_insert = Some(" _emphasized_ ");
-                        }
-                        if ui
-                            .small_button("$ Math $")
-                            .on_hover_text("Insert a display math equation block")
-                            .clicked()
-                        {
-                            snippet_to_insert =
-                                Some("\n$ f(x) = integral_0^x e^(-t^2) dif t $\n");
-                        }
-                        if ui
-                            .small_button("+ Table")
-                            .on_hover_text("Insert a formatted table snippet")
-                            .clicked()
-                        {
-                            snippet_to_insert = Some(
-                                "\n#table(\n  columns: (1fr, 1fr),\n  [*Metric*], [*Value*],\n  [Throughput], [60 FPS],\n)\n",
-                            );
-                        }
-                        if ui
-                            .small_button("+ Figure")
-                            .on_hover_text("Insert figure with assets/diagram.svg")
-                            .clicked()
-                        {
-                            snippet_to_insert = Some(
-                                "\n#figure(\n  image(\"assets/diagram.svg\", width: 85%),\n  caption: [Architecture diagram.],\n)\n",
-                            );
-                        }
-                    } else if active_kind == FileKind::Svg {
-                        let mode_text = if self.inspect_asset_mode {
-                            "Edit SVG XML"
-                        } else {
-                            "Asset Metadata"
-                        };
-                        if ui.small_button(mode_text).clicked() {
-                            self.inspect_asset_mode = !self.inspect_asset_mode;
-                        }
-                    }
-
-                    if let Some(snippet) = snippet_to_insert {
-                        let auto_save = self.settings.auto_save_on_edit;
-                        let mut updated_text = None;
-                        if let Some(file) = self.project.active_buffer_mut() {
-                            if let Some(ref mut text) = file.text {
-                                text.push_str(snippet);
-                                updated_text = Some(text.clone());
-                                self.project.mark_active_modified(auto_save);
-                                self.pending_compile = true;
-                                self.last_edit_time = ctx.input(|i| i.time);
-                            }
-                        }
-                        if let (true, Some(new_text)) = (self.collab_ui.is_active, updated_text) {
-                            self.collab_session.send(UiToSessionCmd::LocalTextEdited {
-                                rel_path: active_path.clone(),
-                                new_text,
-                            });
-                        }
-                    }
-
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui
-                            .small_button("A+")
-                            .on_hover_text("Increase editor font size")
-                            .clicked()
-                        {
-                            self.settings.editor_font_size =
-                                (self.settings.editor_font_size + 1.0).clamp(10.0, 22.0);
-                        }
-                        if ui
-                            .small_button("A-")
-                            .on_hover_text("Decrease editor font size")
-                            .clicked()
-                        {
-                            self.settings.editor_font_size =
-                                (self.settings.editor_font_size - 1.0).clamp(10.0, 22.0);
-                        }
-                        if ui
-                            .selectable_label(self.settings.word_wrap, "↩ Wrap")
-                            .on_hover_text(
-                                "Toggle automatic line wrapping at editor panel width (also in File > Settings)",
-                            )
-                            .clicked()
-                        {
-                            self.settings.word_wrap = !self.settings.word_wrap;
-                        }
-                    });
-                });
-            });
-
-        // 3. Editor Area or Asset Inspector
-        let font_size = self.settings.editor_font_size;
-        let word_wrap = self.settings.word_wrap;
-        let show_line_numbers = self.settings.show_line_numbers;
-        let use_syntax_highlight = self.settings.syntax_highlighting;
-        let inspect_asset_mode = self.inspect_asset_mode;
-        let peers_in_active_file: Vec<PeerPresence> = self
+        let peers: Vec<PeerPresence> = self
             .collab_ui
             .peers_in_file(&active_path)
             .into_iter()
             .cloned()
             .collect();
-        let restore_cursor = self.pending_cursor_restore.take();
-        let scroll_to_char = self.pending_scroll_to_char.take();
 
-        let Some(file) = self.project.active_buffer_mut() else {
-            ui.centered_and_justified(|ui| {
-                ui.label("Select a file from the Disk Project Tree.");
-            });
-            return;
-        };
+        let output = crate::ui::components::render_editor_pane(
+            ctx,
+            ui,
+            crate::ui::components::EditorPaneParams {
+                dark_mode: self.settings.dark_mode,
+                editor_font_size: &mut self.settings.editor_font_size,
+                word_wrap: &mut self.settings.word_wrap,
+                show_line_numbers: self.settings.show_line_numbers,
+                syntax_highlighting: self.settings.syntax_highlighting,
+                inspect_asset_mode: &mut self.inspect_asset_mode,
+                clipboard_fallback: &mut self.clipboard_fallback,
+                project: &mut self.project,
+                pending_cursor_restore: self.pending_cursor_restore.take(),
+                pending_scroll_to_char: self.pending_scroll_to_char.take(),
+                last_editor_selection: self.last_editor_selection,
+                pending_editor_context_action: self.pending_editor_context_action.take(),
+                peers_in_active_file: &peers,
+            },
+        );
 
-        if file.text.is_none() || inspect_asset_mode {
-            let mut exit_inspect = false;
-            Frame::new()
-                .fill(palette.editor_canvas)
-                .inner_margin(Margin::same(16))
-                .corner_radius(CornerRadius::ZERO)
-                .stroke(Stroke::new(1.0_f32, border_col))
-                .show(ui, |ui| {
-                    ui.heading(format!("{} {}", file.kind.icon(), file.rel_path.display()));
-                    ui.add_space(6.0);
-                    ui.label(format!("Disk Path: {}", file.abs_path.display()));
-                    ui.label(format!("Asset Type: {}", file.kind.label()));
-                    ui.label(format!("File Size: {} bytes", file.size_bytes));
-                    ui.add_space(8.0);
-                    ui.label("Embed in any Typst file using:");
-                    ui.code(format!(
-                        "#image(\"{}\", width: 80%)",
-                        file.rel_path.to_string_lossy().replace('\\', "/")
-                    ));
-                    if file.text.is_some() {
-                        ui.add_space(8.0);
-                        if ui.button("Switch to Source Code Editor").clicked() {
-                            exit_inspect = true;
-                        }
-                    }
-                });
-            if exit_inspect {
-                self.inspect_asset_mode = false;
+        if let Some(target_tab) = output.select_tab {
+            let _ = self.project.open_file(&target_tab);
+            if self.settings.auto_compile {
+                self.trigger_compile_now(ctx);
             }
-            return;
+        }
+        if let Some(target_tab) = output.close_tab {
+            self.project.close_tab(&target_tab);
+            if self.settings.auto_compile {
+                self.trigger_compile_now(ctx);
+            }
         }
 
-        let is_typst = file.kind == FileKind::Typst && use_syntax_highlight;
-        let file_kind = file.kind;
-        let mut text_changed = false;
-        let mut edited_text_snapshot: Option<String> = None;
-        let mut observed_cursor: Option<CharSelection> = None;
-        let mut context_action: Option<EditorContextAction> =
-            self.pending_editor_context_action.take();
-        let prev_selection = self.last_editor_selection;
-
-        let editor_bg = palette.editor_canvas;
-        let gutter_fg = palette.text_muted;
-
-        Frame::new()
-            .fill(editor_bg)
-            .stroke(Stroke::new(1.0_f32, border_col))
-            .corner_radius(CornerRadius::ZERO)
-            .show(ui, |ui| {
-                ScrollArea::new([!word_wrap, true])
-                    .id_salt("code_editor_scroll_area")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        let text_ref = file.text.as_mut().unwrap();
-                        let line_count = text_ref.lines().count().max(1);
-                        let digits = line_count.to_string().len().max(3);
-                        let gutter_w = if show_line_numbers {
-                            (digits as f32 * (font_size * 0.62) + 18.0).max(40.0)
-                        } else {
-                            0.0
-                        };
-
-                        ui.horizontal_top(|ui| {
-                            ui.spacing_mut().item_spacing.x = 0.0;
-
-                            let gutter_x_min = ui.cursor().min.x;
-                            if show_line_numbers {
-                                ui.add_space(gutter_w);
-                            }
-                            let gutter_x_max = gutter_x_min + gutter_w;
-
-                            Frame::new()
-                                .fill(editor_bg)
-                                .inner_margin(Margin::symmetric(10, 8))
-                                .show(ui, |ui| {
-                                    let avail_editor_size = ui.available_size();
-                                    // Reserve 22px on the right when word_wrap is enabled so the end-of-line
-                                    // wrap indicator (`↩`) is always clearly visible inside the editor panel.
-                                    let target_wrap_width = if word_wrap {
-                                        (avail_editor_size.x - 22.0).max(80.0)
-                                    } else {
-                                        f32::INFINITY
-                                    };
-
-                                    let mut layouter =
-                                        |ui: &Ui, string: &str, _wrap_width: f32| {
-                                            let mut job = if is_typst {
-                                                highlight_typst_code(string, dark_mode, font_size)
-                                            } else {
-                                                LayoutJob::simple(
-                                                    string.to_owned(),
-                                                    FontId::new(font_size, FontFamily::Monospace),
-                                                    palette.syn_default,
-                                                    target_wrap_width,
-                                                )
-                                            };
-                                            job.wrap.max_width = target_wrap_width;
-                                            ui.fonts(|f| f.layout_job(job))
-                                        };
-
-                                    // Reserve shape slot before TextEdit so the Active Line Highlight
-                                    // (#262530 dark / #EBF3FE light) renders behind the active cursor line
-                                    let active_line_shape_idx =
-                                        ui.painter().add(egui::Shape::Noop);
-
-                                    let mut output = TextEdit::multiline(text_ref)
-                                        .id_salt("typst_code_editor")
-                                        .code_editor()
-                                        .desired_width(if word_wrap {
-                                            avail_editor_size.x
-                                        } else {
-                                            f32::INFINITY
-                                        })
-                                        .min_size(avail_editor_size)
-                                        .desired_rows(34)
-                                        .frame(false)
-                                        .font(FontId::new(font_size, FontFamily::Monospace))
-                                        .layouter(&mut layouter)
-                                        .show(ui);
-
-                                    // Restore StickyIndex-preserved cursor or Document Outline click navigation
-                                    // BEFORE painting the Active Line Highlight so the highlight and cursor
-                                    // jump immediately to the selected heading on the same frame.
-                                    if let Some(sel) = restore_cursor {
-                                        output.state.cursor.set_char_range(Some(
-                                            CCursorRange::two(
-                                                CCursor::new(sel.secondary_char),
-                                                CCursor::new(sel.primary_char),
-                                            ),
-                                        ));
-                                        output.state.clone().store(ctx, output.response.id);
-                                    } else if ctx.input(|i| i.pointer.secondary_pressed())
-                                        && output.response.hovered()
-                                    {
-                                        // Preserve existing text selection when right-clicking inside the editor
-                                        if let Some(prev) = prev_selection {
-                                            if prev.primary_char != prev.secondary_char {
-                                                let restored = CCursorRange::two(
-                                                    CCursor::new(prev.secondary_char),
-                                                    CCursor::new(prev.primary_char),
-                                                );
-                                                output.state.cursor.set_char_range(Some(restored));
-                                                output.state.clone().store(ctx, output.response.id);
-                                            }
-                                        }
-                                    }
-
-                                    // If navigated from the Document Outline panel, focus editor and scroll to target heading
-                                    if let Some(target_char) = scroll_to_char {
-                                        output.response.request_focus();
-                                        let target_cursor =
-                                            output.galley.from_ccursor(CCursor::new(target_char));
-                                        let local_rect =
-                                            output.galley.pos_from_cursor(&target_cursor);
-                                        let screen_rect =
-                                            local_rect.translate(output.galley_pos.to_vec2());
-                                        ui.scroll_to_rect(
-                                            screen_rect.expand2(Vec2::new(0.0, 56.0)),
-                                            Some(Align::Center),
-                                        );
-                                        ctx.request_repaint();
-                                    }
-
-                                    // Paint aligned gutter line numbers and end-of-line wrap indicators (`↩`)
-                                    // for every wrapped visual row in the galley.
-                                    let total_rows = output.galley.rows.len();
-                                    let mut logical_line = 1usize;
-                                    let mut is_wrapped_continuation = false;
-                                    let gutter_font = FontId::new(font_size, FontFamily::Monospace);
-                                    let cont_font =
-                                        FontId::new((font_size * 0.85).max(9.5), FontFamily::Monospace);
-                                    let wrap_badge_font =
-                                        FontId::new((font_size * 0.90).max(10.5), FontFamily::Monospace);
-
-                                    for (row_idx, row) in output.galley.rows.iter().enumerate() {
-                                        let row_top_y = output.galley_pos.y + row.min_y();
-                                        let row_center_y =
-                                            output.galley_pos.y + row.rect.center().y;
-
-                                        if show_line_numbers {
-                                            if !is_wrapped_continuation {
-                                                ui.painter().text(
-                                                    Pos2::new(gutter_x_max - 8.0, row_top_y),
-                                                    Align2::RIGHT_TOP,
-                                                    logical_line.to_string(),
-                                                    gutter_font.clone(),
-                                                    gutter_fg,
-                                                );
-                                            } else {
-                                                ui.painter().text(
-                                                    Pos2::new(gutter_x_max - 8.0, row_top_y),
-                                                    Align2::RIGHT_TOP,
-                                                    "↪",
-                                                    cont_font.clone(),
-                                                    gutter_fg.gamma_multiply(0.65),
-                                                );
-                                            }
-                                        }
-
-                                        let wrapped_to_next = word_wrap
-                                            && !row.ends_with_newline
-                                            && (row_idx + 1 < total_rows);
-                                        if wrapped_to_next {
-                                            let eol_x = (output.galley_pos.x
-                                                + row.rect.max.x
-                                                + 4.0)
-                                                .min(output.response.rect.max.x - 12.0);
-                                            ui.painter().text(
-                                                Pos2::new(eol_x, row_center_y),
-                                                Align2::LEFT_CENTER,
-                                                "↩",
-                                                wrap_badge_font.clone(),
-                                                palette.syn_keyword,
-                                            );
-                                        }
-
-                                        if row.ends_with_newline {
-                                            logical_line += 1;
-                                            is_wrapped_continuation = false;
-                                        } else {
-                                            is_wrapped_continuation = true;
-                                        }
-                                    }
-
-                                    if show_line_numbers {
-                                        ui.painter().line_segment(
-                                            [
-                                                Pos2::new(
-                                                    gutter_x_max,
-                                                    output.response.rect.min.y - 8.0,
-                                                ),
-                                                Pos2::new(
-                                                    gutter_x_max,
-                                                    output.response.rect.max.y + 8.0,
-                                                ),
-                                            ],
-                                            Stroke::new(1.0_f32, border_col),
-                                        );
-                                    }
-
-                                    let current_range = output
-                                        .state
-                                        .cursor
-                                        .char_range()
-                                        .or_else(|| output.cursor_range.map(|cr| cr.as_ccursor_range()));
-
-                                    // Paint full-width Active Line Highlight (#262530 Dark / #EBF3FE Light)
-                                    let active_ccursor = current_range
-                                        .map(|r| r.primary)
-                                        .unwrap_or_else(|| CCursor::new(0));
-                                    let active_cursor_obj =
-                                        output.galley.from_ccursor(active_ccursor);
-                                    let cursor_local_rect =
-                                        output.galley.pos_from_cursor(&active_cursor_obj);
-                                    let line_min_y = output.galley_pos.y + cursor_local_rect.min.y;
-                                    let line_max_y = output.galley_pos.y + cursor_local_rect.max.y;
-                                    let full_line_rect = Rect::from_min_max(
-                                        Pos2::new(output.response.rect.min.x - 10.0, line_min_y),
-                                        Pos2::new(output.response.rect.max.x + 10.0, line_max_y),
-                                    );
-                                    ui.painter().set(
-                                        active_line_shape_idx,
-                                        egui::Shape::rect_filled(
-                                            full_line_rect,
-                                            CornerRadius::ZERO,
-                                            palette.active_line_highlight,
-                                        ),
-                                    );
-                                    let has_selection = current_range
-                                        .map(|r| r.primary.index != r.secondary.index)
-                                        .unwrap_or(false);
-                                    let cur_undo_state =
-                                        (current_range.unwrap_or_default(), text_ref.clone());
-                                    let can_undo = output.state.undoer().has_undo(&cur_undo_state);
-                                    let can_redo = output.state.undoer().has_redo(&cur_undo_state);
-
-                                    // Right-click context menu inside the text editor
-                                    output.response.context_menu(|ui| {
-                                        ui.set_min_width(220.0);
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "Editor — {}",
-                                                active_path.display()
-                                            ))
-                                            .small()
-                                            .strong()
-                                            .weak(),
-                                        );
-                                        ui.separator();
-
-                                        if ui
-                                            .add_enabled(
-                                                can_undo,
-                                                egui::Button::new("Undo  (Ctrl+Z)"),
-                                            )
-                                            .clicked()
-                                        {
-                                            context_action = Some(EditorContextAction::Undo);
-                                            ui.close_menu();
-                                        }
-                                        if ui
-                                            .add_enabled(
-                                                can_redo,
-                                                egui::Button::new("Redo  (Ctrl+Y)"),
-                                            )
-                                            .clicked()
-                                        {
-                                            context_action = Some(EditorContextAction::Redo);
-                                            ui.close_menu();
-                                        }
-
-                                        ui.separator();
-
-                                        if ui
-                                            .add_enabled(
-                                                has_selection,
-                                                egui::Button::new("Cut  (Ctrl+X)"),
-                                            )
-                                            .clicked()
-                                        {
-                                            context_action = Some(EditorContextAction::Cut);
-                                            ui.close_menu();
-                                        }
-                                        if ui
-                                            .add_enabled(
-                                                has_selection,
-                                                egui::Button::new("Copy  (Ctrl+C)"),
-                                            )
-                                            .clicked()
-                                        {
-                                            context_action = Some(EditorContextAction::Copy);
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Paste  (Ctrl+V)").clicked() {
-                                            context_action = Some(EditorContextAction::Paste);
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Select All  (Ctrl+A)").clicked() {
-                                            context_action = Some(EditorContextAction::SelectAll);
-                                            ui.close_menu();
-                                        }
-
-                                        ui.separator();
-
-                                        if ui.button("Bold  (*...*)").clicked() {
-                                            context_action =
-                                                Some(EditorContextAction::WrapOrInsert(
-                                                    "*bold*",
-                                                    "*",
-                                                    "*",
-                                                ));
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Italic  (_..._)").clicked() {
-                                            context_action =
-                                                Some(EditorContextAction::WrapOrInsert(
-                                                    "_italic_",
-                                                    "_",
-                                                    "_",
-                                                ));
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Inline Code  (`...`)").clicked() {
-                                            context_action =
-                                                Some(EditorContextAction::WrapOrInsert(
-                                                    "`code`",
-                                                    "`",
-                                                    "`",
-                                                ));
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Inline Math  ($...$)").clicked() {
-                                            context_action =
-                                                Some(EditorContextAction::WrapOrInsert(
-                                                    "$x$",
-                                                    "$",
-                                                    "$",
-                                                ));
-                                            ui.close_menu();
-                                        }
-
-                                        ui.menu_button("Insert Typst Element", |ui| {
-                                            ui.set_min_width(210.0);
-                                            if ui.button("Section Heading (== ...)").clicked() {
-                                                context_action =
-                                                    Some(EditorContextAction::InsertSnippet(
-                                                        "\n== New Section\n",
-                                                    ));
-                                                ui.close_menu();
-                                            }
-                                            if ui.button("Display Math Block ($ ... $)").clicked() {
-                                                context_action =
-                                                    Some(EditorContextAction::InsertSnippet(
-                                                        "\n$ f(x) = integral_0^x e^(-t^2) dif t $\n",
-                                                    ));
-                                                ui.close_menu();
-                                            }
-                                            if ui.button("Formatted Table (#table)").clicked() {
-                                                context_action =
-                                                    Some(EditorContextAction::InsertSnippet(
-                                                        "\n#table(\n  columns: (1fr, 1fr),\n  [*Column A*], [*Column B*],\n  [Item 1], [Value 1],\n)\n",
-                                                    ));
-                                                ui.close_menu();
-                                            }
-                                            if ui.button("Figure / Image (#figure)").clicked() {
-                                                context_action =
-                                                    Some(EditorContextAction::InsertSnippet(
-                                                        "\n#figure(\n  image(\"assets/diagram.svg\", width: 80%),\n  caption: [Figure caption],\n)\n",
-                                                    ));
-                                                ui.close_menu();
-                                            }
-                                            if ui.button("Code Block (```rust ... ```)").clicked() {
-                                                context_action =
-                                                    Some(EditorContextAction::InsertSnippet(
-                                                        "\n```rust\nfn main() {\n    println!(\"Hello, Typst!\");\n}\n```\n",
-                                                    ));
-                                                ui.close_menu();
-                                            }
-                                        });
-
-                                        ui.separator();
-
-                                        if ui.button("Save File  (Ctrl+S)").clicked() {
-                                            context_action =
-                                                Some(EditorContextAction::Menu(MenuAction::SaveFile));
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Compile Document Now").clicked() {
-                                            context_action = Some(EditorContextAction::Menu(
-                                                MenuAction::CompileNow,
-                                            ));
-                                            ui.close_menu();
-                                        }
-                                        if ui.button("Export PDF...  (Ctrl+E)").clicked() {
-                                            context_action = Some(EditorContextAction::Menu(
-                                                MenuAction::ExportPdf,
-                                            ));
-                                            ui.close_menu();
-                                        }
-                                        if file_kind == FileKind::Typst
-                                            && ui.button("Set as Main Entrypoint").clicked()
-                                        {
-                                            context_action =
-                                                Some(EditorContextAction::SetActiveAsMain);
-                                            ui.close_menu();
-                                        }
-                                    });
-
-                                    // Apply any triggered editor context menu or Edit menu action
-                                    if let Some(ref act) = context_action {
-                                        let total_chars = text_ref.chars().count();
-                                        let (start_char, end_char, cursor_char) =
-                                            if let Some(r) = current_range {
-                                                let a = r.primary.index.min(total_chars);
-                                                let b = r.secondary.index.min(total_chars);
-                                                (a.min(b), a.max(b), a)
-                                            } else {
-                                                (total_chars, total_chars, total_chars)
-                                            };
-
-                                        let char_to_byte = |s: &str, char_idx: usize| -> usize {
-                                            s.char_indices()
-                                                .nth(char_idx)
-                                                .map(|(i, _)| i)
-                                                .unwrap_or(s.len())
-                                        };
-
-                                        let ccursor_range = current_range.unwrap_or_default();
-
-                                        match *act {
-                                            EditorContextAction::Undo => {
-                                                let mut undoer = output.state.undoer();
-                                                undoer.feed_state(
-                                                    ctx.input(|i| i.time),
-                                                    &(ccursor_range, text_ref.clone()),
-                                                );
-                                                if let Some((undo_range, undo_txt)) =
-                                                    undoer.undo(&(
-                                                        ccursor_range,
-                                                        text_ref.clone(),
-                                                    ))
-                                                {
-                                                    *text_ref = undo_txt.clone();
-                                                    output.state.cursor.set_char_range(Some(*undo_range));
-                                                    output.state.set_undoer(undoer);
-                                                    output
-                                                        .state
-                                                        .clone()
-                                                        .store(ctx, output.response.id);
-                                                    text_changed = true;
-                                                    edited_text_snapshot = Some(text_ref.clone());
-                                                }
-                                                output.response.request_focus();
-                                            }
-                                            EditorContextAction::Redo => {
-                                                let mut undoer = output.state.undoer();
-                                                if let Some((redo_range, redo_txt)) =
-                                                    undoer.redo(&(
-                                                        ccursor_range,
-                                                        text_ref.clone(),
-                                                    ))
-                                                {
-                                                    *text_ref = redo_txt.clone();
-                                                    output.state.cursor.set_char_range(Some(*redo_range));
-                                                    output.state.set_undoer(undoer);
-                                                    output
-                                                        .state
-                                                        .clone()
-                                                        .store(ctx, output.response.id);
-                                                    text_changed = true;
-                                                    edited_text_snapshot = Some(text_ref.clone());
-                                                }
-                                                output.response.request_focus();
-                                            }
-                                            EditorContextAction::Copy => {
-                                                if start_char < end_char {
-                                                    let start_b =
-                                                        char_to_byte(text_ref, start_char);
-                                                    let end_b = char_to_byte(text_ref, end_char);
-                                                    let selected_str =
-                                                        text_ref[start_b..end_b].to_string();
-                                                    ctx.copy_text(selected_str.clone());
-                                                    if let Ok(mut cb) = arboard::Clipboard::new() {
-                                                        let _ = cb.set_text(selected_str.clone());
-                                                    }
-                                                    self.clipboard_fallback = selected_str;
-                                                }
-                                                output.response.request_focus();
-                                            }
-                                            EditorContextAction::Cut => {
-                                                if start_char < end_char {
-                                                    let mut undoer = output.state.undoer();
-                                                    undoer.feed_state(
-                                                        ctx.input(|i| i.time),
-                                                        &(ccursor_range, text_ref.clone()),
-                                                    );
-                                                    let start_b =
-                                                        char_to_byte(text_ref, start_char);
-                                                    let end_b = char_to_byte(text_ref, end_char);
-                                                    let selected_str =
-                                                        text_ref[start_b..end_b].to_string();
-                                                    ctx.copy_text(selected_str.clone());
-                                                    if let Ok(mut cb) = arboard::Clipboard::new() {
-                                                        let _ = cb.set_text(selected_str.clone());
-                                                    }
-                                                    self.clipboard_fallback = selected_str;
-
-                                                    text_ref.replace_range(start_b..end_b, "");
-                                                    let new_range =
-                                                        CCursorRange::one(CCursor::new(start_char));
-                                                    output.state.cursor.set_char_range(Some(new_range));
-                                                    undoer.feed_state(
-                                                        ctx.input(|i| i.time),
-                                                        &(new_range, text_ref.clone()),
-                                                    );
-                                                    output.state.set_undoer(undoer);
-                                                    output
-                                                        .state
-                                                        .clone()
-                                                        .store(ctx, output.response.id);
-                                                    text_changed = true;
-                                                    edited_text_snapshot = Some(text_ref.clone());
-                                                }
-                                                output.response.request_focus();
-                                            }
-                                            EditorContextAction::Paste => {
-                                                let clip_text = arboard::Clipboard::new()
-                                                    .and_then(|mut cb| cb.get_text())
-                                                    .ok()
-                                                    .filter(|s| !s.is_empty())
-                                                    .unwrap_or_else(|| {
-                                                        self.clipboard_fallback.clone()
-                                                    });
-                                                if !clip_text.is_empty() {
-                                                    let mut undoer = output.state.undoer();
-                                                    undoer.feed_state(
-                                                        ctx.input(|i| i.time),
-                                                        &(ccursor_range, text_ref.clone()),
-                                                    );
-                                                    let start_b =
-                                                        char_to_byte(text_ref, start_char);
-                                                    let end_b = char_to_byte(text_ref, end_char);
-                                                    text_ref
-                                                        .replace_range(start_b..end_b, &clip_text);
-                                                    let pasted_chars = clip_text.chars().count();
-                                                    let new_pos = start_char + pasted_chars;
-                                                    let new_range =
-                                                        CCursorRange::one(CCursor::new(new_pos));
-                                                    output
-                                                        .state
-                                                        .cursor
-                                                        .set_char_range(Some(new_range));
-                                                    undoer.feed_state(
-                                                        ctx.input(|i| i.time),
-                                                        &(new_range, text_ref.clone()),
-                                                    );
-                                                    output.state.set_undoer(undoer);
-                                                    output
-                                                        .state
-                                                        .clone()
-                                                        .store(ctx, output.response.id);
-                                                    text_changed = true;
-                                                    edited_text_snapshot = Some(text_ref.clone());
-                                                }
-                                                output.response.request_focus();
-                                            }
-                                            EditorContextAction::SelectAll => {
-                                                let full_len = text_ref.chars().count();
-                                                let all_range = CCursorRange::two(
-                                                    CCursor::new(0),
-                                                    CCursor::new(full_len),
-                                                );
-                                                output.state.cursor.set_char_range(Some(all_range));
-                                                output
-                                                    .state
-                                                    .clone()
-                                                    .store(ctx, output.response.id);
-                                                output.response.request_focus();
-                                            }
-                                            EditorContextAction::WrapOrInsert(
-                                                default_snippet,
-                                                prefix,
-                                                suffix,
-                                            ) => {
-                                                let mut undoer = output.state.undoer();
-                                                undoer.feed_state(
-                                                    ctx.input(|i| i.time),
-                                                    &(ccursor_range, text_ref.clone()),
-                                                );
-                                                if start_char < end_char {
-                                                    let start_b =
-                                                        char_to_byte(text_ref, start_char);
-                                                    let end_b = char_to_byte(text_ref, end_char);
-                                                    let inner = text_ref[start_b..end_b].to_string();
-                                                    let wrapped =
-                                                        format!("{}{}{}", prefix, inner, suffix);
-                                                    let wrapped_chars = wrapped.chars().count();
-                                                    text_ref
-                                                        .replace_range(start_b..end_b, &wrapped);
-                                                    let new_range = CCursorRange::two(
-                                                        CCursor::new(start_char),
-                                                        CCursor::new(start_char + wrapped_chars),
-                                                    );
-                                                    output
-                                                        .state
-                                                        .cursor
-                                                        .set_char_range(Some(new_range));
-                                                } else {
-                                                    let ins_b = char_to_byte(text_ref, cursor_char);
-                                                    text_ref.insert_str(ins_b, default_snippet);
-                                                    let ins_chars = default_snippet.chars().count();
-                                                    let new_range = CCursorRange::one(CCursor::new(
-                                                        cursor_char + ins_chars,
-                                                    ));
-                                                    output
-                                                        .state
-                                                        .cursor
-                                                        .set_char_range(Some(new_range));
-                                                }
-                                                output.state.set_undoer(undoer);
-                                                output
-                                                    .state
-                                                    .clone()
-                                                    .store(ctx, output.response.id);
-                                                text_changed = true;
-                                                edited_text_snapshot = Some(text_ref.clone());
-                                                output.response.request_focus();
-                                            }
-                                            EditorContextAction::InsertSnippet(snippet) => {
-                                                let mut undoer = output.state.undoer();
-                                                undoer.feed_state(
-                                                    ctx.input(|i| i.time),
-                                                    &(ccursor_range, text_ref.clone()),
-                                                );
-                                                let start_b = char_to_byte(text_ref, start_char);
-                                                let end_b = char_to_byte(text_ref, end_char);
-                                                text_ref.replace_range(start_b..end_b, snippet);
-                                                let ins_chars = snippet.chars().count();
-                                                let new_range = CCursorRange::one(CCursor::new(
-                                                    start_char + ins_chars,
-                                                ));
-                                                output.state.cursor.set_char_range(Some(new_range));
-                                                output.state.set_undoer(undoer);
-                                                output
-                                                    .state
-                                                    .clone()
-                                                    .store(ctx, output.response.id);
-                                                text_changed = true;
-                                                edited_text_snapshot = Some(text_ref.clone());
-                                                output.response.request_focus();
-                                            }
-                                            EditorContextAction::Menu(_)
-                                            | EditorContextAction::SetActiveAsMain => {}
-                                        }
-                                    }
-
-                                    if let Some(range) = output
-                                        .state
-                                        .cursor
-                                        .char_range()
-                                        .or_else(|| output.cursor_range.map(|cr| cr.as_ccursor_range()))
-                                    {
-                                        observed_cursor = Some(CharSelection {
-                                            primary_char: range.primary.index,
-                                            secondary_char: range.secondary.index,
-                                        });
-                                    }
-
-                                    // Render remote collaborators' colored cursors, selections, and name tags
-                                    if !peers_in_active_file.is_empty() {
-                                        let peer_refs: Vec<&PeerPresence> =
-                                            peers_in_active_file.iter().collect();
-                                        paint_remote_cursors_in_editor(ui, &output, &peer_refs);
-                                    }
-
-                                    let ime_in_progress = ctx.input(|i| {
-                                        i.events.iter().any(|ev| {
-                                            matches!(
-                                                ev,
-                                                egui::Event::Ime(egui::ImeEvent::Preedit(_))
-                                            )
-                                        })
-                                    });
-
-                                    if output.response.changed() && !ime_in_progress {
-                                        text_changed = true;
-                                        edited_text_snapshot = Some(text_ref.clone());
-                                    }
-                                });
-                        });
-                    });
-            });
-
-        if let Some(sel) = observed_cursor {
+        if let Some(sel) = output.observed_cursor {
             self.last_editor_selection = Some(sel);
         }
 
-        if text_changed {
+        if output.text_changed {
             let auto_save = self.settings.auto_save_on_edit;
             self.project.mark_active_modified(auto_save);
-            if let (true, Some(new_text)) = (self.collab_ui.is_active, edited_text_snapshot) {
+            if let (true, Some(new_text)) = (self.collab_ui.is_active, output.edited_text_snapshot)
+            {
                 self.collab_session.send(UiToSessionCmd::LocalTextEdited {
                     rel_path: active_path.clone(),
                     new_text,
@@ -2549,13 +879,13 @@ impl TypstIdeApp {
             }
         }
 
-        if let Some(act) = context_action {
+        if let Some(act) = output.context_action {
             match act {
-                EditorContextAction::Menu(menu_act) => {
+                crate::ui::components::EditorContextAction::Menu(menu_act) => {
                     self.dispatch_menu_action(ctx, menu_act);
                 }
-                EditorContextAction::SetActiveAsMain => {
-                    if file_kind == FileKind::Typst {
+                crate::ui::components::EditorContextAction::SetActiveAsMain => {
+                    if FileKind::from_path(&active_path) == FileKind::Typst {
                         self.project.set_main_file(active_path.clone());
                         self.status_notice =
                             format!("Set '{}' as Main Entrypoint", active_path.display());
@@ -2567,7 +897,7 @@ impl TypstIdeApp {
         }
 
         if self.collab_ui.is_active {
-            if let Some(sel) = observed_cursor {
+            if let Some(sel) = output.observed_cursor {
                 let candidate = (active_path.clone(), sel);
                 if self.last_sent_cursor.as_ref() != Some(&candidate) {
                     self.last_sent_cursor = Some(candidate);
@@ -2582,280 +912,26 @@ impl TypstIdeApp {
     }
 
     fn render_preview_pane(&mut self, _ctx: &Context, ui: &mut Ui) {
-        let palette = ThemePalette::for_mode(self.settings.dark_mode);
-        let canvas_bg = palette.preview_workspace;
-        let border_col = palette.panel_border;
-
-        Frame::new()
-            .fill(palette.chrome_sidebar)
-            .stroke(Stroke::new(1.0_f32, border_col))
-            .corner_radius(CornerRadius::ZERO)
-            .inner_margin(Margin::symmetric(10, 6))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("LIVE DOCUMENT PREVIEW")
-                            .size(11.5)
-                            .strong()
-                            .color(palette.text_muted),
-                    );
-
-                    ui.separator();
-                    ui.label(
-                        RichText::new(format!("{} Page(s)", self.page_textures.len()))
-                            .size(12.0)
-                            .strong()
-                            .color(palette.text_primary),
-                    );
-
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui
-                            .small_button("Fit Width")
-                            .on_hover_text("Reset preview zoom to 100%")
-                            .clicked()
-                        {
-                            self.zoom = 1.0;
-                        }
-                        ui.label(
-                            RichText::new(format!("Scale: {:.0}%", self.zoom * 100.0))
-                                .size(11.5)
-                                .monospace()
-                                .color(palette.text_muted),
-                        );
-                    });
-                });
-            });
-
-        let has_diagnostics = !self.diagnostics.is_empty();
-        let available_height = ui.available_height();
-        let banner_height = if has_diagnostics {
-            (available_height * 0.28).clamp(110.0, 195.0)
-        } else {
-            0.0
-        };
-        let preview_height = (available_height - banner_height).max(120.0);
-
-        ui.allocate_ui(Vec2::new(ui.available_width(), preview_height), |ui| {
-            Frame::new()
-                .fill(canvas_bg)
-                .stroke(Stroke::new(1.0_f32, border_col))
-                .corner_radius(CornerRadius::ZERO)
-                .show(ui, |ui| {
-                    if ui.ui_contains_pointer() {
-                        let zoom_delta = ui.input(|i| i.zoom_delta());
-                        if (zoom_delta - 1.0).abs() > 0.001 {
-                            self.zoom = (self.zoom * zoom_delta).clamp(0.4, 2.5);
-                        }
-                    }
-
-                    ScrollArea::both()
-                        .id_salt("typst_preview_scroll_area")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.add_space(18.0);
-
-                                if self.page_textures.is_empty() {
-                                    ui.add_space(40.0);
-                                    ui.label(
-                                        RichText::new("No rendered pages available.")
-                                            .size(14.0)
-                                            .color(palette.text_muted),
-                                    );
-                                } else {
-                                    let avail_w = (ui.available_width() - 36.0).max(200.0);
-
-                                    for page in &self.page_textures {
-                                        let base_scale =
-                                            (avail_w / page.width_pt).clamp(0.45, 1.35);
-                                        let display_w = page.width_pt * base_scale * self.zoom;
-                                        let display_h = page.height_pt * base_scale * self.zoom;
-                                        let page_size = Vec2::new(display_w, display_h);
-
-                                        let (rect, _response) =
-                                            ui.allocate_exact_size(page_size, Sense::hover());
-
-                                        let painter = ui.painter();
-                                        // Subtle layered depth (1px border + minimal soft shadow)
-                                        let shadow_rect =
-                                            rect.translate(Vec2::new(0.0, 2.0)).expand(1.0);
-                                        painter.rect_filled(
-                                            shadow_rect,
-                                            CornerRadius::ZERO,
-                                            Color32::from_black_alpha(if self.settings.dark_mode {
-                                                45
-                                            } else {
-                                                22
-                                            }),
-                                        );
-
-                                        painter.rect_filled(
-                                            rect,
-                                            CornerRadius::ZERO,
-                                            Color32::WHITE,
-                                        );
-                                        painter.image(
-                                            page.texture.id(),
-                                            rect,
-                                            Rect::from_min_max(
-                                                Pos2::new(0.0, 0.0),
-                                                Pos2::new(1.0, 1.0),
-                                            ),
-                                            Color32::WHITE,
-                                        );
-                                        painter.rect_stroke(
-                                            rect,
-                                            CornerRadius::ZERO,
-                                            Stroke::new(1.0_f32, border_col),
-                                            StrokeKind::Outside,
-                                        );
-
-                                        ui.add_space(6.0);
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "Page {} of {}",
-                                                page.page_number,
-                                                self.page_textures.len()
-                                            ))
-                                            .size(11.0)
-                                            .color(palette.text_muted),
-                                        );
-                                        ui.add_space(18.0);
-                                    }
-                                }
-                            });
-                        });
-                });
-        });
-
-        if has_diagnostics {
-            let error_count = self.diagnostics.iter().filter(|d| d.is_error).count();
-            let banner_bg = palette.chrome_sidebar;
-            let banner_border = if error_count > 0 {
-                palette.syn_number
-            } else {
-                palette.syn_operator
-            };
-
-            let mut file_to_open: Option<PathBuf> = None;
-
-            Frame::new()
-                .fill(banner_bg)
-                .stroke(Stroke::new(1.0_f32, banner_border))
-                .corner_radius(CornerRadius::ZERO)
-                .inner_margin(Margin::symmetric(10, 8))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let title = if error_count > 0 {
-                            format!("[!] Typst Compiler Diagnostics ({} Error(s))", error_count)
-                        } else {
-                            format!("[!] Typst Compiler Warnings ({})", self.diagnostics.len())
-                        };
-                        ui.label(
-                            RichText::new(title)
-                                .strong()
-                                .color(banner_border)
-                                .size(12.5),
-                        );
-                    });
-                    ui.separator();
-
-                    ScrollArea::vertical()
-                        .id_salt("diagnostics_banner_scroll")
-                        .max_height(banner_height - 38.0)
-                        .show(ui, |ui| {
-                            for diag in &self.diagnostics {
-                                ui.horizontal_wrapped(|ui| {
-                                    let badge_color = if diag.is_error {
-                                        palette.syn_number
-                                    } else {
-                                        palette.syn_operator
-                                    };
-                                    let loc = match (diag.line, diag.column) {
-                                        (Some(l), Some(c)) => {
-                                            format!("{}:{}:{}", diag.file.display(), l, c)
-                                        }
-                                        (Some(l), None) => format!("{}:{}", diag.file.display(), l),
-                                        _ => diag.file.display().to_string(),
-                                    };
-                                    if ui
-                                        .small_button(
-                                            RichText::new(&loc).monospace().color(badge_color),
-                                        )
-                                        .on_hover_text("Click to open file in editor")
-                                        .clicked()
-                                    {
-                                        file_to_open = Some(diag.file.clone());
-                                    }
-                                    ui.label(
-                                        RichText::new(&diag.message)
-                                            .strong()
-                                            .size(12.0)
-                                            .color(palette.text_primary),
-                                    );
-                                });
-                                for hint in &diag.hints {
-                                    ui.label(
-                                        RichText::new(format!("  Hint: {}", hint))
-                                            .italics()
-                                            .size(11.5)
-                                            .color(palette.text_muted),
-                                    );
-                                }
-                                ui.add_space(3.0);
-                            }
-                        });
-                });
-
-            if let Some(target_file) = file_to_open {
-                let _ = self.project.open_file(&target_file);
-            }
+        if let Some(file_to_open) = crate::ui::components::render_preview_pane(
+            ui,
+            crate::ui::components::PreviewPaneParams {
+                dark_mode: self.settings.dark_mode,
+                zoom: &mut self.zoom,
+                page_textures: &self.page_textures,
+                diagnostics: &self.diagnostics,
+            },
+        ) {
+            let _ = self.project.open_file(&file_to_open);
         }
     }
 
     fn handle_screenshot_lifecycle(&mut self, ctx: &Context) {
-        let Some(ref target_path) = self.screenshot_path else {
-            return;
-        };
-
-        ctx.request_repaint();
-        self.frame_count = self.frame_count.saturating_add(1);
-
-        let mut captured_image: Option<Arc<egui::ColorImage>> = None;
-        ctx.input(|i| {
-            for event in &i.raw.events {
-                if let egui::Event::Screenshot { image, .. } = event {
-                    captured_image = Some(Arc::clone(image));
-                }
-            }
-        });
-
-        if let Some(img) = captured_image {
-            if let Some(parent) = target_path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-            }
-            let width = img.width() as u32;
-            let height = img.height() as u32;
-            let raw_rgba = img.as_raw();
-            if let Err(err) = image::save_buffer(
-                target_path,
-                raw_rgba,
-                width,
-                height,
-                image::ColorType::Rgba8,
-            ) {
-                eprintln!("Failed to save screenshot to {:?}: {}", target_path, err);
-            }
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
-        }
-
-        if self.frame_count >= 120 && !self.screenshot_requested {
-            self.screenshot_requested = true;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-        }
+        crate::services::handle_screenshot_lifecycle(
+            ctx,
+            self.screenshot_path.as_deref(),
+            &mut self.frame_count,
+            &mut self.screenshot_requested,
+        );
     }
 }
 

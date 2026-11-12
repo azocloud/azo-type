@@ -7,6 +7,7 @@ pub mod core;
 pub mod highlight;
 pub mod platform;
 pub mod project;
+pub mod services;
 pub mod ui;
 pub mod world;
 
