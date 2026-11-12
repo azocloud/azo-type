@@ -26,25 +26,9 @@ use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind, FsTre
 use crate::world::SharedWorldResources;
 use typst::syntax::SyntaxNode;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MenuAction {
-    NewFile,
-    OpenFolder,
-    RescanFolder,
-    SaveFile,
-    SaveAll,
-    ExportPdf,
-    OpenSettings,
-    OpenCollab,
-    ToggleSidebar,
-    ToggleWordWrap,
-    ToggleTheme,
-    ZoomIn,
-    ZoomOut,
-    ZoomReset,
-    CompileNow,
-    Quit,
-}
+#[cfg(target_os = "macos")]
+use crate::platform::menu::MacOsMenuBar;
+pub use crate::platform::menu::MenuAction;
 
 pub use crate::core::outline::{
     assign_hierarchical_numbers, build_outline_tree, extract_document_outline,
@@ -131,7 +115,7 @@ pub struct TypstIdeApp {
 
     // Native macOS OS Menu Bar handle
     #[cfg(target_os = "macos")]
-    pub macos_menu: Option<macos_native_menu::MacOsMenuBar>,
+    pub macos_menu: Option<MacOsMenuBar>,
 
     // Screenshot automation
     pub screenshot_path: Option<PathBuf>,
@@ -172,7 +156,7 @@ impl TypstIdeApp {
         );
 
         #[cfg(target_os = "macos")]
-        let macos_menu = macos_native_menu::MacOsMenuBar::init();
+        let macos_menu = MacOsMenuBar::init();
 
         Self {
             resources,
@@ -549,22 +533,13 @@ impl TypstIdeApp {
     fn open_folder_dialog(&self, ctx: &Context) {
         let tx = self.io_tx.clone();
         let ctx_clone = ctx.clone();
-        let start_dir = self.project.root_dir.clone();
-
-        std::thread::spawn(move || {
-            let task = async move {
-                if let Some(folder) = rfd::AsyncFileDialog::new()
-                    .set_title("Open Typst Project Folder")
-                    .set_directory(&start_dir)
-                    .pick_folder()
-                    .await
-                {
-                    let _ = tx.send(IoEvent::FolderPicked(folder.path().to_path_buf()));
-                    ctx_clone.request_repaint();
-                }
-            };
-            pollster::block_on_or_spin(task);
-        });
+        crate::platform::dialogs::spawn_open_folder_dialog(
+            &self.project.root_dir,
+            move |path| {
+                let _ = tx.send(IoEvent::FolderPicked(path));
+            },
+            move || ctx_clone.request_repaint(),
+        );
     }
 
     fn export_pdf_action(&mut self, ctx: &Context) {
@@ -595,38 +570,28 @@ impl TypstIdeApp {
                 let tx = self.io_tx.clone();
                 let ctx_clone = ctx.clone();
 
-                std::thread::spawn(move || {
-                    let task = async move {
-                        if let Some(handle) = rfd::AsyncFileDialog::new()
-                            .set_title("Export Compiled PDF to Disk")
-                            .set_directory(&start_dir)
-                            .set_file_name(&default_pdf_name)
-                            .add_filter("PDF Document", &["pdf"])
-                            .save_file()
-                            .await
-                        {
-                            let out_path = handle.path().to_path_buf();
-                            match std::fs::write(&out_path, &pdf_bytes) {
-                                Ok(()) => {
-                                    let _ = tx.send(IoEvent::StatusMessage(format!(
-                                        "Exported {} to '{}' ({:.1} KB)",
-                                        badge,
-                                        out_path.display(),
-                                        size_kb
-                                    )));
-                                }
-                                Err(err) => {
-                                    let _ = tx.send(IoEvent::StatusMessage(format!(
-                                        "PDF write failed: {}",
-                                        err
-                                    )));
-                                }
-                            }
-                            ctx_clone.request_repaint();
+                crate::platform::dialogs::spawn_save_file_dialog(
+                    &start_dir,
+                    &default_pdf_name,
+                    "PDF Document",
+                    "pdf",
+                    pdf_bytes,
+                    move |res| match res {
+                        Ok(out_path) => {
+                            let _ = tx.send(IoEvent::StatusMessage(format!(
+                                "Exported {} to '{}' ({:.1} KB)",
+                                badge,
+                                out_path.display(),
+                                size_kb
+                            )));
                         }
-                    };
-                    pollster::block_on_or_spin(task);
-                });
+                        Err(err) => {
+                            let _ = tx
+                                .send(IoEvent::StatusMessage(format!("PDF write failed: {}", err)));
+                        }
+                    },
+                    move || ctx_clone.request_repaint(),
+                );
             }
             Err(diags) => {
                 let first_err = diags
@@ -3858,172 +3823,5 @@ impl eframe::App for TypstIdeApp {
         );
 
         self.handle_screenshot_lifecycle(ctx);
-    }
-}
-
-/// Native macOS screen-top menu bar using `muda`, so on macOS the menu bar is part of the OS
-/// directly at the top of the screen rather than rendered inside the window.
-#[cfg(target_os = "macos")]
-mod macos_native_menu {
-    use super::MenuAction;
-    use muda::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
-
-    pub struct MacOsMenuBar {
-        _menu: Menu,
-        id_new_file: MenuId,
-        id_open_folder: MenuId,
-        id_rescan: MenuId,
-        id_save: MenuId,
-        id_save_all: MenuId,
-        id_export_pdf: MenuId,
-        id_settings: MenuId,
-        id_collab: MenuId,
-        id_quit: MenuId,
-        id_toggle_sidebar: MenuId,
-        id_toggle_theme: MenuId,
-        id_zoom_in: MenuId,
-        id_zoom_out: MenuId,
-        id_zoom_reset: MenuId,
-        id_compile: MenuId,
-    }
-
-    impl MacOsMenuBar {
-        pub fn init() -> Option<Self> {
-            let menu = Menu::new();
-
-            let file_menu = Submenu::new("File", true);
-            let item_new_file = MenuItem::new("New File in Project...", true, None);
-            let item_open_folder = MenuItem::new("Open Project Folder...", true, None);
-            let item_rescan = MenuItem::new("Rescan Folder on Disk", true, None);
-            let item_save = MenuItem::new("Save Active File", true, None);
-            let item_save_all = MenuItem::new("Save All Project Files", true, None);
-            let item_export_pdf = MenuItem::new("Export PDF...", true, None);
-            let item_settings = MenuItem::new("Settings...", true, None);
-            let item_quit = MenuItem::new("Quit Typst Studio", true, None);
-
-            let _ = file_menu.append_items(&[
-                &item_new_file,
-                &item_open_folder,
-                &item_rescan,
-                &PredefinedMenuItem::separator(),
-                &item_save,
-                &item_save_all,
-                &item_export_pdf,
-                &PredefinedMenuItem::separator(),
-                &item_settings,
-                &PredefinedMenuItem::separator(),
-                &item_quit,
-            ]);
-
-            let view_menu = Submenu::new("View", true);
-            let item_toggle_sidebar = MenuItem::new("Toggle Project File Tree", true, None);
-            let item_toggle_theme = MenuItem::new("Switch Theme (Dark / Light)", true, None);
-            let item_zoom_in = MenuItem::new("Zoom In (+)", true, None);
-            let item_zoom_out = MenuItem::new("Zoom Out (-)", true, None);
-            let item_zoom_reset = MenuItem::new("Reset Zoom (100%)", true, None);
-            let _ = view_menu.append_items(&[
-                &item_toggle_sidebar,
-                &item_toggle_theme,
-                &PredefinedMenuItem::separator(),
-                &item_zoom_in,
-                &item_zoom_out,
-                &item_zoom_reset,
-            ]);
-
-            let project_menu = Submenu::new("Project", true);
-            let item_collab = MenuItem::new("Collaboration (P2P)...", true, None);
-            let item_compile = MenuItem::new("Compile Document Now", true, None);
-            let _ = project_menu.append_items(&[
-                &item_collab,
-                &PredefinedMenuItem::separator(),
-                &item_compile,
-            ]);
-
-            let _ = menu.append_items(&[&file_menu, &view_menu, &project_menu]);
-            menu.init_for_nsapp();
-
-            Some(Self {
-                _menu: menu,
-                id_new_file: item_new_file.id().clone(),
-                id_open_folder: item_open_folder.id().clone(),
-                id_rescan: item_rescan.id().clone(),
-                id_save: item_save.id().clone(),
-                id_save_all: item_save_all.id().clone(),
-                id_export_pdf: item_export_pdf.id().clone(),
-                id_settings: item_settings.id().clone(),
-                id_collab: item_collab.id().clone(),
-                id_quit: item_quit.id().clone(),
-                id_toggle_sidebar: item_toggle_sidebar.id().clone(),
-                id_toggle_theme: item_toggle_theme.id().clone(),
-                id_zoom_in: item_zoom_in.id().clone(),
-                id_zoom_out: item_zoom_out.id().clone(),
-                id_zoom_reset: item_zoom_reset.id().clone(),
-                id_compile: item_compile.id().clone(),
-            })
-        }
-
-        pub fn poll_action(&self) -> Option<MenuAction> {
-            let ev = MenuEvent::receiver().try_recv().ok()?;
-            let id = ev.id();
-            if *id == self.id_new_file {
-                Some(MenuAction::NewFile)
-            } else if *id == self.id_open_folder {
-                Some(MenuAction::OpenFolder)
-            } else if *id == self.id_rescan {
-                Some(MenuAction::RescanFolder)
-            } else if *id == self.id_save {
-                Some(MenuAction::SaveFile)
-            } else if *id == self.id_save_all {
-                Some(MenuAction::SaveAll)
-            } else if *id == self.id_export_pdf {
-                Some(MenuAction::ExportPdf)
-            } else if *id == self.id_settings {
-                Some(MenuAction::OpenSettings)
-            } else if *id == self.id_collab {
-                Some(MenuAction::OpenCollab)
-            } else if *id == self.id_quit {
-                Some(MenuAction::Quit)
-            } else if *id == self.id_toggle_sidebar {
-                Some(MenuAction::ToggleSidebar)
-            } else if *id == self.id_toggle_theme {
-                Some(MenuAction::ToggleTheme)
-            } else if *id == self.id_zoom_in {
-                Some(MenuAction::ZoomIn)
-            } else if *id == self.id_zoom_out {
-                Some(MenuAction::ZoomOut)
-            } else if *id == self.id_zoom_reset {
-                Some(MenuAction::ZoomReset)
-            } else if *id == self.id_compile {
-                Some(MenuAction::CompileNow)
-            } else {
-                None
-            }
-        }
-    }
-}
-
-mod pollster {
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-
-    pub fn block_on_or_spin<F: Future>(mut fut: F) -> F::Output {
-        fn no_op(_: *const ()) {}
-        fn clone(_: *const ()) -> RawWaker {
-            RawWaker::new(std::ptr::null(), &VTABLE)
-        }
-        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, no_op, no_op, no_op);
-
-        let raw_waker = RawWaker::new(std::ptr::null(), &VTABLE);
-        let waker = unsafe { Waker::from_raw(raw_waker) };
-        let mut cx = Context::from_waker(&waker);
-
-        loop {
-            let pinned = unsafe { Pin::new_unchecked(&mut fut) };
-            match pinned.poll(&mut cx) {
-                Poll::Ready(val) => return val,
-                Poll::Pending => std::thread::sleep(std::time::Duration::from_millis(10)),
-            }
-        }
     }
 }
