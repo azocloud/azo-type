@@ -37,6 +37,7 @@
 | `app/src/lib.rs` | Library root for `azo-type`, exposing domain, platform, collaboration, compiler, and UI modules. | `parse_cli_args_from` | *(none)* | `app/tests/cli_tests.rs` | — |
 | `app/src/main.rs` | Binary entrypoint launching the native `eframe` desktop window and parsing CLI arguments. | *(re-exports / entry)* | *(none)* | `app/tests/cli_tests.rs` | — |
 | `app/src/platform/dialogs.rs` | Platform-native async file and folder dialogs using `rfd`. | `block_on_or_spin`, `spawn_open_folder_dialog`, `spawn_save_file_dialog` | *(none)* | *(covered via integration/UI)* | Only module using `unsafe` (`block_on_or_spin`); runs `rfd` on background threads. |
+| `app/src/platform/icon.rs` | Application icon loader, PNG image decoding, and desktop viewport icon configuration. | `APP_ID`, `app_window_icon`, `configure_viewport_builder`, `load_icon_from_png_bytes` | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/platform/menu.rs` | Platform-specific native OS application menu integration. | `MenuAction`, `MacOsMenuBar`, `init`, `poll_action` | *(none)* | *(covered via integration/UI)* | Native `muda` menu bar active only under `#[cfg(target_os = "macos")]`. |
 | `app/src/platform/mod.rs` | Platform-specific integrations and OS services. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/project/sample.rs` | Sample Typst project creation on disk for immediate inspection and test compilation. | `ensure_sample_project_on_disk` | *(none)* | *(covered via integration/UI)* | — |
@@ -72,6 +73,7 @@
 | `app/src/core/outline/tests.rs` | Unit tests for Typst AST heading extraction and outline hierarchy construction. |
 | `app/src/core/pdf/tests.rs` | Unit tests for PDF export version choices and archival standard validation. |
 | `app/src/core/settings/tests.rs` | Unit tests for default IDE user preferences and settings initialization. |
+| `app/src/platform/icon/tests.rs` | Unit tests for application icon decoding, caching, and viewport builder configuration. |
 
 ## 4. Integration & Characterization Suites (`app/tests/`)
 
