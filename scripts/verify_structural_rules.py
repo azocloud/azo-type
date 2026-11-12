@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Mechanical structural convention verifier and PROJECT_MAP.md generator for typst-ide.
+Mechanical structural convention verifier and PROJECT_MAP.md generator for azo-type.
 
 Enforces:
 1. No forbidden generic module names (utils.rs, helpers.rs, misc.rs, common.rs).
@@ -145,7 +145,7 @@ def generate_project_map() -> str:
         "",
         "| Crate / Directory | Role | Manifest / Entrypoint |",
         "| :--- | :--- | :--- |",
-        "| `app/` (`typst-ide`) | Native cross-platform desktop GUI IDE for Typst | `app/Cargo.toml`, `app/src/main.rs`, `app/src/lib.rs` |",
+        "| `app/` (`azo-type`) | Native cross-platform desktop GUI IDE for Typst | `app/Cargo.toml`, `app/src/main.rs`, `app/src/lib.rs` |",
         "| `app/tests/` | Black-box integration & characterization test suites | `app/tests/*_tests.rs` |",
         "| `scripts/` | Mechanical convention checks and verification runners | `scripts/check.sh`, `scripts/verify_structural_rules.py` |",
         "| `docs/agent/` | AI agent onboarding, recipes, conventions, and gotchas | `AGENTS.md`, `docs/agent/PROJECT_MAP.md` |",

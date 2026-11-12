@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unified quality & structural gate for typst-ide.
+# Unified quality & structural gate for Azo Type.
 # Runs formatting, strict clippy lints, full test suite, and structural convention verification.
 
 set -euo pipefail

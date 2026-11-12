@@ -8,7 +8,7 @@
 
 | Crate / Directory | Role | Manifest / Entrypoint |
 | :--- | :--- | :--- |
-| `app/` (`typst-ide`) | Native cross-platform desktop GUI IDE for Typst | `app/Cargo.toml`, `app/src/main.rs`, `app/src/lib.rs` |
+| `app/` (`azo-type`) | Native cross-platform desktop GUI IDE for Typst | `app/Cargo.toml`, `app/src/main.rs`, `app/src/lib.rs` |
 | `app/tests/` | Black-box integration & characterization test suites | `app/tests/*_tests.rs` |
 | `scripts/` | Mechanical convention checks and verification runners | `scripts/check.sh`, `scripts/verify_structural_rules.py` |
 | `docs/agent/` | AI agent onboarding, recipes, conventions, and gotchas | `AGENTS.md`, `docs/agent/PROJECT_MAP.md` |
@@ -17,7 +17,7 @@
 
 | Module Path | Purpose (`//!` Summary) | Key Public Types / Entrypoints | Internal `crate::` Deps | Tests Location | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `app/src/app.rs` | Top-level application state orchestrator (`TypstIdeApp`), event loop, and channel dispatcher. | `IoEvent`, `TypstIdeApp`, `apply_theme`, `extract_typst_markup_plain_text`, `extract_typst_ast_outline`, `assign_hierarchical_numbers` | `collab`, `compiler`, `core`, `highlight`, `platform`, `project`, `ui`, `world` | *(covered via integration/UI)* | Top-level `eframe::App` state orchestrator; delegates view rendering to `ui/`. |
+| `app/src/app.rs` | Top-level application state orchestrator (`AzoTypeApp`), event loop, and channel dispatcher. | `IoEvent`, `TypstIdeApp`, `AzoTypeApp`, `apply_theme`, `extract_typst_markup_plain_text`, `extract_typst_ast_outline` | `collab`, `compiler`, `core`, `highlight`, `platform`, `project`, `ui`, `world` | *(covered via integration/UI)* | Top-level `eframe::App` state orchestrator; delegates view rendering to `ui/`. |
 | `app/src/collab/awareness.rs` | Ephemeral peer presence, active file tracking, and remote cursor awareness synchronization. | `PeerPresence`, `CollabAwareness`, `client_id`, `set_local_presence`, `encode_full_update`, `apply_remote_awareness_bytes` | *(none)* | `app/src/collab/awareness/tests.rs` | — |
 | `app/src/collab/doc.rs` | Multi-file Yrs CRDT document container (`CollabProjectDoc`), sticky cursors, and local undo manager. | `LOCAL_ORIGIN`, `REMOTE_ORIGIN`, `FILES_MAP_KEY`, `CollabFileEntry`, `CollabProjectDoc`, `with_client_id` | `core` | `app/src/collab/doc/tests.rs` | — |
 | `app/src/collab/mod.rs` | Peer-to-peer real-time collaborative editing subsystem (Yrs CRDT + Iroh QUIC transport). | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
@@ -34,7 +34,7 @@
 | `app/src/core/pdf.rs` | PDF export configuration, PDF versions, and PDF/A archival standards. | `PdfVersionChoice`, `ALL`, `label`, `short_label`, `to_standard`, `PdfArchivalStandard` | *(none)* | `app/src/core/pdf/tests.rs`, `app/tests/pdf_config_tests.rs` | — |
 | `app/src/core/settings.rs` | IDE user preferences, configuration defaults, and settings dialog state. | `SettingsTab`, `IdeSettings` | *(none)* | `app/src/core/settings/tests.rs` | — |
 | `app/src/highlight.rs` | Syntax highlighting engine mapping Typst AST tokens to styled `egui::text::LayoutJob` spans. | `highlight_typst_code` | `ui` | *(covered via integration/UI)* | — |
-| `app/src/lib.rs` | Library root for `typst-ide`, exposing domain, platform, collaboration, compiler, and UI modules. | `parse_cli_args_from` | *(none)* | `app/tests/cli_tests.rs` | — |
+| `app/src/lib.rs` | Library root for `azo-type`, exposing domain, platform, collaboration, compiler, and UI modules. | `parse_cli_args_from` | *(none)* | `app/tests/cli_tests.rs` | — |
 | `app/src/main.rs` | Binary entrypoint launching the native `eframe` desktop window and parsing CLI arguments. | *(re-exports / entry)* | *(none)* | `app/tests/cli_tests.rs` | — |
 | `app/src/platform/dialogs.rs` | Platform-native async file and folder dialogs using `rfd`. | `block_on_or_spin`, `spawn_open_folder_dialog`, `spawn_save_file_dialog` | *(none)* | *(covered via integration/UI)* | Only module using `unsafe` (`block_on_or_spin`); runs `rfd` on background threads. |
 | `app/src/platform/menu.rs` | Platform-specific native OS application menu integration. | `MenuAction`, `MacOsMenuBar`, `init`, `poll_action` | *(none)* | *(covered via integration/UI)* | Native `muda` menu bar active only under `#[cfg(target_os = "macos")]`. |
