@@ -77,6 +77,7 @@ Inner domain layers have zero dependencies on immediate-mode GUI frameworks or a
 - **Hierarchical Document Outliner**: Deep AST-based outline navigation supporting Typst sections (`= Heading`), Markdown headings (`# Heading`), and BibTeX citation keys.
 - **Rich Code Editor**: Syntax highlighting, gutter line numbering, smart indentation, undo/redo stacks, and quick element snippet inserts.
 - **PDF Standards Export**: Built-in export with configurable PDF versions (1.4–2.0) and PDF/A archival standards (PDF/A-1b, PDF/A-2b, PDF/A-3b/a).
+- **Cross-Platform Localization & Weblate Support**: Runtime multi-language switching (English, German) with OS language detection (`sys-locale`), state persistence across restarts, and Weblate-compatible monolingual translation files (`locales/*.yml`).
 - **Embedded & OS-Level Dialogs**: Native dialog integration across platforms with graceful fallback.
 
 ---

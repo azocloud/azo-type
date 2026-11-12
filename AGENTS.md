@@ -25,7 +25,7 @@ Full auto-verified module map: [`docs/agent/PROJECT_MAP.md`](docs/agent/PROJECT_
 - `app/src/highlight.rs` — Typst syntax highlighting into `egui::text::LayoutJob`.
 - `app/src/ui/` — Presentation layer: `theme.rs` (tokens/palettes), `components/` (docked panels), and `dialogs/` (modal sub-windows).
 - `app/src/app.rs` — Top-level `AzoTypeApp` state orchestrator, channel polling, and `eframe::App` update loop.
-- `app/tests/` — Integration and characterization test suites (`cli_tests`, `diff_tests`, `outline_tests`, `pdf_config_tests`, `persistence_tests`, `project_tests`).
+- `app/tests/` — Integration and characterization test suites (`cli_tests`, `diff_tests`, `i18n_tests`, `outline_tests`, `pdf_config_tests`, `persistence_tests`, `project_tests`).
 
 ## 3. Architecture & Dependency Direction
 Dependencies point strictly **inward**:
@@ -43,6 +43,7 @@ Dependencies point strictly **inward**:
 | New menu item or keyboard shortcut | `app/src/platform/menu.rs` + `app/src/ui/components/menu_bar.rs` + `app/src/app.rs` | `app/src/platform/menu.rs` |
 | New editor right-click / edit action | `app/src/ui/components/editor_actions.rs` | `app/src/ui/components/editor_actions.rs` |
 | OS-specific dialog or native integration | `app/src/platform/<name>.rs` | `app/src/platform/dialogs.rs` |
+| New localization key or translation | `locales/<lang>.yml` + `app/src/core/i18n.rs` | `locales/en.yml` |
 | P2P wire message or CRDT operation | `app/src/collab/protocol.rs` + `app/src/collab/doc.rs` | `app/src/collab/protocol.rs` |
 | Unit tests for module `foo.rs` | `app/src/<path>/foo/tests.rs` (via `#[cfg(test)] mod tests;`) | `app/src/core/pdf/tests.rs` |
 | Cross-module / black-box test | `app/tests/<topic>_tests.rs` | `app/tests/outline_tests.rs` |

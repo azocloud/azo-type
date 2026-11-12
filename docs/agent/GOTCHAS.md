@@ -109,3 +109,13 @@ Typst uses `comemo` to memoize pure evaluation queries across compile frames. If
 - `EditorWorld` caches open buffer texts. Whenever `compile_project` is called, updated buffers are pushed to the world prior to invoking `typst::compile`.
 - Dynamic packages from Typst Universe (`@preview/...`) are downloaded by `ReqwestDownloader` and cached in the system cache directory before compilation proceeds.
 
+---
+
+## 7. rust-i18n Monolingual YAML Files, Symlink Layout & Recompilation
+
+### The Pitfall
+1. `rust-i18n` v3 uses `_version: 1` for **monolingual** files named `<locale>.yml` (`en.yml`, `de.yml`). Using `_version: 2` instructs `rust-i18n` to interpret the YAML as a single multi-lingual dictionary where top-level keys are locale codes, corrupting key lookups.
+2. `rust_i18n::i18n!("locales")` inside `app/src/lib.rs` looks for `app/locales`. The Weblate standard directory is at the repository root (`locales/`). A filesystem symlink `app/locales -> ../locales` ensures Weblate diffs repository root files while `cargo` locates them during compilation.
+3. Editing `.yml` translation files does not always cause `cargo` to detect modified Rust source files. Always run `touch app/src/lib.rs` when editing YAML translations to force `rust-i18n` proc macros to re-embed updated strings.
+
+

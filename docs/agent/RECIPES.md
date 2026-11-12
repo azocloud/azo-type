@@ -197,3 +197,34 @@ Adding dependencies increases compile times, binary size, and supply-chain surfa
 - [ ] Minimal `features` enabled in `app/Cargo.toml`.
 - [ ] `./scripts/check.sh` passes with zero warnings.
 
+---
+
+## Recipe 8: Adding New Localization Strings or Locales (i18n & Weblate)
+
+Use this recipe when extracting hardcoded user-facing strings or adding support for an additional language.
+
+- **Reference Implementation:** `locales/en.yml`, `locales/de.yml`, `app/src/core/i18n.rs`, and `app/src/ui/components/menu_bar.rs`
+
+### Step-by-Step Order
+1. **Define Keys in Monolingual Files (`locales/<lang>.yml`):**
+   - In `locales/en.yml`, add the new key under the appropriate semantic section (`menu`, `status`, `sidebar`, `editor`, `preview`, `settings`, `export_pdf`, `file_modals`, `collab`, `app`).
+   - Use `%{param}` for interpolated dynamic values (e.g. `path_prefix: "Path: %{path}"`).
+   - Add the translated equivalent in all other monolingual files (e.g. `locales/de.yml`).
+   - Files MUST start with `_version: 1` (Weblate standard single-locale format).
+2. **Support Native Display Name (`app/src/core/i18n.rs`):**
+   - If adding a new locale, register its native human-readable name in `locale_native_name(locale: &str)`.
+   - Update unit tests in `app/src/core/i18n/tests.rs`.
+3. **Use the `t!` Macro in Presentation Modules (`app/src/ui/`):**
+   - Import `use rust_i18n::t;`.
+   - Replace literal strings with `t!("section.key")` or `t!("section.key", param = val)`.
+4. **Trigger UI Recompilation:**
+   - Run `touch app/src/lib.rs` so `rust_i18n::i18n!` rebuilds with the updated YAML files.
+5. **Verify:**
+   - Run `cargo test --manifest-path app/Cargo.toml --test i18n_tests`.
+
+### Checklist
+- [ ] `locales/` contains separate monolingual `.yml` files with `_version: 1`.
+- [ ] No hardcoded user-facing strings in `egui` UI calls.
+- [ ] Dynamic values use `%{var}` in YAML and `var = val` in `t!`.
+- [ ] `i18n_tests` pass.
+
