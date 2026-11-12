@@ -49,4 +49,3 @@ fn test_configure_viewport_builder() {
     assert_eq!(configured.app_id.as_deref(), Some(APP_ID));
     assert!(configured.icon.is_some());
 }
-

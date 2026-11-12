@@ -48,4 +48,3 @@ pub fn load_icon_from_png_bytes(bytes: &[u8]) -> Result<egui::IconData, String> 
 
 #[cfg(test)]
 mod tests;
-
