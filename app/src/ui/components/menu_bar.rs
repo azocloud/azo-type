@@ -32,6 +32,7 @@ pub struct MenuBarOutput {
     pub snippet_to_insert: Option<&'static str>,
     pub editor_action: Option<EditorContextAction>,
     pub set_active_as_main: bool,
+    pub language_changed: Option<String>,
 }
 
 /// Parameters required to render the desktop menu bar.
@@ -41,6 +42,7 @@ pub struct MenuBarParams<'a> {
     pub word_wrap: bool,
     pub project_root: &'a Path,
     pub active_file: &'a Path,
+    pub language: &'a str,
 }
 
 /// Renders the in-window menu bar for Windows and Linux.
@@ -227,6 +229,18 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                 });
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let current_name = crate::core::locale_native_name(params.language);
+                    egui::ComboBox::from_id_salt("menu_bar_language_selector")
+                        .selected_text(format!("🌐 {}", current_name))
+                        .show_ui(ui, |ui| {
+                            for loc in rust_i18n::available_locales!() {
+                                let name = crate::core::locale_native_name(loc);
+                                if ui.selectable_label(loc == params.language, name).clicked() {
+                                    output.language_changed = Some(loc.to_string());
+                                }
+                            }
+                        });
+
                     ui.label(
                         RichText::new(format!("Folder: {}", params.project_root.display()))
                             .small()

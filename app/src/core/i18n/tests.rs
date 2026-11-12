@@ -34,3 +34,14 @@ fn test_translation_switching() {
     assert_eq!(rust_i18n::t!("settings.language_label"), "Sprache");
     rust_i18n::set_locale("en");
 }
+
+#[test]
+fn test_app_saved_state_serialization() {
+    let state = AppSavedState {
+        language: "de".to_string(),
+    };
+    let json = serde_json::to_string(&state).expect("serialize");
+    let loaded: AppSavedState = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(loaded, state);
+    assert_eq!(AppSavedState::default().language, "en");
+}

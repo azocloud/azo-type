@@ -10,11 +10,7 @@ pub fn normalize_locale_tag(raw: &str) -> String {
     if trimmed.is_empty() {
         return "en".to_string();
     }
-    let primary = trimmed
-        .split(['-', '_', '.'])
-        .next()
-        .unwrap_or("en")
-        .trim();
+    let primary = trimmed.split(['-', '_', '.']).next().unwrap_or("en").trim();
     if primary.is_empty() {
         "en".to_string()
     } else {
@@ -52,5 +48,20 @@ pub fn locale_native_name(locale: &str) -> &'static str {
         "zh" | "zh-CN" => "简体中文",
         "zh-TW" => "繁體中文",
         _ => "English",
+    }
+}
+
+/// Persistent application state stored via `eframe::Storage`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AppSavedState {
+    /// Active user interface language locale (e.g. `"en"`, `"de"`).
+    pub language: String,
+}
+
+impl Default for AppSavedState {
+    fn default() -> Self {
+        Self {
+            language: "en".to_string(),
+        }
     }
 }

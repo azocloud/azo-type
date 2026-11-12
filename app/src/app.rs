@@ -1,6 +1,6 @@
 //! Top-level application state orchestrator (`AzoTypeApp`), event loop, and channel dispatcher.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
@@ -43,6 +43,7 @@ pub enum IoEvent {
 pub type TypstIdeApp = AzoTypeApp;
 
 pub struct AzoTypeApp {
+    pub language: String,
     pub resources: Arc<SharedWorldResources>,
     pub project: DiskProject,
     pub settings: IdeSettings,
@@ -118,6 +119,13 @@ impl AzoTypeApp {
         let resources = Arc::new(SharedWorldResources::new());
         let settings = IdeSettings::default();
 
+        let language = cc
+            .storage
+            .and_then(|s| eframe::get_value::<crate::core::AppSavedState>(s, eframe::APP_KEY))
+            .map(|st| st.language)
+            .unwrap_or_else(|| crate::core::detect_system_locale(&rust_i18n::available_locales!()));
+        rust_i18n::set_locale(&language);
+
         let project = initial_folder
             .filter(|f| f.is_dir())
             .and_then(|f| DiskProject::open_folder(&f, settings.show_hidden_files).ok())
@@ -147,6 +155,7 @@ impl AzoTypeApp {
         let macos_menu = MacOsMenuBar::init();
 
         Self {
+            language,
             resources,
             last_compiled_revision: initial_snapshot.revision,
             last_compiled_dpi: settings.render_dpi_scale,
@@ -196,6 +205,14 @@ impl AzoTypeApp {
 
     pub fn apply_theme(ctx: &Context, dark_mode: bool) {
         crate::ui::theme::apply_theme(ctx, dark_mode);
+    }
+
+    pub fn set_language(&mut self, ctx: &Context, lang: String) {
+        if self.language != lang {
+            self.language = lang;
+            rust_i18n::set_locale(&self.language);
+            ctx.request_repaint();
+        }
     }
 
     fn dispatch_menu_action(&mut self, ctx: &Context, action: MenuAction) {
@@ -574,8 +591,13 @@ impl AzoTypeApp {
                 word_wrap: self.settings.word_wrap,
                 project_root: &self.project.root_dir,
                 active_file: &self.project.active_file,
+                language: &self.language,
             },
         );
+
+        if let Some(l) = output.language_changed {
+            self.set_language(ctx, l);
+        }
 
         if let Some(act) = output.editor_action {
             self.pending_editor_context_action = Some(act);
@@ -663,10 +685,14 @@ impl AzoTypeApp {
             ctx,
             &mut self.show_settings_window,
             &mut self.settings,
+            &mut self.language,
             &mut self.settings_tab,
             &self.project.root_dir,
         );
 
+        if let Some(l) = output.language_changed {
+            self.set_language(ctx, l);
+        }
         if output.open_folder_requested {
             self.open_folder_dialog(ctx);
         }
@@ -713,34 +739,6 @@ impl AzoTypeApp {
                 active_buffer: active_buf_info,
             },
         );
-    }
-
-    pub fn assign_hierarchical_numbers(items: &mut [DocumentOutlineItem]) {
-        crate::core::outline::assign_hierarchical_numbers(items);
-    }
-
-    pub fn build_outline_tree(
-        items: &[DocumentOutlineItem],
-        active_idx: Option<usize>,
-    ) -> Vec<OutlineTreeNode> {
-        crate::core::outline::build_outline_tree(items, active_idx)
-    }
-
-    pub fn extract_document_outline(
-        text: &str,
-        kind: FileKind,
-        current_file: &Path,
-        project: Option<&DiskProject>,
-        compiled_outline: &[CompiledOutlineItem],
-    ) -> Vec<DocumentOutlineItem> {
-        let resolver = project.map(|p| p as &dyn crate::core::outline::SourceResolver);
-        crate::core::outline::extract_document_outline(
-            text,
-            kind,
-            current_file,
-            resolver,
-            compiled_outline,
-        )
     }
 
     fn render_left_file_panel(&mut self, ctx: &Context) {
@@ -1087,5 +1085,12 @@ impl eframe::App for AzoTypeApp {
         );
 
         self.handle_screenshot_lifecycle(ctx);
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        let state = crate::core::AppSavedState {
+            language: self.language.clone(),
+        };
+        eframe::set_value(storage, eframe::APP_KEY, &state);
     }
 }

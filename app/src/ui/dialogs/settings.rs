@@ -17,6 +17,7 @@ pub struct SettingsModalOutput {
     pub theme_changed: bool,
     pub rescan_needed: bool,
     pub dpi_changed: bool,
+    pub language_changed: Option<String>,
 }
 
 /// Renders the Settings sub-window (embedded or native OS viewport).
@@ -24,6 +25,7 @@ pub fn render_settings_dialog(
     ctx: &Context,
     open: &mut bool,
     settings: &mut IdeSettings,
+    language: &mut String,
     active_tab: &mut SettingsTab,
     project_root: &Path,
 ) -> SettingsModalOutput {
@@ -72,6 +74,22 @@ pub fn render_settings_dialog(
             match active_tab {
                 SettingsTab::Appearance => {
                     ui.heading("Theme & Visual Appearance");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label(rust_i18n::t!("settings.language_label"));
+                        let current_name = crate::core::locale_native_name(language);
+                        egui::ComboBox::from_id_salt("settings_language_combo")
+                            .selected_text(current_name)
+                            .show_ui(ui, |ui| {
+                                for loc in rust_i18n::available_locales!() {
+                                    let name = crate::core::locale_native_name(loc);
+                                    if ui.selectable_label(loc == language.as_str(), name).clicked() {
+                                        output.language_changed = Some(loc.to_string());
+                                    }
+                                }
+                            });
+                    });
+
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         ui.label("Color Theme:");

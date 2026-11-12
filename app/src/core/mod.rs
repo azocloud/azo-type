@@ -22,7 +22,9 @@ pub use diff::{
     utf16_to_char_offset, CharSelection, Utf16TextDiff,
 };
 pub use file_kind::FileKind;
-pub use i18n::{detect_system_locale, locale_native_name, normalize_locale_tag, resolve_locale};
+pub use i18n::{
+    detect_system_locale, locale_native_name, normalize_locale_tag, resolve_locale, AppSavedState,
+};
 pub use outline::{
     assign_hierarchical_numbers, build_outline_tree, extract_document_outline,
     extract_typst_ast_outline, extract_typst_markup_plain_text, CompiledOutlineItem,
