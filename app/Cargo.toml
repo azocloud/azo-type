@@ -35,7 +35,6 @@ arboard = "3.7"
 rfd = "0.18.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-log = "0.4"
 
 # P2P Real-Time Collaboration (CRDT + Iroh QUIC transport)
 yrs = { version = "0.28.1", features = ["sync"] }
