@@ -49,3 +49,35 @@ fn test_configure_viewport_builder() {
     assert_eq!(configured.app_id.as_deref(), Some(APP_ID));
     assert!(configured.icon.is_some());
 }
+
+#[test]
+fn test_ensure_linux_desktop_integration_to_dir() {
+    let temp_dir = std::env::temp_dir().join(format!("azo_type_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    let dummy_exe = std::path::Path::new("/usr/bin/azo-type");
+    let result = ensure_linux_desktop_integration_to_dir(&temp_dir, Some(dummy_exe));
+    assert!(result.is_ok());
+
+    let desktop_file = temp_dir
+        .join("applications")
+        .join(format!("{APP_ID}.desktop"));
+    assert!(desktop_file.exists(), "Desktop file must be created");
+
+    let content = std::fs::read_to_string(&desktop_file).expect("Desktop file must be readable");
+    assert!(content.contains("StartupWMClass=azo-type"));
+    assert!(content.contains("Icon=azo-type"));
+    assert!(content.contains("Exec=\"/usr/bin/azo-type\" %F"));
+
+    // Check all icons were installed
+    for (rel_path, _) in LINUX_ICONS {
+        let icon_path = temp_dir.join("icons").join("hicolor").join(rel_path);
+        assert!(icon_path.exists(), "Icon at {} must exist", rel_path);
+        assert!(
+            std::fs::metadata(&icon_path).unwrap().len() > 0,
+            "Icon must not be empty"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

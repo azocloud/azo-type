@@ -8,6 +8,7 @@ fn parse_cli_args() -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) 
 }
 
 fn main() -> eframe::Result<()> {
+    azo_type::platform::ensure_linux_desktop_integration();
     let (initial_folder, screenshot_path) = parse_cli_args();
 
     let mut viewport = azo_type::platform::configure_viewport_builder(
