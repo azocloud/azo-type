@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use azo_type::app::{DocumentOutlineItem, TypstIdeApp};
+use azo_type::app::{DocumentOutlineItem, AzoTypeApp};
 
 use azo_type::project::{DiskProject, FileKind};
 
@@ -19,7 +19,7 @@ Deep details.
 ==== Fourth Level
 Even deeper.
 "#;
-    let items = TypstIdeApp::extract_document_outline(
+    let items = AzoTypeApp::extract_document_outline(
         source,
         FileKind::Typst,
         Path::new("main.typ"),
@@ -55,7 +55,7 @@ fn extracts_func_call_headings() {
 #heading(level: 1)[First Level Function]
 #heading(level: 2)[Second Level Function]
 "#;
-    let items = TypstIdeApp::extract_document_outline(
+    let items = AzoTypeApp::extract_document_outline(
         source,
         FileKind::Typst,
         Path::new("func.typ"),
@@ -87,7 +87,7 @@ fn ignores_headings_in_comments_code_blocks_and_show_rules() {
 
 = Legitimate Heading
 "#;
-    let items = TypstIdeApp::extract_document_outline(
+    let items = AzoTypeApp::extract_document_outline(
         source,
         FileKind::Typst,
         Path::new("clean.typ"),
@@ -115,7 +115,7 @@ fn extracts_bibtex_entries_with_citation_keys_and_entry_types() {
   year = {1984}
 }
 "#;
-    let items = TypstIdeApp::extract_document_outline(
+    let items = AzoTypeApp::extract_document_outline(
         bib_source,
         FileKind::Bib,
         Path::new("refs.bib"),
@@ -150,7 +150,7 @@ Deep detail.
 # Architecture
 Overview.
 "#;
-    let items = TypstIdeApp::extract_document_outline(
+    let items = AzoTypeApp::extract_document_outline(
         md_source,
         FileKind::Text,
         Path::new("README.md"),
@@ -213,7 +213,7 @@ fn assigns_correct_hierarchical_numbers_to_irregular_and_deep_levels() {
         },
     ];
 
-    TypstIdeApp::assign_hierarchical_numbers(&mut items);
+    AzoTypeApp::assign_hierarchical_numbers(&mut items);
 
     assert_eq!(items[0].number_label, "1");
     assert_eq!(items[1].number_label, "1.1.1");
@@ -258,7 +258,7 @@ fn builds_nested_outline_tree_with_accurate_parent_child_relationships() {
         },
     ];
 
-    let tree = TypstIdeApp::build_outline_tree(&items, Some(1));
+    let tree = AzoTypeApp::build_outline_tree(&items, Some(1));
     assert_eq!(tree.len(), 2);
 
     assert_eq!(tree[0].item.title, "Root 1");
@@ -293,7 +293,7 @@ fn resolves_module_includes_recursively_without_infinite_loops() {
     let project = DiskProject::open_folder(&temp_dir, false).unwrap();
     let main_text = fs::read_to_string(temp_dir.join("main.typ")).unwrap();
 
-    let outline = TypstIdeApp::extract_document_outline(
+    let outline = AzoTypeApp::extract_document_outline(
         &main_text,
         FileKind::Typst,
         Path::new("main.typ"),

@@ -1,6 +1,6 @@
 //! Binary entrypoint launching the native `eframe` desktop window and parsing CLI arguments.
 
-use azo_type::app::TypstIdeApp;
+use azo_type::app::AzoTypeApp;
 
 fn parse_cli_args() -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) {
     let args: Vec<String> = std::env::args().collect();
@@ -11,7 +11,7 @@ fn main() -> eframe::Result<()> {
     let (initial_folder, screenshot_path) = parse_cli_args();
 
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Typst Studio — Native Desktop Typst IDE")
+        .with_title("Azo Type — Native Desktop Typst IDE")
         .with_inner_size([1360.0, 860.0])
         .with_min_inner_size([800.0, 520.0]);
 
@@ -38,10 +38,10 @@ fn main() -> eframe::Result<()> {
     }
 
     eframe::run_native(
-        "Typst Studio",
+        "Azo Type",
         native_options,
         Box::new(move |cc| {
-            Ok(Box::new(TypstIdeApp::new(
+            Ok(Box::new(AzoTypeApp::new(
                 cc,
                 initial_folder,
                 screenshot_path,

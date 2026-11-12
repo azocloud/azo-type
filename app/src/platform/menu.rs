@@ -77,7 +77,7 @@ mod macos {
             let item_save_all = MenuItem::new("Save All Project Files", true, None);
             let item_export_pdf = MenuItem::new("Export PDF...", true, None);
             let item_settings = MenuItem::new("Settings...", true, None);
-            let item_quit = MenuItem::new("Quit Typst Studio", true, None);
+            let item_quit = MenuItem::new("Quit Azo Type", true, None);
 
             let _ = file_menu.append_items(&[
                 &item_new_file,

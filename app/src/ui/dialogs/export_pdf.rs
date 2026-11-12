@@ -34,7 +34,7 @@ pub fn render_export_pdf_dialog(
     let mut close_clicked = false;
     let mut trigger_export = false;
 
-    let viewport_id = ViewportId::from_hash_of("typst_studio_export_pdf_os_window");
+    let viewport_id = ViewportId::from_hash_of("azo_type_export_pdf_os_window");
     let builder = ViewportBuilder::default()
         .with_title("Export PDF — Version & Standards")
         .with_inner_size([560.0, 480.0])

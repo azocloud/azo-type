@@ -39,9 +39,9 @@ pub fn render_settings_dialog(
     let palette = ThemePalette::for_mode(dark_mode);
     let window_bg = palette.chrome_sidebar;
 
-    let viewport_id = ViewportId::from_hash_of("typst_studio_settings_os_window");
+    let viewport_id = ViewportId::from_hash_of("azo_type_settings_os_window");
     let builder = ViewportBuilder::default()
-        .with_title("Settings — Typst Studio")
+        .with_title("Settings — Azo Type")
         .with_inner_size([540.0, 440.0])
         .with_min_inner_size([440.0, 340.0]);
 
@@ -273,7 +273,7 @@ pub fn render_settings_dialog(
         };
 
         if class == ViewportClass::Embedded {
-            Window::new("Settings — Typst Studio")
+            Window::new("Settings — Azo Type")
                 .open(&mut is_open)
                 .resizable(true)
                 .collapsible(false)

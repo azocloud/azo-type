@@ -1,4 +1,4 @@
-//! Top-level application state orchestrator (`TypstIdeApp`), event loop, and channel dispatcher.
+//! Top-level application state orchestrator (`AzoTypeApp`), event loop, and channel dispatcher.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -39,7 +39,10 @@ pub enum IoEvent {
     StatusMessage(String),
 }
 
-pub struct TypstIdeApp {
+/// Backward-compatibility alias for [`AzoTypeApp`].
+pub type TypstIdeApp = AzoTypeApp;
+
+pub struct AzoTypeApp {
     pub resources: Arc<SharedWorldResources>,
     pub project: DiskProject,
     pub settings: IdeSettings,
@@ -106,7 +109,7 @@ pub struct TypstIdeApp {
     pub screenshot_requested: bool,
 }
 
-impl TypstIdeApp {
+impl AzoTypeApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         initial_folder: Option<PathBuf>,
@@ -935,7 +938,7 @@ impl TypstIdeApp {
     }
 }
 
-impl eframe::App for TypstIdeApp {
+impl eframe::App for AzoTypeApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         self.poll_channels(ctx);
         self.handle_keyboard_shortcuts(ctx);

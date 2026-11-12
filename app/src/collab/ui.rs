@@ -17,7 +17,7 @@ use crate::collab::session::{
 };
 use crate::highlight::ThemePalette;
 
-/// UI state for P2P collaboration held by `TypstIdeApp`.
+/// UI state for P2P collaboration held by `AzoTypeApp`.
 #[derive(Default)]
 pub struct CollabUiState {
     pub show_window: bool,
@@ -74,7 +74,7 @@ pub fn render_collaboration_window(
     let card_bg = palette.editor_canvas;
     let win_bg = palette.chrome_sidebar;
 
-    let viewport_id = ViewportId::from_hash_of("typst_studio_p2p_collab_os_window");
+    let viewport_id = ViewportId::from_hash_of("azo_type_p2p_collab_os_window");
     let builder = ViewportBuilder::default()
         .with_title("P2P Collaboration — Real-Time Project Sync")
         .with_inner_size([560.0, 500.0])
