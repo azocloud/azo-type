@@ -20,7 +20,7 @@ Full auto-verified module map: [`docs/agent/PROJECT_MAP.md`](docs/agent/PROJECT_
 - `app/src/platform/` — OS abstractions: native macOS menus (`menu.rs`) and background-threaded `rfd` file dialogs (`dialogs.rs`).
 - `app/src/services/` — Headless and lifecycle background services (`screenshot.rs`).
 - `app/src/collab/` — P2P real-time collaboration: Yrs CRDT (`doc.rs`), cursor presence (`awareness.rs`), wire types (`protocol.rs`), Iroh QUIC (`transport.rs`), disk snapshots (`persistence.rs`), background actor (`session.rs`), and collab UI (`ui.rs`).
-- `app/src/project.rs` & `app/src/project/sample.rs` — On-disk workspace tree, open file buffers, and initial sample project generator.
+- `app/src/project.rs` & `app/src/project/buffer.rs` — On-disk workspace tree, open file buffers, and in-memory blank project support.
 - `app/src/world.rs` & `app/src/compiler.rs` — `typst::World` implementation (`IdeWorld`), package downloading, rasterization, and PDF export.
 - `app/src/highlight.rs` — Typst syntax highlighting into `egui::text::LayoutJob`.
 - `app/src/ui/` — Presentation layer: `theme.rs` (tokens/palettes), `components/` (docked panels), and `dialogs/` (modal sub-windows).

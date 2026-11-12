@@ -18,9 +18,8 @@ use crate::compiler::{
     CompiledOutlineItem, DiagnosticItem, PdfExportConfig, RenderedPageData, RenderedPageTexture,
 };
 use crate::highlight::ThemePalette;
-use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind};
+use crate::project::{DiskProject, FileKind};
 use crate::world::SharedWorldResources;
-use typst::syntax::SyntaxNode;
 
 #[cfg(target_os = "macos")]
 use crate::platform::menu::MacOsMenuBar;
@@ -36,6 +35,7 @@ pub use crate::ui::components::EditorContextAction;
 
 pub enum IoEvent {
     FolderPicked(PathBuf),
+    FileSavedAs(PathBuf),
     StatusMessage(String),
 }
 
@@ -118,12 +118,10 @@ impl AzoTypeApp {
         let resources = Arc::new(SharedWorldResources::new());
         let settings = IdeSettings::default();
 
-        let target_folder = initial_folder.unwrap_or_else(ensure_sample_project_on_disk);
-        let project = DiskProject::open_folder(&target_folder, settings.show_hidden_files)
-            .unwrap_or_else(|_| {
-                let fallback = ensure_sample_project_on_disk();
-                DiskProject::open_folder(&fallback, false).expect("Failed to open sample project")
-            });
+        let project = initial_folder
+            .filter(|f| f.is_dir())
+            .and_then(|f| DiskProject::open_folder(&f, settings.show_hidden_files).ok())
+            .unwrap_or_default();
 
         Self::apply_theme(&cc.egui_ctx, settings.dark_mode);
 
@@ -135,11 +133,15 @@ impl AzoTypeApp {
         let (compile_tx, compile_rx) = mpsc::channel();
         let collab_session = CollabSessionHandle::spawn(Some(cc.egui_ctx.clone()));
 
-        let status_notice = format!(
-            "Opened disk project '{}' ({})",
-            project.project_name,
-            project.root_dir.display()
-        );
+        let status_notice = if project.has_disk_backing() {
+            format!(
+                "Opened disk project '{}' ({})",
+                project.project_name,
+                project.root_dir.display()
+            )
+        } else {
+            "Blank project ready (in-memory, unsaved)".to_string()
+        };
 
         #[cfg(target_os = "macos")]
         let macos_menu = MacOsMenuBar::init();
@@ -198,15 +200,11 @@ impl AzoTypeApp {
 
     fn dispatch_menu_action(&mut self, ctx: &Context, action: MenuAction) {
         match action {
-            MenuAction::NewFile => {
-                self.show_new_file_input = true;
-            }
-            MenuAction::OpenFolder => {
-                self.open_folder_dialog(ctx);
-            }
+            MenuAction::NewFile => self.show_new_file_input = true,
+            MenuAction::OpenFolder => self.open_folder_dialog(ctx),
             MenuAction::RescanFolder => {
                 if let Err(e) = self.project.rescan_tree() {
-                    self.status_notice = format!("Rescan failed: {}", e);
+                    self.status_notice = format!("Rescan failed: {e}");
                 } else {
                     self.status_notice = format!(
                         "Rescanned disk folder '{}'",
@@ -215,63 +213,78 @@ impl AzoTypeApp {
                     self.trigger_compile_now(ctx);
                 }
             }
-            MenuAction::SaveFile => match self.project.save_active_file() {
-                Ok(path) => {
-                    self.status_notice = format!("Saved to disk: {}", path.display());
-                    self.trigger_compile_now(ctx);
-                }
-                Err(e) => {
-                    self.status_notice = format!("Save error: {}", e);
-                }
-            },
-            MenuAction::SaveAll => match self.project.save_all_files() {
-                Ok(n) => {
-                    self.status_notice = format!(
-                        "Saved {} modified file(s) in {}",
-                        n,
-                        self.project.root_dir.display()
+            MenuAction::SaveFile => {
+                if !self.project.has_disk_backing() {
+                    let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                    let name = self
+                        .project
+                        .active_file
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("main.typ");
+                    let data = self
+                        .project
+                        .read_file_bytes(&self.project.active_file)
+                        .unwrap_or_default();
+                    let tx = self.io_tx.clone();
+                    let ctx_c = ctx.clone();
+                    crate::platform::dialogs::spawn_save_file_dialog(
+                        &start,
+                        name,
+                        "Typst File (*.typ)",
+                        "typ",
+                        data,
+                        move |res| {
+                            let _ = tx.send(match res {
+                                Ok(p) => IoEvent::FileSavedAs(p),
+                                Err(e) => IoEvent::StatusMessage(format!("Save error: {e}")),
+                            });
+                        },
+                        move || ctx_c.request_repaint(),
                     );
-                    self.trigger_compile_now(ctx);
+                } else {
+                    self.status_notice = match self.project.save_active_file() {
+                        Ok(p) => {
+                            self.trigger_compile_now(ctx);
+                            format!("Saved to disk: {}", p.display())
+                        }
+                        Err(e) => format!("Save error: {e}"),
+                    };
                 }
-                Err(e) => {
-                    self.status_notice = format!("Save all error: {}", e);
-                }
-            },
+            }
+            MenuAction::SaveAll => {
+                self.status_notice = if !self.project.has_disk_backing() {
+                    "In-memory document: use Save File (Ctrl+S) to choose a path".to_string()
+                } else {
+                    match self.project.save_all_files() {
+                        Ok(n) => {
+                            self.trigger_compile_now(ctx);
+                            format!(
+                                "Saved {n} modified file(s) in {}",
+                                self.project.root_dir.display()
+                            )
+                        }
+                        Err(e) => format!("Save all error: {e}"),
+                    }
+                };
+            }
             MenuAction::ExportPdf => {
                 self.show_export_pdf_dialog = true;
                 self.export_pdf_error = None;
             }
-            MenuAction::OpenSettings => {
-                self.show_settings_window = true;
-            }
-            MenuAction::OpenCollab => {
-                self.collab_ui.show_window = true;
-            }
-            MenuAction::ToggleSidebar => {
-                self.show_sidebar = !self.show_sidebar;
-            }
-            MenuAction::ToggleWordWrap => {
-                self.settings.word_wrap = !self.settings.word_wrap;
-            }
+            MenuAction::OpenSettings => self.show_settings_window = true,
+            MenuAction::OpenCollab => self.collab_ui.show_window = true,
+            MenuAction::ToggleSidebar => self.show_sidebar = !self.show_sidebar,
+            MenuAction::ToggleWordWrap => self.settings.word_wrap = !self.settings.word_wrap,
             MenuAction::ToggleTheme => {
                 self.settings.dark_mode = !self.settings.dark_mode;
                 Self::apply_theme(ctx, self.settings.dark_mode);
             }
-            MenuAction::ZoomIn => {
-                self.zoom = (self.zoom + 0.15).clamp(0.4, 2.5);
-            }
-            MenuAction::ZoomOut => {
-                self.zoom = (self.zoom - 0.15).clamp(0.4, 2.5);
-            }
-            MenuAction::ZoomReset => {
-                self.zoom = 1.0;
-            }
-            MenuAction::CompileNow => {
-                self.trigger_compile_now(ctx);
-            }
-            MenuAction::Quit => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
+            MenuAction::ZoomIn => self.zoom = (self.zoom + 0.15).clamp(0.4, 2.5),
+            MenuAction::ZoomOut => self.zoom = (self.zoom - 0.15).clamp(0.4, 2.5),
+            MenuAction::ZoomReset => self.zoom = 1.0,
+            MenuAction::CompileNow => self.trigger_compile_now(ctx),
+            MenuAction::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         }
     }
 
@@ -343,9 +356,12 @@ impl AzoTypeApp {
                         }
                     }
                 }
-                IoEvent::StatusMessage(msg) => {
-                    self.status_notice = msg;
+                IoEvent::FileSavedAs(path) => {
+                    let _ = self.project.save_active_to_path(&path);
+                    self.status_notice = format!("Saved file to {}", path.display());
+                    self.trigger_compile_now(ctx);
                 }
+                IoEvent::StatusMessage(msg) => self.status_notice = msg,
             }
         }
 
@@ -378,9 +394,7 @@ impl AzoTypeApp {
                     self.collab_ui.status_banner = Some(reason.clone());
                     self.status_notice = reason;
                 }
-                SessionToUiEvent::PeerListChanged { peers } => {
-                    self.collab_ui.peers = peers;
-                }
+                SessionToUiEvent::PeerListChanged { peers } => self.collab_ui.peers = peers,
                 SessionToUiEvent::RemoteFilesUpdated {
                     files,
                     disk_updated_paths: _,
@@ -401,7 +415,7 @@ impl AzoTypeApp {
                 }
                 SessionToUiEvent::CollabError { message } => {
                     self.collab_ui.last_error = Some(message.clone());
-                    self.status_notice = format!("Collab error: {}", message);
+                    self.status_notice = format!("Collab error: {message}");
                 }
             }
         }
@@ -417,31 +431,33 @@ impl AzoTypeApp {
         let active_rel = self.project.active_file.clone();
 
         ctx.input_mut(|i| {
-            if i.consume_key(Modifiers::COMMAND, Key::Comma) {
-                triggered = Some(MenuAction::OpenSettings);
-            } else if i.consume_key(Modifiers::COMMAND, Key::S) {
-                triggered = Some(MenuAction::SaveFile);
-            } else if i.consume_key(Modifiers::COMMAND, Key::O) {
-                triggered = Some(MenuAction::OpenFolder);
-            } else if i.consume_key(Modifiers::COMMAND, Key::N) {
-                triggered = Some(MenuAction::NewFile);
-            } else if i.consume_key(Modifiers::COMMAND, Key::B) {
-                triggered = Some(MenuAction::ToggleSidebar);
-            } else if i.consume_key(Modifiers::COMMAND, Key::E) {
-                triggered = Some(MenuAction::ExportPdf);
-            } else if i.consume_key(Modifiers::NONE, Key::F5) {
-                triggered = Some(MenuAction::RescanFolder);
-            } else if collab_active
-                && (i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
-                    || i.consume_key(Modifiers::COMMAND, Key::Y))
-            {
-                self.collab_session.send(UiToSessionCmd::LocalRedo {
-                    rel_path: active_rel.clone(),
-                });
-            } else if collab_active && i.consume_key(Modifiers::COMMAND, Key::Z) {
-                self.collab_session.send(UiToSessionCmd::LocalUndo {
-                    rel_path: active_rel.clone(),
-                });
+            let shortcuts = [
+                (Modifiers::COMMAND, Key::Comma, MenuAction::OpenSettings),
+                (Modifiers::COMMAND, Key::S, MenuAction::SaveFile),
+                (Modifiers::COMMAND, Key::O, MenuAction::OpenFolder),
+                (Modifiers::COMMAND, Key::N, MenuAction::NewFile),
+                (Modifiers::COMMAND, Key::B, MenuAction::ToggleSidebar),
+                (Modifiers::COMMAND, Key::E, MenuAction::ExportPdf),
+                (Modifiers::NONE, Key::F5, MenuAction::RescanFolder),
+            ];
+            for (m, k, act) in shortcuts {
+                if i.consume_key(m, k) {
+                    triggered = Some(act);
+                    return;
+                }
+            }
+            if collab_active {
+                if i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+                    || i.consume_key(Modifiers::COMMAND, Key::Y)
+                {
+                    self.collab_session.send(UiToSessionCmd::LocalRedo {
+                        rel_path: active_rel.clone(),
+                    });
+                } else if i.consume_key(Modifiers::COMMAND, Key::Z) {
+                    self.collab_session.send(UiToSessionCmd::LocalUndo {
+                        rel_path: active_rel.clone(),
+                    });
+                }
             }
         });
         if let Some(action) = triggered {
@@ -452,10 +468,15 @@ impl AzoTypeApp {
     fn open_folder_dialog(&self, ctx: &Context) {
         let tx = self.io_tx.clone();
         let ctx_clone = ctx.clone();
+        let start = if self.project.has_disk_backing() {
+            self.project.root_dir.clone()
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        };
         crate::platform::dialogs::spawn_open_folder_dialog(
-            &self.project.root_dir,
-            move |path| {
-                let _ = tx.send(IoEvent::FolderPicked(path));
+            &start,
+            move |p| {
+                let _ = tx.send(IoEvent::FolderPicked(p));
             },
             move || ctx_clone.request_repaint(),
         );
@@ -474,7 +495,11 @@ impl AzoTypeApp {
                 .and_then(|s| s.to_str())
                 .unwrap_or("document")
         );
-        let start_dir = self.project.root_dir.clone();
+        let start_dir = if self.project.has_disk_backing() {
+            self.project.root_dir.clone()
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        };
         let badge = config.summary_badge();
 
         match export_pdf_bytes_with_config(resources, &project_snapshot, &config) {
@@ -495,19 +520,14 @@ impl AzoTypeApp {
                     "PDF Document",
                     "pdf",
                     pdf_bytes,
-                    move |res| match res {
-                        Ok(out_path) => {
-                            let _ = tx.send(IoEvent::StatusMessage(format!(
-                                "Exported {} to '{}' ({:.1} KB)",
-                                badge,
-                                out_path.display(),
-                                size_kb
-                            )));
-                        }
-                        Err(err) => {
-                            let _ = tx
-                                .send(IoEvent::StatusMessage(format!("PDF write failed: {}", err)));
-                        }
+                    move |res| {
+                        let msg = match res {
+                            Ok(p) => {
+                                format!("Exported {badge} to '{}' ({size_kb:.1} KB)", p.display())
+                            }
+                            Err(e) => format!("PDF write failed: {e}"),
+                        };
+                        let _ = tx.send(IoEvent::StatusMessage(msg));
                     },
                     move || ctx_clone.request_repaint(),
                 );
@@ -610,9 +630,7 @@ impl AzoTypeApp {
                     );
                     self.trigger_compile_now(ctx);
                 }
-                Err(e) => {
-                    self.status_notice = format!("Create file failed: {}", e);
-                }
+                Err(e) => self.status_notice = format!("Create file failed: {e}"),
             }
         }
 
@@ -634,9 +652,7 @@ impl AzoTypeApp {
                         format!("Renamed '{}' -> '{}'", old_rel.display(), new_rel.display());
                     self.trigger_compile_now(ctx);
                 }
-                Err(e) => {
-                    self.status_notice = format!("Rename failed: {}", e);
-                }
+                Err(e) => self.status_notice = format!("Rename failed: {e}"),
             }
         }
     }
@@ -697,20 +713,6 @@ impl AzoTypeApp {
                 active_buffer: active_buf_info,
             },
         );
-    }
-
-    pub fn extract_typst_markup_plain_text(node: &SyntaxNode) -> String {
-        crate::core::outline::extract_typst_markup_plain_text(node)
-    }
-
-    pub fn extract_typst_ast_outline(
-        text: &str,
-        current_file: &Path,
-        project: Option<&DiskProject>,
-        visited: &mut Vec<PathBuf>,
-    ) -> Vec<DocumentOutlineItem> {
-        let resolver = project.map(|p| p as &dyn crate::core::outline::SourceResolver);
-        crate::core::outline::extract_typst_ast_outline(text, current_file, resolver, visited)
     }
 
     pub fn assign_hierarchical_numbers(items: &mut [DocumentOutlineItem]) {
@@ -813,9 +815,7 @@ impl AzoTypeApp {
                     self.status_notice = format!("Deleted '{}' from disk", rel_to_delete.display());
                     self.trigger_compile_now(ctx);
                 }
-                Err(e) => {
-                    self.status_notice = format!("Delete failed: {}", e);
-                }
+                Err(e) => self.status_notice = format!("Delete failed: {e}"),
             }
         }
     }

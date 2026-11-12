@@ -1,4 +1,4 @@
-//! On-disk workspace management (`DiskProject`), file tree scanning, and open buffer caching.
+//! Workspace management (`DiskProject`), on-disk and in-memory projects, file tree scanning, and buffer caching.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -7,76 +7,8 @@ use std::path::{Path, PathBuf};
 use crate::core::outline::SourceResolver;
 pub use crate::core::FileKind;
 
-/// A node in the on-disk project directory tree.
-#[derive(Debug, Clone)]
-pub enum FsTreeNode {
-    Directory {
-        name: String,
-        rel_path: PathBuf,
-        children: Vec<FsTreeNode>,
-    },
-    File {
-        name: String,
-        rel_path: PathBuf,
-        abs_path: PathBuf,
-        kind: FileKind,
-        size_bytes: u64,
-    },
-}
-
-/// An open text buffer backed by a real file on disk.
-#[derive(Debug, Clone)]
-pub struct OpenBuffer {
-    pub rel_path: PathBuf,
-    pub abs_path: PathBuf,
-    pub kind: FileKind,
-    pub text: Option<String>,
-    pub size_bytes: u64,
-    pub dirty: bool,
-}
-
-impl OpenBuffer {
-    pub fn load_from_disk(root_dir: &Path, rel_path: &Path) -> Result<Self, String> {
-        let abs_path = root_dir.join(rel_path);
-        let meta = fs::metadata(&abs_path).map_err(|e| format!("{}: {}", abs_path.display(), e))?;
-        let size_bytes = meta.len();
-        let kind = FileKind::from_path(&abs_path);
-
-        let text = if kind.is_editable_text() {
-            fs::read_to_string(&abs_path).ok()
-        } else {
-            None
-        };
-
-        Ok(Self {
-            rel_path: rel_path.to_path_buf(),
-            abs_path,
-            kind,
-            text,
-            size_bytes,
-            dirty: false,
-        })
-    }
-
-    pub fn save_to_disk(&mut self) -> Result<(), String> {
-        if let Some(ref text) = self.text {
-            if let Some(parent) = self.abs_path.parent() {
-                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            fs::write(&self.abs_path, text.as_bytes()).map_err(|e| e.to_string())?;
-            self.size_bytes = text.len() as u64;
-            self.dirty = false;
-        }
-        Ok(())
-    }
-
-    pub fn line_count(&self) -> usize {
-        self.text
-            .as_ref()
-            .map(|t| t.lines().count().max(1))
-            .unwrap_or(0)
-    }
-}
+pub mod buffer;
+pub use buffer::{FsTreeNode, OpenBuffer};
 
 /// Manages a real Typst project folder on the local OS filesystem (Linux, macOS, Windows).
 #[derive(Debug, Clone)]
@@ -93,6 +25,50 @@ pub struct DiskProject {
 }
 
 impl DiskProject {
+    /// Creates a blank in-memory Typst project with an untitled `main.typ` document buffer.
+    /// It has no on-disk backing directory and will not write to the filesystem unless
+    /// the user explicitly saves it to a specified path.
+    pub fn blank() -> Self {
+        let main_file = PathBuf::from("main.typ");
+        let mut buffers = BTreeMap::new();
+        buffers.insert(
+            main_file.clone(),
+            OpenBuffer {
+                rel_path: main_file.clone(),
+                abs_path: PathBuf::new(),
+                kind: FileKind::Typst,
+                text: Some(String::new()),
+                size_bytes: 0,
+                dirty: false,
+            },
+        );
+
+        let tree = vec![FsTreeNode::File {
+            name: "main.typ".to_string(),
+            rel_path: main_file.clone(),
+            abs_path: PathBuf::new(),
+            kind: FileKind::Typst,
+            size_bytes: 0,
+        }];
+
+        Self {
+            root_dir: PathBuf::new(),
+            project_name: "Untitled".to_string(),
+            tree,
+            main_file: main_file.clone(),
+            active_file: main_file.clone(),
+            open_tabs: vec![main_file],
+            buffers,
+            revision: 1,
+            show_hidden_files: false,
+        }
+    }
+
+    /// Returns true if this project is backed by an existing directory on disk.
+    pub fn has_disk_backing(&self) -> bool {
+        !self.root_dir.as_os_str().is_empty() && self.root_dir.is_dir()
+    }
+
     pub fn open_folder(dir: &Path, show_hidden_files: bool) -> Result<Self, String> {
         let canonical = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         if !canonical.is_dir() {
@@ -147,6 +123,9 @@ impl DiskProject {
     }
 
     pub fn rescan_tree(&mut self) -> Result<(), String> {
+        if !self.has_disk_backing() {
+            return Ok(());
+        }
         self.tree = Self::scan_directory(&self.root_dir, &self.root_dir, self.show_hidden_files)?;
         Ok(())
     }
@@ -228,6 +207,9 @@ impl DiskProject {
 
     pub fn open_file(&mut self, rel_path: &Path) -> Result<(), String> {
         if !self.buffers.contains_key(rel_path) {
+            if !self.has_disk_backing() {
+                return Err(format!("File '{}' not found in memory", rel_path.display()));
+            }
             let buf = OpenBuffer::load_from_disk(&self.root_dir, rel_path)?;
             self.buffers.insert(rel_path.to_path_buf(), buf);
         }
@@ -262,12 +244,13 @@ impl DiskProject {
     }
 
     pub fn mark_active_modified(&mut self, auto_save: bool) {
+        let has_disk = self.has_disk_backing();
         if let Some(buf) = self.buffers.get_mut(&self.active_file) {
             buf.dirty = true;
             if let Some(ref t) = buf.text {
                 buf.size_bytes = t.len() as u64;
             }
-            if auto_save {
+            if auto_save && has_disk && !buf.abs_path.as_os_str().is_empty() {
                 let _ = buf.save_to_disk();
             }
         }
@@ -278,6 +261,12 @@ impl DiskProject {
         let Some(buf) = self.buffers.get_mut(&self.active_file) else {
             return Err("No active file open".to_string());
         };
+        if buf.abs_path.as_os_str().is_empty() {
+            return Err(
+                "No destination file path specified on disk. Use Save File to pick a path."
+                    .to_string(),
+            );
+        }
         buf.save_to_disk()?;
         let saved = buf.abs_path.clone();
         self.revision = self.revision.wrapping_add(1);
@@ -285,9 +274,12 @@ impl DiskProject {
     }
 
     pub fn save_all_files(&mut self) -> Result<usize, String> {
+        if !self.has_disk_backing() {
+            return Ok(0);
+        }
         let mut count = 0;
         for buf in self.buffers.values_mut() {
-            if buf.dirty {
+            if buf.dirty && !buf.abs_path.as_os_str().is_empty() {
                 buf.save_to_disk()?;
                 count += 1;
             }
@@ -296,12 +288,68 @@ impl DiskProject {
         Ok(count)
     }
 
+    /// Saves the active in-memory buffer to a specific disk path and attaches disk backing
+    /// to the project if it was previously untitled/in-memory.
+    pub fn save_active_to_path(&mut self, dest_abs_path: &Path) -> Result<PathBuf, String> {
+        let dest_abs = dest_abs_path.to_path_buf();
+        {
+            let Some(buf) = self.buffers.get_mut(&self.active_file) else {
+                return Err("No active file open".to_string());
+            };
+            buf.abs_path = dest_abs.clone();
+            buf.save_to_disk()?;
+        }
+        if !self.has_disk_backing() {
+            if let Some(parent) = dest_abs.parent() {
+                self.root_dir = parent.to_path_buf();
+                self.project_name = parent
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("typst-project")
+                    .to_string();
+                let _ = self.rescan_tree();
+            }
+        }
+        self.revision = self.revision.wrapping_add(1);
+        Ok(dest_abs)
+    }
+
     pub fn create_file_on_disk(&mut self, rel_str: &str) -> Result<PathBuf, String> {
         let trimmed = rel_str.trim().trim_start_matches(['/', '\\']);
         if trimmed.is_empty() {
             return Err("File name cannot be empty".to_string());
         }
         let rel_path = PathBuf::from(trimmed);
+        if !self.has_disk_backing() {
+            let starter = if trimmed.ends_with(".typ") {
+                format!("== {}\n\nCreated in memory.\n", trimmed)
+            } else {
+                String::new()
+            };
+            let kind = FileKind::from_path(&rel_path);
+            let size_bytes = starter.len() as u64;
+            self.buffers.insert(
+                rel_path.clone(),
+                OpenBuffer {
+                    rel_path: rel_path.clone(),
+                    abs_path: PathBuf::new(),
+                    kind,
+                    text: Some(starter),
+                    size_bytes,
+                    dirty: false,
+                },
+            );
+            self.tree.push(FsTreeNode::File {
+                name: trimmed.to_string(),
+                rel_path: rel_path.clone(),
+                abs_path: PathBuf::new(),
+                kind,
+                size_bytes,
+            });
+            self.open_file(&rel_path)?;
+            self.revision = self.revision.wrapping_add(1);
+            return Ok(rel_path);
+        }
         let abs_path = self.root_dir.join(&rel_path);
         if let Some(parent) = abs_path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -330,17 +378,23 @@ impl DiskProject {
             return Err("New file name cannot be empty".to_string());
         }
         let new_rel = PathBuf::from(trimmed);
-        let old_abs = self.root_dir.join(old_rel);
-        let new_abs = self.root_dir.join(&new_rel);
-        if let Some(parent) = new_abs.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        if old_abs.exists() {
-            fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+        if self.has_disk_backing() {
+            let old_abs = self.root_dir.join(old_rel);
+            let new_abs = self.root_dir.join(&new_rel);
+            if let Some(parent) = new_abs.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            if old_abs.exists() {
+                fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+            }
         }
         if let Some(mut buf) = self.buffers.remove(old_rel) {
             buf.rel_path = new_rel.clone();
-            buf.abs_path = new_abs;
+            buf.abs_path = if self.has_disk_backing() {
+                self.root_dir.join(&new_rel)
+            } else {
+                PathBuf::new()
+            };
             buf.kind = FileKind::from_path(&new_rel);
             self.buffers.insert(new_rel.clone(), buf);
         }
@@ -355,19 +409,39 @@ impl DiskProject {
         if self.main_file == old_rel {
             self.main_file = new_rel.clone();
         }
-        self.rescan_tree()?;
+        if self.has_disk_backing() {
+            self.rescan_tree()?;
+        } else {
+            for node in &mut self.tree {
+                if let FsTreeNode::File { name, rel_path, .. } = node {
+                    if rel_path == old_rel {
+                        *name = trimmed.to_string();
+                        *rel_path = new_rel.clone();
+                    }
+                }
+            }
+        }
         self.revision = self.revision.wrapping_add(1);
         Ok(new_rel)
     }
 
     pub fn delete_file_on_disk(&mut self, rel_path: &Path) -> Result<(), String> {
-        let abs = self.root_dir.join(rel_path);
-        if abs.is_file() {
-            fs::remove_file(&abs).map_err(|e| e.to_string())?;
+        if self.has_disk_backing() {
+            let abs = self.root_dir.join(rel_path);
+            if abs.is_file() {
+                fs::remove_file(&abs).map_err(|e| e.to_string())?;
+            }
         }
         self.buffers.remove(rel_path);
         self.open_tabs.retain(|p| p != rel_path);
-        self.rescan_tree()?;
+        if self.has_disk_backing() {
+            self.rescan_tree()?;
+        } else {
+            self.tree.retain(|n| match n {
+                FsTreeNode::File { rel_path: rp, .. } => rp != rel_path,
+                _ => true,
+            });
+        }
         if self.open_tabs.is_empty() {
             let typ_files = self.collect_typ_files();
             if let Some(first) = typ_files.first() {
@@ -445,12 +519,18 @@ impl DiskProject {
     }
 
     /// Reads the latest text for a relative path (using any unsaved in-editor buffer first,
-    /// otherwise reading directly from the OS filesystem).
+    /// otherwise reading directly from the OS filesystem if backed by disk).
     pub fn read_source_text(&self, rel_path: &Path) -> Result<String, std::io::Error> {
         if let Some(buf) = self.buffers.get(rel_path) {
             if let Some(ref text) = buf.text {
                 return Ok(text.clone());
             }
+        }
+        if !self.has_disk_backing() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("File not found in memory: {}", rel_path.display()),
+            ));
         }
         let abs = self.root_dir.join(rel_path);
         fs::read_to_string(abs)
@@ -464,8 +544,20 @@ impl DiskProject {
                 return Ok(text.as_bytes().to_vec());
             }
         }
+        if !self.has_disk_backing() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("File not found in memory: {}", rel_path.display()),
+            ));
+        }
         let abs = self.root_dir.join(rel_path);
         fs::read(abs)
+    }
+}
+
+impl Default for DiskProject {
+    fn default() -> Self {
+        Self::blank()
     }
 }
 
@@ -478,6 +570,3 @@ impl SourceResolver for DiskProject {
         self.effective_compile_entrypoint() == path
     }
 }
-
-pub mod sample;
-pub use sample::ensure_sample_project_on_disk;

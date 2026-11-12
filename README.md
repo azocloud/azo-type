@@ -62,7 +62,7 @@ Inner domain layers have zero dependencies on immediate-mode GUI frameworks or a
 | `app/src/platform/` | **Operating System Abstraction**: Native menu bars (`muda`), native dialogs (`rfd`) running on background threads to prevent event loop blocking. | ~270 lines total |
 | `app/src/services/` | **Application Services**: Headless automation, background workers, and life-cycle tasks. | ~64 lines total |
 | `app/src/collab/` | **Peer-to-Peer CRDT Engine**: Modular decomposition into `doc` (Yrs CRDT), `awareness` (cursor/presence), `protocol` (wire types & tickets), and `transport` (Iroh QUIC). | ~2,100 lines total |
-| `app/src/project/` | **Workspace Management**: Buffer caching, dirty state tracking, and sample project generator (`sample.rs`). | ~830 lines total |
+| `app/src/project/` | **Workspace Management**: Buffer caching, dirty state tracking, and in-memory blank document support (`buffer.rs`). | ~650 lines total |
 | `app/src/compiler/` | **Typst Evaluation**: Compiles Typst source into vector page frames and rendered preview rasters. | ~290 lines |
 | `app/src/ui/` | **View Components & Modals**: Decoupled view rendering, separated into `components/` (editor, sidebar, preview, menu bar, status bar) and `dialogs/` (export PDF, settings, file management). | ~2,400 lines total |
 | `app/src/app.rs` | **Top-Level Orchestrator**: Manages state channels, event routing, and window life-cycle. | ~1,080 lines |

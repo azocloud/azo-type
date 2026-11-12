@@ -274,3 +274,111 @@ fn loads_buffer_and_counts_lines_accurately() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn blank_project_starts_in_memory_without_disk_backing() {
+    let project = DiskProject::blank();
+    assert!(!project.has_disk_backing());
+    assert_eq!(project.project_name, "Untitled");
+    assert_eq!(project.main_file, PathBuf::from("main.typ"));
+    assert_eq!(project.active_file, PathBuf::from("main.typ"));
+    assert_eq!(project.open_tabs, vec![PathBuf::from("main.typ")]);
+    assert_eq!(project.buffers.len(), 1);
+
+    let active_buf = project.active_buffer().expect("active buffer should exist");
+    assert_eq!(active_buf.rel_path, PathBuf::from("main.typ"));
+    assert_eq!(active_buf.abs_path, PathBuf::new());
+    assert_eq!(active_buf.text.as_deref(), Some(""));
+    assert_eq!(active_buf.kind, FileKind::Typst);
+    assert!(!active_buf.dirty);
+
+    assert_eq!(project.read_source_text(Path::new("main.typ")).unwrap(), "");
+    assert_eq!(
+        project.read_file_bytes(Path::new("main.typ")).unwrap(),
+        Vec::<u8>::new()
+    );
+}
+
+#[test]
+fn blank_project_edits_stay_in_memory_and_do_not_write_to_disk() {
+    let mut project = DiskProject::blank();
+    let sample_text = "= Hello from memory\n\nThis is an unsaved draft.";
+
+    if let Some(buf) = project.active_buffer_mut() {
+        buf.text = Some(sample_text.to_string());
+    }
+    // auto_save=true must NOT write to disk when project has no disk backing
+    project.mark_active_modified(true);
+
+    let active_buf = project.active_buffer().unwrap();
+    assert!(active_buf.dirty);
+    assert_eq!(active_buf.text.as_deref(), Some(sample_text));
+    assert_eq!(active_buf.size_bytes, sample_text.len() as u64);
+
+    // Saving without a path must fail and cannot write to disk
+    assert!(project.save_active_file().is_err());
+    assert_eq!(project.save_all_files().unwrap(), 0);
+
+    // Reading source text retrieves the in-memory edited text
+    assert_eq!(
+        project.read_source_text(Path::new("main.typ")).unwrap(),
+        sample_text
+    );
+}
+
+#[test]
+fn blank_project_saves_to_disk_when_path_specified() {
+    let mut project = DiskProject::blank();
+    let text = "= Saved Document\n\nNow backed by disk.";
+    if let Some(buf) = project.active_buffer_mut() {
+        buf.text = Some(text.to_string());
+    }
+
+    let temp_dir = std::env::temp_dir().join(format!("typst_blank_save_{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&temp_dir).unwrap();
+    let target_file = temp_dir.join("saved.typ");
+
+    let saved_path = project
+        .save_active_to_path(&target_file)
+        .expect("save_active_to_path should succeed");
+    assert_eq!(saved_path, target_file);
+    assert!(target_file.is_file());
+    assert_eq!(fs::read_to_string(&target_file).unwrap(), text);
+
+    // Now project is disk-backed
+    assert!(project.has_disk_backing());
+    assert_eq!(project.root_dir, temp_dir);
+    assert!(!project.active_buffer().unwrap().dirty);
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn blank_project_creates_and_manages_files_in_memory() {
+    let mut project = DiskProject::blank();
+    let created_rel = project
+        .create_file_on_disk("chapters/notes.typ")
+        .expect("in-memory create file should succeed");
+
+    assert_eq!(created_rel, PathBuf::from("chapters/notes.typ"));
+    assert_eq!(project.active_file, created_rel);
+    assert!(project.buffers.contains_key(&created_rel));
+    assert!(project.open_tabs.contains(&created_rel));
+
+    let content = project.read_source_text(&created_rel).unwrap();
+    assert!(content.contains("Created in memory"));
+
+    // Rename in memory
+    let renamed = project
+        .rename_file_on_disk(Path::new("chapters/notes.typ"), "chapters/draft.typ")
+        .unwrap();
+    assert_eq!(renamed, PathBuf::from("chapters/draft.typ"));
+    assert!(project.buffers.contains_key(&renamed));
+    assert!(!project
+        .buffers
+        .contains_key(Path::new("chapters/notes.typ")));
+
+    // Delete in memory
+    project.delete_file_on_disk(&renamed).unwrap();
+    assert!(!project.buffers.contains_key(&renamed));
+}
