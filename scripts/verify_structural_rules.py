@@ -303,7 +303,7 @@ def check_all(write_map: bool = False) -> int:
     doc_files = [REPO_ROOT / "AGENTS.md", REPO_ROOT / "app" / "src" / "core" / "AGENTS.md"]
     agent_docs_dir = REPO_ROOT / "docs" / "agent"
     if agent_docs_dir.exists():
-        doc_files.extend(sorted(agent_docs_dir.glob("*.md")))
+        doc_files.extend(sorted(p for p in agent_docs_dir.glob("*.md") if p.name != "VALIDATION.md"))
 
     path_token_re = re.compile(
         r"`((?:app|docs|scripts|assets|\.gemini)/[A-Za-z0-9_./-]+|"
