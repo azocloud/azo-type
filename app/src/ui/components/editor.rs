@@ -1,5 +1,4 @@
-//! Multiline text editor pane featuring syntax highlighting, gutter line numbers,
-//! wrap glyphs, snippet insertion, collaborative cursor rendering, and context menu.
+//! Multiline text editor pane featuring syntax highlighting, gutter line numbers, wrap glyphs, and remote peer cursors.
 
 use std::path::PathBuf;
 
