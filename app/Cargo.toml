@@ -2,7 +2,7 @@
 name = "azo-type"
 version = "0.3.0"
 edition = "2021"
-description = "Native Cross-Platform Typst IDE with P2P Real-Time Collaborative Editing"
+description = "Native Cross-Platform Typst Editor with P2P Real-Time Collaborative Editing"
 authors = ["Azo Type Architect"]
 
 [dependencies]
@@ -67,8 +67,8 @@ icon = [
 version = "0.3.0"
 copyright = "Copyright (c) 2026 Azo Type Architect"
 category = "Productivity"
-short_description = "Native Cross-Platform Typst IDE"
-long_description = "Native Cross-Platform Typst IDE with P2P Real-Time Collaborative Editing"
+short_description = "Native Cross-Platform Typst Editor"
+long_description = "Native Cross-Platform Typst Editor with P2P Real-Time Collaborative Editing"
 
 [lints.rust]
 unused_must_use = "warn"
@@ -81,9 +81,9 @@ dbg_macro = "warn"
 todo = "warn"
 
 [profile.release]
-opt-level = 3          # Maximale Optimierung auf Ausführungsgeschwindigkeit
-lto = "fat"            # Link-Time-Optimization über alle Crates hinweg (verkleinert Binary & beschleunigt Rendering)
-codegen-units = 1      # Zwingt den Compiler zu maximaler Optimierung (erhöht die Build-Dauer leicht, verkleinert aber die App drastisch)
-strip = true           # Entfernt alle Debug-Symbole und Symboltabellen restriktiv (macht die .exe/.elf extrem schlank)
-panic = "abort"        # Schaltet Stack-Unwinding bei Panics ab (reduziert Binärgröße und spart Overhead)
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
 
