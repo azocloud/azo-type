@@ -1,4 +1,4 @@
-// Reusable document template & components for Typst Studio
+// Reusable document template & components for Azo Type
 
 #let project(
   title: "",
@@ -18,7 +18,7 @@
         #grid(
           columns: (1fr, 1fr),
           align(left)[#emph(title)],
-          align(right)[Typst Studio #if version != none [(#version)]],
+          align(right)[Azo Type #if version != none [(#version)]],
         )
         #v(-4pt)
         #line(length: 100%, stroke: 0.4pt + rgb("#cbd5e1"))

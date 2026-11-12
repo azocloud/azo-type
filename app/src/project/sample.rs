@@ -27,7 +27,7 @@ pub fn ensure_sample_project_on_disk() -> PathBuf {
 #import "chapters/methods.typ": architecture-table
 
 #show: project.with(
-  title: "Native Desktop Typst Studio",
+  title: "Native Desktop Azo Type",
   subtitle: "Direct OS Filesystem Workspace & Real-Time Typesetting in Rust",
   authors: (
     (name: "Dr. Elena Vance", affiliation: "Desktop Systems Group"),
@@ -39,7 +39,7 @@ pub fn ensure_sample_project_on_disk() -> PathBuf {
 
 = Executive Summary
 
-*Typst Studio* is a native desktop development environment for *Linux*, *macOS*, and *Windows* built in Rust with `egui`, `eframe`, and the `typst` compiler stack. It operates directly on real project folders and files on your local filesystem, providing an interactive side panel file tree, native OS menu integration, a customizable *Settings* window (`File > Settings`), and instant PDF export.
+*Azo Type* is a native desktop development environment for *Linux*, *macOS*, and *Windows* built in Rust with `egui`, `eframe`, and the `typst` compiler stack. It operates directly on real project folders and files on your local filesystem, providing an interactive side panel file tree, native OS menu integration, a customizable *Settings* window (`File > Settings`), and instant PDF export.
 
 #metric-grid(
   ("Storage Engine", "Direct Disk I/O", "Native OS Filesystem"),
@@ -97,7 +97,7 @@ $ bold(H) = mat(
 
     let template_path = base_dir.join("template.typ");
     if !template_path.exists() {
-        let template_typ = r##"// Reusable document template & components for Typst Studio
+        let template_typ = r##"// Reusable document template & components for Azo Type
 
 #let project(
   title: "",
@@ -117,7 +117,7 @@ $ bold(H) = mat(
         #grid(
           columns: (1fr, 1fr),
           align(left)[#emph(title)],
-          align(right)[Typst Studio #if version != none [(#version)]],
+          align(right)[Azo Type #if version != none [(#version)]],
         )
         #v(-4pt)
         #line(length: 100%, stroke: 0.4pt + rgb("#cbd5e1"))

@@ -2,7 +2,7 @@
 #import "chapters/methods.typ": architecture-table
 
 #show: project.with(
-  title: "Native Desktop Typst Studio",
+  title: "Native Desktop Azo Type",
   subtitle: "Direct OS Filesystem Workspace & Real-Time Typesetting in Rust",
   authors: (
     (name: "Dr. Elena Vance", affiliation: "Desktop Systems Group"),
@@ -14,7 +14,7 @@
 
 = Executive Summary
 
-*Typst Studio* is a native desktop development environment for *Linux*, *macOS*, and *Windows* built in Rust with `egui`, `eframe`, and the `typst` compiler stack. It operates directly on real project folders and files on your local filesystem, providing an interactive side panel file tree, native OS menu integration, a customizable *Settings* window (`File > Settings`), and instant PDF export.
+*Azo Type* is a native desktop development environment for *Linux*, *macOS*, and *Windows* built in Rust with `egui`, `eframe`, and the `typst` compiler stack. It operates directly on real project folders and files on your local filesystem, providing an interactive side panel file tree, native OS menu integration, a customizable *Settings* window (`File > Settings`), and instant PDF export.
 
 #metric-grid(
   ("Storage Engine", "Direct Disk I/O", "Native OS Filesystem"),
