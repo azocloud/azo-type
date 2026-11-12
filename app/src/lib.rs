@@ -7,6 +7,7 @@ pub mod core;
 pub mod highlight;
 pub mod platform;
 pub mod project;
+pub mod ui;
 pub mod world;
 
 pub fn parse_cli_args_from(args: &[String]) -> (Option<PathBuf>, Option<PathBuf>) {

@@ -4,10 +4,9 @@ use std::sync::Arc;
 
 use egui::text::{CCursor, CCursorRange, LayoutJob};
 use egui::{
-    Align, Align2, CentralPanel, CollapsingHeader, Color32, Context, CornerRadius, CursorIcon,
-    FontFamily, FontId, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea,
-    Sense, SidePanel, Slider, Stroke, StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2,
-    ViewportBuilder, ViewportClass, ViewportId, Visuals, Window,
+    Align, Align2, CollapsingHeader, Color32, Context, CornerRadius, CursorIcon, FontFamily,
+    FontId, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, RichText, ScrollArea, Sense,
+    SidePanel, Stroke, StrokeKind, TextEdit, TopBottomPanel, Ui, Vec2,
 };
 
 use crate::collab::awareness::PeerPresence;
@@ -18,10 +17,9 @@ use crate::collab::ui::{
 };
 use crate::compiler::{
     compile_project, export_pdf_bytes_with_config, upload_page_textures, CompileSnapshot,
-    CompiledOutlineItem, DiagnosticItem, PdfArchivalStandard, PdfExportConfig, PdfVersionChoice,
-    RenderedPageData, RenderedPageTexture,
+    CompiledOutlineItem, DiagnosticItem, PdfExportConfig, RenderedPageData, RenderedPageTexture,
 };
-use crate::highlight::{highlight_typst_code, ThemePalette, DESIGN_SYSTEM_CSS_TOKENS};
+use crate::highlight::{highlight_typst_code, ThemePalette};
 use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind, FsTreeNode};
 use crate::world::SharedWorldResources;
 use typst::syntax::SyntaxNode;
@@ -207,72 +205,7 @@ impl TypstIdeApp {
     }
 
     pub fn apply_theme(ctx: &Context, dark_mode: bool) {
-        let palette = ThemePalette::for_mode(dark_mode);
-        let mut visuals = if dark_mode {
-            Visuals::dark()
-        } else {
-            Visuals::light()
-        };
-
-        // Surface & Structural Tokens
-        visuals.panel_fill = palette.chrome_sidebar;
-        visuals.window_fill = palette.chrome_sidebar;
-        visuals.window_stroke = Stroke::new(1.0_f32, palette.panel_border);
-        visuals.window_corner_radius = CornerRadius::same(6);
-        visuals.menu_corner_radius = CornerRadius::same(5);
-        visuals.extreme_bg_color = palette.editor_canvas;
-        visuals.faint_bg_color = palette.active_line_highlight;
-        visuals.code_bg_color = palette.editor_canvas;
-
-        // Subtle Layered Depth (minimal shadow instead of heavy drop shadows)
-        visuals.window_shadow = egui::epaint::Shadow {
-            offset: [0, 2],
-            blur: 8,
-            spread: 0,
-            color: Color32::from_black_alpha(if dark_mode { 60 } else { 25 }),
-        };
-        visuals.popup_shadow = visuals.window_shadow;
-
-        // Selection & Accents
-        visuals.selection.bg_fill = palette.selection_bg;
-        visuals.selection.stroke = Stroke::new(1.0_f32, palette.selection_stroke);
-
-        // Widgets: 4px curvature, 1px hairline border, instant surface background shift (0px expansion)
-        visuals.widgets.noninteractive.bg_fill = palette.chrome_sidebar;
-        visuals.widgets.noninteractive.weak_bg_fill = palette.chrome_sidebar;
-        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, palette.panel_border);
-        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
-        visuals.widgets.noninteractive.corner_radius = CornerRadius::same(4);
-
-        visuals.widgets.inactive.bg_fill = palette.widget_inactive_bg;
-        visuals.widgets.inactive.weak_bg_fill = palette.widget_inactive_bg;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, palette.panel_border);
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
-        visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
-        visuals.widgets.inactive.expansion = 0.0;
-
-        visuals.widgets.hovered.bg_fill = palette.widget_hovered_bg;
-        visuals.widgets.hovered.weak_bg_fill = palette.widget_hovered_bg;
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, palette.panel_border);
-        visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
-        visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
-        visuals.widgets.hovered.expansion = 0.0;
-
-        visuals.widgets.active.bg_fill = palette.widget_active_bg;
-        visuals.widgets.active.weak_bg_fill = palette.widget_active_bg;
-        visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, palette.selection_stroke);
-        visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
-        visuals.widgets.active.corner_radius = CornerRadius::same(4);
-        visuals.widgets.active.expansion = 0.0;
-
-        visuals.widgets.open.bg_fill = palette.widget_hovered_bg;
-        visuals.widgets.open.weak_bg_fill = palette.widget_hovered_bg;
-        visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, palette.panel_border);
-        visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, palette.text_primary);
-        visuals.widgets.open.corner_radius = CornerRadius::same(4);
-        visuals.widgets.open.expansion = 0.0;
-
-        ctx.set_visuals(visuals);
+        crate::ui::theme::apply_theme(ctx, dark_mode);
     }
 
     fn dispatch_menu_action(&mut self, ctx: &Context, action: MenuAction) {
@@ -609,352 +542,15 @@ impl TypstIdeApp {
     /// (1.4, 1.5, 1.6, 1.7, 2.0) and PDF standard(s) (PDF/A-1b, PDF/A-1a, PDF/A-2b, PDF/A-2u,
     /// PDF/A-2a, PDF/A-3b, PDF/A-3u, PDF/A-3a, PDF/A-4, PDF/UA-1).
     fn render_export_pdf_dialog(&mut self, ctx: &Context) {
-        if !self.show_export_pdf_dialog {
-            return;
-        }
-
-        let mut open = self.show_export_pdf_dialog;
-        let mut close_clicked = false;
-        let mut trigger_export = false;
-
-        let dark_mode = self.settings.dark_mode;
-        let palette = ThemePalette::for_mode(dark_mode);
-        let window_bg = palette.chrome_sidebar;
-        let card_bg = palette.editor_canvas;
-        let border_col = palette.panel_border;
-
         let entry_file = self.project.effective_compile_entrypoint();
-        let viewport_id = ViewportId::from_hash_of("typst_studio_export_pdf_os_window");
-        let builder = ViewportBuilder::default()
-            .with_title("Export PDF — Version & Standards")
-            .with_inner_size([560.0, 480.0])
-            .with_min_inner_size([460.0, 380.0]);
-
-        ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
-            let mut render_body = |ui: &mut Ui| {
-                ScrollArea::vertical()
-                    .id_salt("export_pdf_os_window_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("Target Document:").strong());
-                            ui.code(entry_file.display().to_string());
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.label(
-                                    RichText::new(self.pdf_export_config.summary_badge())
-                                        .strong()
-                                        .color(Color32::from_rgb(56, 189, 248)),
-                                );
-                            });
-                        });
-
-                        ui.add_space(6.0);
-
-                        // Section 1: PDF Version Selection (1.4, 1.5, 1.6, 1.7, 2.0)
-                        Frame::new()
-                            .fill(card_bg)
-                            .stroke(Stroke::new(1.0_f32, border_col))
-                            .corner_radius(CornerRadius::same(6))
-                            .inner_margin(Margin::symmetric(12, 10))
-                            .show(ui, |ui| {
-                                ui.label(RichText::new("1. PDF Version").strong().size(13.0));
-                                ui.label(
-                                    RichText::new(
-                                        "Choose the target PDF specification version for the exported document:",
-                                    )
-                                    .small()
-                                    .weak(),
-                                );
-                                ui.add_space(6.0);
-                                ui.horizontal_wrapped(|ui| {
-                                    for &ver in PdfVersionChoice::ALL {
-                                        let selected = self.pdf_export_config.version == ver;
-                                        if ui
-                                            .selectable_label(
-                                                selected,
-                                                RichText::new(format!("PDF {}", ver.short_label()))
-                                                    .strong(),
-                                            )
-                                            .on_hover_text(ver.label())
-                                            .clicked()
-                                        {
-                                            self.pdf_export_config.version = ver;
-                                            self.export_pdf_error = None;
-                                        }
-                                    }
-                                });
-                            });
-
-                        ui.add_space(8.0);
-
-                        // Section 2: PDF Standard(s) Selection (PDF/A-2a, PDF/A-3a, etc.)
-                        Frame::new()
-                            .fill(card_bg)
-                            .stroke(Stroke::new(1.0_f32, border_col))
-                            .corner_radius(CornerRadius::same(6))
-                            .inner_margin(Margin::symmetric(12, 10))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new("2. PDF Archival & Conformance Standard (PDF/A)")
-                                        .strong()
-                                        .size(13.0),
-                                );
-                                ui.label(
-                                    RichText::new(
-                                        "Select an ISO 19005 archival standard (such as PDF/A-2a, PDF/A-2b, or PDF/A-3a):",
-                                    )
-                                    .small()
-                                    .weak(),
-                                );
-                                ui.add_space(6.0);
-
-                                // Quick Preset Buttons for common standards
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.label(RichText::new("Quick Presets:").small());
-                                    let presets = [
-                                        PdfArchivalStandard::None,
-                                        PdfArchivalStandard::A2b,
-                                        PdfArchivalStandard::A2a,
-                                        PdfArchivalStandard::A3b,
-                                        PdfArchivalStandard::A3a,
-                                        PdfArchivalStandard::A1b,
-                                        PdfArchivalStandard::A1a,
-                                    ];
-                                    for std_choice in presets {
-                                        let is_sel =
-                                            self.pdf_export_config.archival_standard == std_choice;
-                                        if ui
-                                            .selectable_label(is_sel, std_choice.code_label())
-                                            .on_hover_text(std_choice.label())
-                                            .clicked()
-                                        {
-                                            self.pdf_export_config.archival_standard = std_choice;
-                                            self.export_pdf_error = None;
-                                            if self.pdf_export_config.build_standards().is_err() {
-                                                if let Some(rec) = std_choice.recommended_version()
-                                                {
-                                                    self.pdf_export_config.version = rec;
-                                                }
-                                            }
-                                        }
-                                    }
-                                });
-
-                                ui.add_space(6.0);
-
-                                egui::ComboBox::from_id_salt("pdf_archival_standard_combo")
-                                    .width(460.0)
-                                    .selected_text(self.pdf_export_config.archival_standard.label())
-                                    .show_ui(ui, |ui| {
-                                        for &std_item in PdfArchivalStandard::ALL {
-                                            let is_selected = self
-                                                .pdf_export_config
-                                                .archival_standard
-                                                == std_item;
-                                            if ui
-                                                .selectable_label(is_selected, std_item.label())
-                                                .clicked()
-                                            {
-                                                self.pdf_export_config.archival_standard = std_item;
-                                                self.export_pdf_error = None;
-                                                if self.pdf_export_config.build_standards().is_err()
-                                                {
-                                                    if let Some(rec) =
-                                                        std_item.recommended_version()
-                                                    {
-                                                        self.pdf_export_config.version = rec;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    });
-
-                                ui.add_space(8.0);
-                                ui.separator();
-                                ui.add_space(4.0);
-
-                                if ui
-                                    .checkbox(
-                                        &mut self.pdf_export_config.pdf_ua1,
-                                        "Also enforce PDF/UA-1 (Universal Accessibility — ISO 14289-1)",
-                                    )
-                                    .changed()
-                                {
-                                    self.export_pdf_error = None;
-                                    if self.pdf_export_config.pdf_ua1 {
-                                        self.pdf_export_config.tagged = true;
-                                        if self.pdf_export_config.build_standards().is_err() {
-                                            self.pdf_export_config.version = PdfVersionChoice::V1_7;
-                                        }
-                                    }
-                                }
-
-                                let requires_tagged = self.pdf_export_config.pdf_ua1
-                                    || matches!(
-                                        self.pdf_export_config.archival_standard,
-                                        PdfArchivalStandard::A1a
-                                            | PdfArchivalStandard::A2a
-                                            | PdfArchivalStandard::A3a
-                                    );
-                                if requires_tagged {
-                                    self.pdf_export_config.tagged = true;
-                                }
-                                ui.add_enabled(
-                                    !requires_tagged,
-                                    egui::Checkbox::new(
-                                        &mut self.pdf_export_config.tagged,
-                                        "Generate Tagged PDF (Document Accessibility Structure Tree)",
-                                    ),
-                                );
-                            });
-
-                        ui.add_space(8.0);
-
-                        // Validation status & CLI preview
-                        match self.pdf_export_config.build_standards() {
-                            Ok(_) => {
-                                let mut std_flags =
-                                    vec![self.pdf_export_config.version.short_label().to_string()];
-                                if self.pdf_export_config.archival_standard
-                                    != PdfArchivalStandard::None
-                                {
-                                    std_flags.push(
-                                        self.pdf_export_config
-                                            .archival_standard
-                                            .code_label()
-                                            .trim_start_matches("PDF/")
-                                            .to_ascii_lowercase(),
-                                    );
-                                }
-                                if self.pdf_export_config.pdf_ua1 {
-                                    std_flags.push("ua-1".to_string());
-                                }
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.label(
-                                        RichText::new("✓ Valid Standard Configuration")
-                                            .color(Color32::from_rgb(52, 211, 153))
-                                            .strong()
-                                            .small(),
-                                    );
-                                    ui.separator();
-                                    ui.code(format!(
-                                        "typst compile --pdf-standard {} {}",
-                                        std_flags.join(","),
-                                        entry_file.display()
-                                    ));
-                                });
-                            }
-                            Err(validation_err) => {
-                                Frame::new()
-                                    .fill(if dark_mode {
-                                        Color32::from_rgb(45, 24, 18)
-                                    } else {
-                                        Color32::from_rgb(254, 242, 242)
-                                    })
-                                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(248, 113, 113)))
-                                    .corner_radius(CornerRadius::same(5))
-                                    .inner_margin(Margin::symmetric(10, 6))
-                                    .show(ui, |ui| {
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "Incompatible Version & Standard: {}",
-                                                validation_err
-                                            ))
-                                            .color(Color32::from_rgb(248, 113, 113))
-                                            .strong()
-                                            .small(),
-                                        );
-                                        if let Some(rec) = self
-                                            .pdf_export_config
-                                            .archival_standard
-                                            .recommended_version()
-                                        {
-                                            if ui
-                                                .small_button(format!(
-                                                    "Switch to compatible {}",
-                                                    rec.label()
-                                                ))
-                                                .clicked()
-                                            {
-                                                self.pdf_export_config.version = rec;
-                                                self.export_pdf_error = None;
-                                            }
-                                        }
-                                    });
-                            }
-                        }
-
-                        if let Some(ref err_msg) = self.export_pdf_error {
-                            ui.add_space(4.0);
-                            ui.label(
-                                RichText::new(format!("Export Error: {}", err_msg))
-                                    .color(Color32::from_rgb(248, 113, 113))
-                                    .strong()
-                                    .small(),
-                            );
-                        }
-
-                        ui.add_space(10.0);
-                        ui.separator();
-                        ui.add_space(4.0);
-
-                        let is_valid = self.pdf_export_config.build_standards().is_ok();
-                        ui.horizontal(|ui| {
-                            if ui.button("Reset Defaults").clicked() {
-                                self.pdf_export_config = PdfExportConfig::default();
-                                self.export_pdf_error = None;
-                            }
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                let export_btn = egui::Button::new(
-                                    RichText::new("Export PDF to Disk...")
-                                        .strong()
-                                        .color(Color32::WHITE),
-                                )
-                                .fill(if is_valid {
-                                    Color32::from_rgb(37, 99, 235)
-                                } else {
-                                    Color32::from_rgb(100, 116, 139)
-                                })
-                                .corner_radius(CornerRadius::same(5));
-
-                                if ui.add_enabled(is_valid, export_btn).clicked() {
-                                    trigger_export = true;
-                                }
-                                if ui.button("Cancel").clicked() {
-                                    close_clicked = true;
-                                }
-                            });
-                        });
-                    });
-            };
-
-            if class == ViewportClass::Embedded {
-                Window::new("Export PDF — Version & Standards")
-                    .open(&mut open)
-                    .resizable(true)
-                    .collapsible(false)
-                    .default_width(520.0)
-                    .show(ctx, |ui| {
-                        render_body(ui);
-                    });
-            } else {
-                Self::apply_theme(ctx, dark_mode);
-                if ctx.input(|i| i.viewport().close_requested()) {
-                    open = false;
-                }
-                CentralPanel::default()
-                    .frame(
-                        Frame::new()
-                            .fill(window_bg)
-                            .inner_margin(Margin::symmetric(14, 12)),
-                    )
-                    .show(ctx, |ui| {
-                        render_body(ui);
-                    });
-            }
-        });
-
-        self.show_export_pdf_dialog = open && !close_clicked;
+        let trigger_export = crate::ui::dialogs::export_pdf::render_export_pdf_dialog(
+            ctx,
+            &mut self.show_export_pdf_dialog,
+            &mut self.pdf_export_config,
+            &mut self.export_pdf_error,
+            &entry_file,
+            self.settings.dark_mode,
+        );
         if trigger_export {
             self.export_pdf_action(ctx);
         }
@@ -1196,489 +792,78 @@ impl TypstIdeApp {
 
     /// Renders the New File and Rename File dialogs as real OS sub-windows.
     fn render_file_dialogs_subwindows(&mut self, ctx: &Context) {
-        let dark_mode = self.settings.dark_mode;
-        let window_bg = ThemePalette::for_mode(dark_mode).chrome_sidebar;
-
-        // 1. New File OS sub-window
-        if self.show_new_file_input {
-            let mut open = self.show_new_file_input;
-            let mut close_clicked = false;
-            let mut trigger_create = false;
-
-            let viewport_id = ViewportId::from_hash_of("typst_studio_new_file_os_window");
-            let builder = ViewportBuilder::default()
-                .with_title("New File in Project — Typst Studio")
-                .with_inner_size([440.0, 160.0])
-                .with_min_inner_size([360.0, 140.0]);
-
-            ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
-                let mut render_body = |ui: &mut Ui| {
-                    ui.label(
-                        RichText::new("Create a new file inside the active project folder:")
-                            .strong(),
-                    );
-                    ui.add_space(6.0);
-                    let resp = ui.add(
-                        TextEdit::singleline(&mut self.new_file_name)
-                            .desired_width(f32::INFINITY)
-                            .hint_text("e.g. chapters/results.typ"),
-                    );
-                    let enter_pressed =
-                        resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                    if enter_pressed {
-                        trigger_create = true;
+        if let Some(new_file_str) = crate::ui::dialogs::file_modals::render_new_file_modal(
+            ctx,
+            &mut self.show_new_file_input,
+            &mut self.new_file_name,
+            self.settings.dark_mode,
+        ) {
+            match self.project.create_file_on_disk(&new_file_str) {
+                Ok(rel) => {
+                    let initial_text = self.project.read_source_text(&rel).unwrap_or_default();
+                    if self.collab_ui.is_active {
+                        self.collab_session.send(UiToSessionCmd::LocalFileCreated {
+                            rel_path: rel.clone(),
+                            initial_text,
+                        });
                     }
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let create_btn = egui::Button::new(
-                            RichText::new("Create on Disk")
-                                .strong()
-                                .color(Color32::WHITE),
-                        )
-                        .fill(Color32::from_rgb(37, 99, 235))
-                        .corner_radius(CornerRadius::same(5));
-                        if ui.add(create_btn).clicked() {
-                            trigger_create = true;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            close_clicked = true;
-                        }
-                    });
-                };
-
-                if class == ViewportClass::Embedded {
-                    Window::new("New File in Project")
-                        .open(&mut open)
-                        .resizable(false)
-                        .collapsible(false)
-                        .default_width(400.0)
-                        .show(ctx, |ui| render_body(ui));
-                } else {
-                    Self::apply_theme(ctx, dark_mode);
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        open = false;
-                    }
-                    CentralPanel::default()
-                        .frame(
-                            Frame::new()
-                                .fill(window_bg)
-                                .inner_margin(Margin::symmetric(14, 12)),
-                        )
-                        .show(ctx, |ui| render_body(ui));
+                    self.status_notice = format!(
+                        "Created '{}' on disk",
+                        self.project.root_dir.join(&rel).display()
+                    );
+                    self.trigger_compile_now(ctx);
                 }
-            });
-
-            if trigger_create {
-                let path_str = self.new_file_name.trim().to_string();
-                match self.project.create_file_on_disk(&path_str) {
-                    Ok(rel) => {
-                        let initial_text = self.project.read_source_text(&rel).unwrap_or_default();
-                        if self.collab_ui.is_active {
-                            self.collab_session.send(UiToSessionCmd::LocalFileCreated {
-                                rel_path: rel.clone(),
-                                initial_text,
-                            });
-                        }
-                        self.status_notice = format!(
-                            "Created '{}' on disk",
-                            self.project.root_dir.join(&rel).display()
-                        );
-                        open = false;
-                        self.trigger_compile_now(ctx);
-                    }
-                    Err(e) => {
-                        self.status_notice = format!("Create file failed: {}", e);
-                    }
+                Err(e) => {
+                    self.status_notice = format!("Create file failed: {}", e);
                 }
             }
-
-            self.show_new_file_input = open && !close_clicked;
         }
 
-        // 2. Rename File OS sub-window
-        if let Some(old_rel) = self.rename_target_file.clone() {
-            let mut open = true;
-            let mut close_clicked = false;
-            let mut trigger_rename = false;
-
-            let viewport_id = ViewportId::from_hash_of("typst_studio_rename_file_os_window");
-            let builder = ViewportBuilder::default()
-                .with_title("Rename File — Typst Studio")
-                .with_inner_size([440.0, 160.0])
-                .with_min_inner_size([360.0, 140.0]);
-
-            ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
-                let mut render_body = |ui: &mut Ui| {
-                    ui.label(RichText::new(format!("Rename '{}' to:", old_rel.display())).strong());
-                    ui.add_space(6.0);
-                    let resp = ui.add(
-                        TextEdit::singleline(&mut self.rename_file_input)
-                            .desired_width(f32::INFINITY),
-                    );
-                    let enter_pressed =
-                        resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                    if enter_pressed {
-                        trigger_rename = true;
+        if let Some((old_rel, new_str)) = crate::ui::dialogs::file_modals::render_rename_file_modal(
+            ctx,
+            &mut self.rename_target_file,
+            &mut self.rename_file_input,
+            self.settings.dark_mode,
+        ) {
+            match self.project.rename_file_on_disk(&old_rel, &new_str) {
+                Ok(new_rel) => {
+                    if self.collab_ui.is_active {
+                        self.collab_session.send(UiToSessionCmd::LocalFileRenamed {
+                            old_rel_path: old_rel.clone(),
+                            new_rel_path: new_rel.clone(),
+                        });
                     }
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let rename_btn = egui::Button::new(
-                            RichText::new("Rename on Disk")
-                                .strong()
-                                .color(Color32::WHITE),
-                        )
-                        .fill(Color32::from_rgb(37, 99, 235))
-                        .corner_radius(CornerRadius::same(5));
-                        if ui.add(rename_btn).clicked() {
-                            trigger_rename = true;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            close_clicked = true;
-                        }
-                    });
-                };
-
-                if class == ViewportClass::Embedded {
-                    Window::new("Rename File")
-                        .open(&mut open)
-                        .resizable(false)
-                        .collapsible(false)
-                        .default_width(400.0)
-                        .show(ctx, |ui| render_body(ui));
-                } else {
-                    Self::apply_theme(ctx, dark_mode);
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        open = false;
-                    }
-                    CentralPanel::default()
-                        .frame(
-                            Frame::new()
-                                .fill(window_bg)
-                                .inner_margin(Margin::symmetric(14, 12)),
-                        )
-                        .show(ctx, |ui| render_body(ui));
+                    self.status_notice =
+                        format!("Renamed '{}' -> '{}'", old_rel.display(), new_rel.display());
+                    self.trigger_compile_now(ctx);
                 }
-            });
-
-            if trigger_rename {
-                let new_str = self.rename_file_input.trim().to_string();
-                match self.project.rename_file_on_disk(&old_rel, &new_str) {
-                    Ok(new_rel) => {
-                        if self.collab_ui.is_active {
-                            self.collab_session.send(UiToSessionCmd::LocalFileRenamed {
-                                old_rel_path: old_rel.clone(),
-                                new_rel_path: new_rel.clone(),
-                            });
-                        }
-                        self.status_notice =
-                            format!("Renamed '{}' -> '{}'", old_rel.display(), new_rel.display());
-                        open = false;
-                        self.trigger_compile_now(ctx);
-                    }
-                    Err(e) => {
-                        self.status_notice = format!("Rename failed: {}", e);
-                    }
+                Err(e) => {
+                    self.status_notice = format!("Rename failed: {}", e);
                 }
-            }
-
-            if !open || close_clicked {
-                self.rename_target_file = None;
             }
         }
     }
 
     /// Renders the Settings sub-window (`File > Settings`) as a real OS sub-window.
     fn render_settings_subwindow(&mut self, ctx: &Context) {
-        if !self.show_settings_window {
-            return;
-        }
+        let output = crate::ui::dialogs::settings::render_settings_dialog(
+            ctx,
+            &mut self.show_settings_window,
+            &mut self.settings,
+            &mut self.settings_tab,
+            &self.project.root_dir,
+        );
 
-        let mut open = self.show_settings_window;
-        let mut close_clicked = false;
-        let mut theme_changed = false;
-        let mut dpi_changed = false;
-        let mut rescan_needed = false;
-        let mut trigger_open_folder = false;
-
-        let dark_mode = self.settings.dark_mode;
-        let palette = ThemePalette::for_mode(dark_mode);
-        let window_bg = palette.chrome_sidebar;
-
-        let viewport_id = ViewportId::from_hash_of("typst_studio_settings_os_window");
-        let builder = ViewportBuilder::default()
-            .with_title("Settings — Typst Studio")
-            .with_inner_size([540.0, 440.0])
-            .with_min_inner_size([440.0, 340.0]);
-
-        ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
-            let mut render_body = |ui: &mut Ui| {
-                ui.horizontal(|ui| {
-                    ui.selectable_value(
-                        &mut self.settings_tab,
-                        SettingsTab::Appearance,
-                        RichText::new("Appearance").strong(),
-                    );
-                    ui.selectable_value(
-                        &mut self.settings_tab,
-                        SettingsTab::EditorAndDisk,
-                        RichText::new("Editor & Filesystem").strong(),
-                    );
-                    ui.selectable_value(
-                        &mut self.settings_tab,
-                        SettingsTab::CompilerAndPreview,
-                        RichText::new("Compiler & Preview").strong(),
-                    );
-                });
-                ui.separator();
-                ui.add_space(6.0);
-
-                match self.settings_tab {
-                    SettingsTab::Appearance => {
-                        ui.heading("Theme & Visual Appearance");
-                        ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            ui.label("Color Theme:");
-                            if ui
-                                .radio_value(&mut self.settings.dark_mode, true, "Dark Mode (#1C1B22)")
-                                .changed()
-                            {
-                                theme_changed = true;
-                            }
-                            if ui
-                                .radio_value(&mut self.settings.dark_mode, false, "Light Mode (#FFFFFF)")
-                                .changed()
-                            {
-                                theme_changed = true;
-                            }
-                        });
-
-                        ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            ui.label("Editor Font Size:");
-                            ui.add(
-                                Slider::new(&mut self.settings.editor_font_size, 10.0..=22.0)
-                                    .suffix(" pt"),
-                            );
-                        });
-
-                        ui.add_space(8.0);
-                        ui.checkbox(
-                            &mut self.settings.word_wrap,
-                            "Wrap long lines automatically to editor panel width (with end-of-line ↩ indicator)",
-                        );
-                        ui.checkbox(
-                            &mut self.settings.show_line_numbers,
-                            "Show line numbers gutter in code editor",
-                        );
-                        ui.checkbox(
-                            &mut self.settings.syntax_highlighting,
-                            "Enable real-time Typst syntax highlighting",
-                        );
-
-                        ui.add_space(8.0);
-                        Frame::new()
-                            .fill(palette.editor_canvas)
-                            .stroke(Stroke::new(1.0_f32, palette.panel_border))
-                            .corner_radius(CornerRadius::same(5))
-                            .inner_margin(Margin::symmetric(10, 8))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        RichText::new("Design System Tokens")
-                                            .small()
-                                            .strong()
-                                            .color(palette.text_primary),
-                                    );
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if ui
-                                            .small_button("Copy CSS Tokens")
-                                            .on_hover_text(
-                                                "Copy standardized :root and [data-theme=\"dark\"] CSS variables",
-                                            )
-                                            .clicked()
-                                        {
-                                            ctx.copy_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
-                                            if let Ok(mut cb) = arboard::Clipboard::new() {
-                                                let _ = cb.set_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
-                                            }
-                                        }
-                                    });
-                                });
-                                ui.add_space(4.0);
-                                ui.horizontal_wrapped(|ui| {
-                                    let swatches = [
-                                        ("Canvas", palette.editor_canvas),
-                                        ("Chrome", palette.chrome_sidebar),
-                                        ("Workspace", palette.preview_workspace),
-                                        ("Line", palette.active_line_highlight),
-                                        ("Keyword", palette.syn_keyword),
-                                        ("String", palette.syn_string),
-                                        ("Prop/Fn", palette.syn_property_or_func),
-                                        ("Number", palette.syn_number),
-                                    ];
-                                    for (name, col) in swatches {
-                                        Frame::new()
-                                            .fill(col)
-                                            .stroke(Stroke::new(1.0_f32, palette.panel_border))
-                                            .corner_radius(CornerRadius::same(4))
-                                            .inner_margin(Margin::symmetric(6, 3))
-                                            .show(ui, |ui| {
-                                                ui.label(
-                                                    RichText::new(name)
-                                                        .size(10.5)
-                                                        .monospace()
-                                                        .color(palette.text_primary),
-                                                );
-                                            });
-                                    }
-                                });
-                            });
-                    }
-                    SettingsTab::EditorAndDisk => {
-                        ui.heading("Filesystem & Project Behavior");
-                        ui.add_space(8.0);
-                        ui.label(
-                            RichText::new(format!(
-                                "Active Project Directory: {}",
-                                self.project.root_dir.display()
-                            ))
-                            .monospace()
-                            .small(),
-                        );
-                        ui.add_space(6.0);
-                        ui.checkbox(
-                            &mut self.settings.word_wrap,
-                            "Wrap long lines automatically to editor panel width (with end-of-line ↩ indicator)",
-                        );
-                        ui.checkbox(
-                            &mut self.settings.auto_save_on_edit,
-                            "Automatically save modified buffers to disk on edit",
-                        );
-                        if ui
-                            .checkbox(
-                                &mut self.settings.show_hidden_files,
-                                "Show hidden dotfiles in project tree",
-                            )
-                            .changed()
-                        {
-                            self.project.show_hidden_files = self.settings.show_hidden_files;
-                            rescan_needed = true;
-                        }
-                        ui.add_space(8.0);
-                        if ui.button("Open Another Project Folder...").clicked() {
-                            trigger_open_folder = true;
-                        }
-                    }
-                    SettingsTab::CompilerAndPreview => {
-                        ui.heading("Typst Compiler & Live Preview");
-                        ui.add_space(8.0);
-                        ui.checkbox(
-                            &mut self.settings.auto_compile,
-                            "Automatically compile Typst document while typing",
-                        );
-                        ui.add_space(6.0);
-                        ui.horizontal(|ui| {
-                            ui.label("Compile Debounce Delay:");
-                            ui.add(
-                                Slider::new(&mut self.settings.debounce_ms, 50..=800)
-                                    .suffix(" ms"),
-                            );
-                        });
-                        ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            ui.label("Preview Rasterization DPI:");
-                            if ui
-                                .selectable_value(
-                                    &mut self.settings.render_dpi_scale,
-                                    1.5,
-                                    "1.5x Fast",
-                                )
-                                .changed()
-                            {
-                                dpi_changed = true;
-                            }
-                            if ui
-                                .selectable_value(
-                                    &mut self.settings.render_dpi_scale,
-                                    2.0,
-                                    "2.0x Crisp (Default)",
-                                )
-                                .changed()
-                            {
-                                dpi_changed = true;
-                            }
-                            if ui
-                                .selectable_value(
-                                    &mut self.settings.render_dpi_scale,
-                                    3.0,
-                                    "3.0x Ultra HiDPI",
-                                )
-                                .changed()
-                            {
-                                dpi_changed = true;
-                            }
-                        });
-                    }
-                }
-
-                ui.add_space(14.0);
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button("Reset to Defaults").clicked() {
-                        let prev_dark = self.settings.dark_mode;
-                        self.settings = IdeSettings::default();
-                        if prev_dark != self.settings.dark_mode {
-                            theme_changed = true;
-                        }
-                        dpi_changed = true;
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button("Close").clicked() {
-                            close_clicked = true;
-                        }
-                    });
-                });
-            };
-
-            if class == ViewportClass::Embedded {
-                Window::new("Settings — Typst Studio")
-                    .open(&mut open)
-                    .resizable(true)
-                    .collapsible(false)
-                    .default_width(480.0)
-                    .default_height(360.0)
-                    .show(ctx, |ui| render_body(ui));
-            } else {
-                Self::apply_theme(ctx, dark_mode);
-                if ctx.input(|i| i.viewport().close_requested()) {
-                    open = false;
-                }
-                CentralPanel::default()
-                    .frame(
-                        Frame::new()
-                            .fill(window_bg)
-                            .inner_margin(Margin::symmetric(14, 12)),
-                    )
-                    .show(ctx, |ui| render_body(ui));
-            }
-        });
-
-        self.show_settings_window = open && !close_clicked;
-
-        if trigger_open_folder {
+        if output.open_folder_requested {
             self.open_folder_dialog(ctx);
         }
-        if theme_changed {
+        if output.theme_changed {
             Self::apply_theme(ctx, self.settings.dark_mode);
         }
-        if rescan_needed {
+        if output.rescan_needed {
             let _ = self.project.rescan_tree();
         }
-        if dpi_changed {
+        if output.dpi_changed {
             self.trigger_compile_now(ctx);
         }
     }
