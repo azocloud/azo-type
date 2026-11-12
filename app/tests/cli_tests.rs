@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use azo_type::parse_cli_args_from;
+use std::path::PathBuf;
 
 #[test]
 fn parses_empty_cli_arguments_as_none() {

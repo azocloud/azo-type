@@ -1,6 +1,6 @@
+use azo_type::app::{AzoTypeApp, DocumentOutlineItem};
 use std::fs;
 use std::path::{Path, PathBuf};
-use azo_type::app::{DocumentOutlineItem, AzoTypeApp};
 
 use azo_type::project::{DiskProject, FileKind};
 
