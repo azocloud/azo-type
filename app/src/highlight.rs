@@ -68,14 +68,10 @@ fn format_for_leaf(
     // When an identifier (or its trailing colon in dark mode) is the key of a `SyntaxKind::Named` node:
     if parent_kind == Some(SyntaxKind::Named)
         && matches!(kind, SyntaxKind::Ident | SyntaxKind::Colon)
+        && (kind == SyntaxKind::Ident || dark_mode)
     {
-        if kind == SyntaxKind::Ident {
-            format.color = palette.syn_property_or_func;
-            return format;
-        } else if dark_mode {
-            format.color = palette.syn_property_or_func;
-            return format;
-        }
+        format.color = palette.syn_property_or_func;
+        return format;
     }
 
     // 2. Direct SyntaxKind checks for numbers/dimensions (`11pt`, `2.5cm`, `100%`, `8.5pt`),

@@ -16,6 +16,7 @@ use crate::collab::session::{
 use crate::highlight::ThemePalette;
 
 /// UI state for P2P collaboration held by `TypstIdeApp`.
+#[derive(Default)]
 pub struct CollabUiState {
     pub show_window: bool,
     pub is_active: bool,
@@ -29,25 +30,6 @@ pub struct CollabUiState {
     pub remote_presences: Vec<PeerPresence>,
     pub last_error: Option<String>,
     pub status_banner: Option<String>,
-}
-
-impl Default for CollabUiState {
-    fn default() -> Self {
-        Self {
-            show_window: false,
-            is_active: false,
-            is_host: false,
-            local_endpoint_id: String::new(),
-            host_ticket: None,
-            reveal_ticket: false,
-            join_ticket_input: String::new(),
-            local_only_mode: false,
-            peers: Vec::new(),
-            remote_presences: Vec::new(),
-            last_error: None,
-            status_banner: None,
-        }
-    }
 }
 
 impl CollabUiState {

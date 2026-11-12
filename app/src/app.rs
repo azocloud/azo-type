@@ -426,12 +426,10 @@ impl TypstIdeApp {
                 triggered = Some(MenuAction::ExportPdf);
             } else if i.consume_key(Modifiers::NONE, Key::F5) {
                 triggered = Some(MenuAction::RescanFolder);
-            } else if collab_active && i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+            } else if collab_active
+                && (i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+                    || i.consume_key(Modifiers::COMMAND, Key::Y))
             {
-                self.collab_session.send(UiToSessionCmd::LocalRedo {
-                    rel_path: active_rel.clone(),
-                });
-            } else if collab_active && i.consume_key(Modifiers::COMMAND, Key::Y) {
                 self.collab_session.send(UiToSessionCmd::LocalRedo {
                     rel_path: active_rel.clone(),
                 });
@@ -884,13 +882,13 @@ impl TypstIdeApp {
                 crate::ui::components::EditorContextAction::Menu(menu_act) => {
                     self.dispatch_menu_action(ctx, menu_act);
                 }
-                crate::ui::components::EditorContextAction::SetActiveAsMain => {
-                    if FileKind::from_path(&active_path) == FileKind::Typst {
-                        self.project.set_main_file(active_path.clone());
-                        self.status_notice =
-                            format!("Set '{}' as Main Entrypoint", active_path.display());
-                        self.trigger_compile_now(ctx);
-                    }
+                crate::ui::components::EditorContextAction::SetActiveAsMain
+                    if FileKind::from_path(&active_path) == FileKind::Typst =>
+                {
+                    self.project.set_main_file(active_path.clone());
+                    self.status_notice =
+                        format!("Set '{}' as Main Entrypoint", active_path.display());
+                    self.trigger_compile_now(ctx);
                 }
                 _ => {}
             }
