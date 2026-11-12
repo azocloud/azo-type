@@ -1,17 +1,17 @@
-# Feature Specification & Regression Checklist: Typst Studio Desktop IDE
+# Feature Specification & Regression Checklist: Azo Type Desktop IDE
 
-This document provides a comprehensive inventory of all user workflows, UI capabilities, compiler integrations, and P2P collaboration features in the Typst Studio codebase. It serves as the regression testing checklist during and after refactoring.
+This document provides a comprehensive inventory of all user workflows, UI capabilities, compiler integrations, and P2P collaboration features in the Azo Type codebase. It serves as the regression testing checklist during and after refactoring.
 
 ---
 
 ## 1. Application Startup, CLI & Lifecycle
 
 - [ ] **CLI Argument Parsing (`main.rs`)**:
-  - [ ] Opening folder by passing positional argument: `typst-ide <path>` opens the target directory if it exists.
+  - [ ] Opening folder by passing positional argument: `azo-type <path>` opens the target directory if it exists.
   - [ ] Specifying screenshot destination via `--screenshot <path>` or `--screenshot=<path>`.
   - [ ] Fallback: If no directory is supplied, ensures and opens `./sample-project` on disk.
 - [ ] **Window Configuration**:
-  - [ ] Title set to `"Typst Studio — Native Desktop Typst IDE"`.
+  - [ ] Title set to `"Azo Type — Native Desktop Typst IDE"`.
   - [ ] Default window dimensions `1360 x 860`, minimum size `800 x 520`.
   - [ ] Platform-specific window adjustments (e.g., Windows `WindowLevel::AlwaysOnBottom` when `--screenshot` is active; macOS `with_activate_ignoring_other_apps(false)`).
 - [ ] **Headless / CI Screenshot Capture**:
@@ -141,7 +141,7 @@ This document provides a comprehensive inventory of all user workflows, UI capab
 ## 6. PDF Export & Standards Conformance
 
 - [ ] **PDF Export Dialog (`File > Export PDF...` / `Ctrl+E`)**:
-  - [ ] Rendered as native OS sub-window (`typst_studio_export_pdf_os_window`).
+  - [ ] Rendered as native OS sub-window (`azo_type_export_pdf_os_window`).
   - [ ] Displays target document path and current configuration summary badge.
 - [ ] **PDF Specification Versions**:
   - [ ] Selectable version: PDF 1.4, PDF 1.5, PDF 1.6, PDF 1.7 (Default), PDF 2.0.
@@ -167,7 +167,7 @@ This document provides a comprehensive inventory of all user workflows, UI capab
   - [ ] Background `tokio` actor thread owning `CollabProjectDoc`, `CollabAwareness`, and `CollabPersistence`.
   - [ ] Communicates with UI thread strictly via non-blocking channels (`UiToSessionCmd` and `SessionToUiEvent`).
 - [ ] **Hosting a Session**:
-  - [ ] Binds `iroh` QUIC endpoint using ALPN `b"typst-studio/collab/v1"`.
+  - [ ] Binds `iroh` QUIC endpoint using ALPN `b"azo-type/collab/v1"`.
   - [ ] Generates cryptographically secure 256-bit random session secret.
   - [ ] Generates URL-safe invite ticket prefixed with `typst-collab-v1:`.
   - [ ] Reconciles all local editable text files into CRDT `"files"` map.

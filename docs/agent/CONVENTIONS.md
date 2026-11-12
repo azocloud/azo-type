@@ -1,6 +1,6 @@
 # CONVENTIONS.md — Detailed Project Standards & Concrete Examples
 
-This document explains the enforced coding, architectural, testing, and git conventions in `typst-ide`. Every rule includes concrete **Good** and **Bad** examples taken directly from this codebase.
+This document explains the enforced coding, architectural, testing, and git conventions in `azo-type`. Every rule includes concrete **Good** and **Bad** examples taken directly from this codebase.
 
 ---
 

@@ -1,6 +1,6 @@
 # GOTCHAS.md — Non-Obvious Invariants, Pitfalls & Sensitive Areas
 
-This document records architectural nuances, threading constraints, and subtle pitfalls in `typst-ide` that are not obvious from signatures alone. Read this before modifying platform, collaboration, or compiler code.
+This document records architectural nuances, threading constraints, and subtle pitfalls in `azo-type` that are not obvious from signatures alone. Read this before modifying platform, collaboration, or compiler code.
 
 ---
 
@@ -24,7 +24,7 @@ pub fn spawn_open_folder_dialog(tx: Sender<IoEvent>, ctx: Context) {
     });
 }
 ```
-**Rule:** Never await dialogs inside `TypstIdeApp::update`. Send a background worker and receive the result via `IoEvent` in `TypstIdeApp::poll_channels`.
+**Rule:** Never await dialogs inside `AzoTypeApp::update`. Send a background worker and receive the result via `IoEvent` in `AzoTypeApp::poll_channels`.
 
 ---
 

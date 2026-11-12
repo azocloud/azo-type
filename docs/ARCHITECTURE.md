@@ -1,8 +1,8 @@
-# Architecture Specification & Migration Plan: Typst Studio Desktop IDE
+# Architecture Specification & Migration Plan: Azo Type Desktop IDE
 
 ## 1. Executive Summary & Assessment of Current Codebase
 
-Typst Studio is a high-performance cross-platform desktop IDE for Typst written in Rust with `egui`, `eframe`, `typst`, and `iroh` (P2P QUIC transport). While the MVP features (live preview, P2P collaboration, package download, PDF export, outline navigation) function reliably and all 12 existing tests pass, the current internal structure suffers from severe architectural debt:
+Azo Type is a high-performance cross-platform desktop IDE for Typst written in Rust with `egui`, `eframe`, `typst`, and `iroh` (P2P QUIC transport). While the MVP features (live preview, P2P collaboration, package download, PDF export, outline navigation) function reliably and all 12 existing tests pass, the current internal structure suffers from severe architectural debt:
 
 - **Monolithic God File**: `src/app.rs` spans **4,475 lines**, centralizing GUI layout, AST parsing, outline tree calculation, file tree management, text editing, syntax styling, native dialogs, modal state, and tests in a single file.
 - **Entanglement of Pure Domain Logic and Immediate-Mode GUI**: Parsing document outline headings (`extract_typst_ast_outline`, `assign_hierarchical_numbers`, `build_outline_tree`), text diff calculation, and settings validation are trapped inside UI functions, requiring GUI dependencies for testing.
@@ -117,7 +117,7 @@ app/src/
 │   └── dialogs.rs                   // Async native dialog runner (folder picker, file saver)
 └── ui/                              // Presentation & egui rendering
     ├── mod.rs
-    ├── app.rs                       // TypstIdeApp (eframe::App implementation, event loop, ~250 lines)
+    ├── app.rs                       // AzoTypeApp (eframe::App implementation, event loop, ~250 lines)
     ├── theme.rs                     // Egui visuals & styling application from ThemePalette
     ├── state.rs                     // UI presentation state (split ratio, zoom, modal flags)
     ├── components/
@@ -184,7 +184,7 @@ Every step is an isolated atomic commit. After every single step:
 - Create `ui::components::file_tree` for project tree rendering.
 - Create `ui::components::outline_panel` for outline tree rendering.
 - Create `ui::components::menu_bar` and `ui::components::status_bar`.
-- Reduce `ui::app::TypstIdeApp` to a clean coordinator under 300 lines implementing `eframe::App`.
+- Reduce `ui::app::AzoTypeApp` to a clean coordinator under 300 lines implementing `eframe::App`.
 
 ### Step 6: Code Quality, Dead Code Removal & Documentation (Phase 3)
 - Address the 4 Clippy warnings documented in `docs/FINDINGS.md`.

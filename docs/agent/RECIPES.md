@@ -20,15 +20,15 @@ Use this recipe when adding a new docked panel (e.g., a diagnostics drawer) or a
    - *Commit:* `feat(core): add domain model for <feature>`
 2. **View Module (`app/src/ui/components/` or `app/src/ui/dialogs/`):**
    - Create the new module starting with a `//!` inner doc comment.
-   - Define `pub struct <Name>Params<'a>` (inputs borrowed from `TypstIdeApp`) and `pub struct <Name>Output` (events/intents returned to `TypstIdeApp`).
+   - Define `pub struct <Name>Params<'a>` (inputs borrowed from `AzoTypeApp`) and `pub struct <Name>Output` (events/intents returned to `AzoTypeApp`).
    - Implement `pub fn render_<name>(ctx: &Context, ...) -> <Name>Output`.
    - For dialogs (`app/src/ui/dialogs/`), support both `ctx.show_viewport_immediate(...)` and the `embed_dialogs` headless fallback flag (see `app/src/ui/dialogs/export_pdf.rs`).
 3. **Register & Re-export (`app/src/ui/components/mod.rs` or `app/src/ui/dialogs/mod.rs`):**
    - Declare `pub mod <name>;` and `pub use <name>::{render_<name>, ...};`.
 4. **Wire into Application State (`app/src/app.rs`):**
-   - Add any persistent visibility boolean or state fields to `TypstIdeApp`.
-   - Call `render_<name>` from `TypstIdeApp::update` (or a helper method on `TypstIdeApp`) and handle the returned `<Name>Output`.
-   - *Commit:* `feat(ui): add <name> view and wire into TypstIdeApp`
+   - Add any persistent visibility boolean or state fields to `AzoTypeApp`.
+   - Call `render_<name>` from `AzoTypeApp::update` (or a helper method on `AzoTypeApp`) and handle the returned `<Name>Output`.
+   - *Commit:* `feat(ui): add <name> view and wire into AzoTypeApp`
 5. **Update Project Map:**
    - Run `python3 scripts/verify_structural_rules.py --write-map` and commit `docs/agent/PROJECT_MAP.md`.
 
@@ -56,9 +56,9 @@ Use this recipe when adding a top-level menu command, keyboard shortcut, or edit
 2. **Expose in Menus & Shortcuts:**
    - Add the menu button to `app/src/ui/components/menu_bar.rs` (Linux/Windows in-window menu bar).
    - If applicable on macOS, add the native `muda::MenuItem` in `app/src/platform/menu.rs` under `#[cfg(target_os = "macos")]`.
-   - If triggered via keyboard shortcut, bind it in `TypstIdeApp::handle_keyboard_shortcuts` inside `app/src/app.rs`.
+   - If triggered via keyboard shortcut, bind it in `AzoTypeApp::handle_keyboard_shortcuts` inside `app/src/app.rs`.
 3. **Implement the Handler:**
-   - For `MenuAction`: handle the new variant in `TypstIdeApp::dispatch_menu_action` in `app/src/app.rs`.
+   - For `MenuAction`: handle the new variant in `AzoTypeApp::dispatch_menu_action` in `app/src/app.rs`.
    - For `EditorContextAction`: handle buffer mutation in `apply_editor_context_action` in `app/src/ui/components/editor_actions.rs` and optionally expose it in `render_editor_context_menu`.
 4. **Commit Atomically:**
    - *Commit:* `feat(ui): add <action_name> menu command and shortcut handler`
@@ -85,7 +85,7 @@ Use this recipe when adding a configurable user preference (e.g., editor behavio
 2. **Expose Controls in Settings Dialog (`app/src/ui/dialogs/settings.rs`):**
    - Add the UI control (checkbox, slider, or text input) under the appropriate `SettingsTab` (`Appearance`, `EditorAndDisk`, or `CompilerAndPreview`).
    - If changing the setting requires an immediate side effect (such as recompiling, rescanning disk, or updating theme), set the corresponding flag on `SettingsModalOutput`.
-3. **Propagate in `TypstIdeApp` (`app/src/app.rs`):**
+3. **Propagate in `AzoTypeApp` (`app/src/app.rs`):**
    - Pass `&self.settings.<field>` into the target component (`EditorPaneParams`, `PreviewPaneParams`, or `compile_project`).
    - *Commit:* `feat(ui): expose <field_name> in settings dialog and wire to <component>`
 
@@ -108,7 +108,7 @@ Use this recipe when integrating an OS-dependent capability (native dialogs, cli
    - Place all `#[cfg(target_os = "...")]` attributes inside `app/src/platform/`, never scattered across `ui/` or `app.rs`.
    - Provide a no-op or cross-platform fallback for other targets so callers in `app.rs` use an unconditional API (see `MacOsMenuBar::init` in `app/src/platform/menu.rs`).
 2. **Background Threading for Blocking/Async OS Calls:**
-   - If the OS API is asynchronous or blocking (like `rfd::AsyncFileDialog`), spawn a `std::thread::spawn` worker and send the result back to `TypstIdeApp` via `Sender<IoEvent>`, calling `ctx.request_repaint()` on completion.
+   - If the OS API is asynchronous or blocking (like `rfd::AsyncFileDialog`), spawn a `std::thread::spawn` worker and send the result back to `AzoTypeApp` via `Sender<IoEvent>`, calling `ctx.request_repaint()` on completion.
 3. **Re-export in `app/src/platform/mod.rs`:**
    - Expose a clean platform-agnostic signature and update `docs/agent/PROJECT_MAP.md` (`python3 scripts/verify_structural_rules.py --write-map`).
 
@@ -133,7 +133,7 @@ Use this recipe when introducing fallible operations in `core/`, `project.rs`, `
    - Never call `.unwrap()` or `.expect()` on file I/O, network streams, user-provided paths, or ticket strings.
    - Format actionable, user-facing error descriptions (e.g., `"File name cannot be empty."` or `"Path escapes project root"`).
 2. **Surface Errors in UI State (`app/src/app.rs`):**
-   - Map `Err(msg)` at the `TypstIdeApp` boundary into `self.file_dialog_error = Some(msg)`, `self.export_pdf_error = Some(msg)`, `self.collab_ui.last_error = Some(msg)`, or `self.status_notice = format!("Error: {}", msg)`.
+   - Map `Err(msg)` at the `AzoTypeApp` boundary into `self.file_dialog_error = Some(msg)`, `self.export_pdf_error = Some(msg)`, `self.collab_ui.last_error = Some(msg)`, or `self.status_notice = format!("Error: {}", msg)`.
 3. **Add Error-Case Tests:**
    - Every error branch must have a corresponding negative test (see `rejects_invalid_standard_and_version_combinations_with_descriptive_error` in `app/tests/pdf_config_tests.rs`).
 
@@ -154,7 +154,7 @@ Use this recipe when adding test coverage for new features or bug fixes.
 ### Step-by-Step Order
 1. **Choose the Right Test Tier:**
    - **Companion Unit Test (`app/src/<path>/<module>/tests.rs`):** For testing internal functions, edge cases, and module-private invariants.
-   - **Integration Test (`app/tests/<topic>_tests.rs`):** For testing public library APIs across modules (`typst_ide::...`).
+   - **Integration Test (`app/tests/<topic>_tests.rs`):** For testing public library APIs across modules (`azo_type::...`).
 2. **No Inline Tests Rule:**
    - In `app/src/<path>/<module>.rs`, add only:
      ```rust

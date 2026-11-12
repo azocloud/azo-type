@@ -1,4 +1,4 @@
-# Typst Local Editor (`typst-ide`)
+# Azo Type (`azo-type`)
 
 A cross-platform native Rust desktop GUI IDE for [Typst](https://typst.app/) featuring live compiled visual document previews, hierarchical outline tree navigation, and zero-server peer-to-peer real-time collaborative editing using Yrs CRDT and Iroh QUIC networking.
 
@@ -22,7 +22,7 @@ Inner domain layers have zero dependencies on immediate-mode GUI frameworks or a
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                      UI Presentation                         │
-│  - app::TypstIdeApp (orchestration & event loop)            │
+│  - app::AzoTypeApp (orchestration & event loop)            │
 │  - ui::components (menu_bar, status_bar, sidebar, editor)    │
 │  - ui::dialogs (export_pdf, file_modals, settings)           │
 │  - ui::theme (ThemePalette & design tokens)                  │
@@ -113,7 +113,7 @@ cargo clippy --all-targets --manifest-path app/Cargo.toml -- -D warnings
 
 ## How to Add a New Feature
 
-When extending `typst-ide`, follow these architectural guidelines to maintain modularity, testability, and zero regression.
+When extending `azo-type`, follow these architectural guidelines to maintain modularity, testability, and zero regression.
 
 ### 1. Place Pure Domain Logic in `core/`
 - If your feature involves data structures, validation, parsing, calculations, or algorithms that do not require GUI or network access, implement them in `app/src/core/<feature_name>.rs`.
@@ -134,7 +134,7 @@ When extending `typst-ide`, follow these architectural guidelines to maintain mo
 - **Modal sub-windows**: Place in `app/src/ui/dialogs/<dialog_name>.rs`. Ensure dialogs can be opened either as embedded floating windows or native sub-windows depending on platform capability.
 
 ### 4. Wire the Component in `app.rs`
-- In `TypstIdeApp`, store any necessary state, pass parameters to your component's render function, and match on the returned `MyComponentOutput` struct to dispatch actions cleanly.
+- In `AzoTypeApp`, store any necessary state, pass parameters to your component's render function, and match on the returned `MyComponentOutput` struct to dispatch actions cleanly.
 
 ### 5. Validate Before Submitting
 Ensure all checks pass cleanly without warnings:

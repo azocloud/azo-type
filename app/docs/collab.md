@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Typst Studio includes built-in peer-to-peer (P2P) real-time collaborative editing across an entire Typst project folder on disk (`Linux`, `macOS`, and `Windows`). Collaboration is 100% optional: the IDE works completely offline without any network access by default, and requires no custom backend server.
+Azo Type includes built-in peer-to-peer (P2P) real-time collaborative editing across an entire Typst project folder on disk (`Linux`, `macOS`, and `Windows`). Collaboration is 100% optional: the IDE works completely offline without any network access by default, and requires no custom backend server.
 
 Two or more collaborators can have **different files open simultaneously** (e.g., Peer A editing `main.typ` while Peer B edits `chapters/intro.typ` or `template.typ`) and all edits, file creations, renames, deletions, and live Typst document previews synchronize automatically across all peers.
 

@@ -9,7 +9,7 @@ This manual smoke testing checklist is derived from `docs/FEATURES.md` and provi
 ### 1. Application Launch & Workspace Initialization
 - [ ] **Launch default app**: Run `cargo run`.
   - [ ] App launches with inner window size 1360x860.
-  - [ ] Window title reads: `"Typst Studio — Native Desktop Typst IDE"`.
+  - [ ] Window title reads: `"Azo Type — Native Desktop Typst IDE"`.
   - [ ] Default project `./sample-project` opens automatically.
   - [ ] `main.typ` is loaded in editor, tabs show `main.typ`, `template.typ`, `chapters/intro.typ`, `chapters/methods.typ`.
   - [ ] Document compiles in background; preview pane renders formatted pages.

@@ -129,7 +129,7 @@ The following public/crate-internal items are defined but never referenced outsi
    - Screenshot automation lifecycle
    - Unit tests
 2. **Mixing Domain Logic with Rendering**:
-   Outline AST extraction (`extract_typst_ast_outline`, `assign_hierarchical_numbers`, `build_outline_tree`) has zero GUI dependencies, yet lives inside `app.rs` as private/public methods of `TypstIdeApp`. It cannot be tested or reused without importing GUI types.
+   Outline AST extraction (`extract_typst_ast_outline`, `assign_hierarchical_numbers`, `build_outline_tree`) has zero GUI dependencies, yet lives inside `app.rs` as private/public methods of `AzoTypeApp`. It cannot be tested or reused without importing GUI types.
 3. **Tests in Production Source Files**:
    Tests live inside `#[cfg(test)] mod tests` blocks at the bottom of:
    - `src/app.rs` (lines 4424–4475)

@@ -1,6 +1,6 @@
 # `app/src/core/` — Scoped Agent Rules
 
-This directory contains pure domain logic for `typst-ide`. In addition to root [`AGENTS.md`](../../../AGENTS.md), these strict rules apply:
+This directory contains pure domain logic for `azo-type`. In addition to root [`AGENTS.md`](../../../AGENTS.md), these strict rules apply:
 
 1. **Zero UI / Async / OS Dependencies:**
    - NEVER import `egui`, `eframe`, `rfd`, `muda`, `tokio`, `iroh`, `arboard`, or `reqwest` in `app/src/core/`.

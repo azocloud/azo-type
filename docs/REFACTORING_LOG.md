@@ -1,6 +1,6 @@
-# Refactoring Log: `typst-ide` (MVP → Production Architecture)
+# Refactoring Log: `azo-type` (MVP → Production Architecture)
 
-This document records the architectural migration, design decisions, code relocations, dependency cleanups, and quantitative metrics of the refactoring process for the `typst-ide` codebase.
+This document records the architectural migration, design decisions, code relocations, dependency cleanups, and quantitative metrics of the refactoring process for the `azo-type` codebase.
 
 ---
 
@@ -98,7 +98,7 @@ The refactoring followed the phased approach defined in the task specification:
 ## 6. Open Points & Future Recommendations
 
 1. **Cargo Workspace Separation**:
-   - The current structure is a single crate (`typst-ide`) inside `app/`. For even faster incremental compilation and stricter boundary enforcement, this can optionally be migrated into a multi-crate Cargo workspace (`typst-core`, `typst-collab`, `typst-gui`).
+   - The current structure is a single crate (`azo-type`) inside `app/`. For even faster incremental compilation and stricter boundary enforcement, this can optionally be migrated into a multi-crate Cargo workspace (`typst-core`, `typst-collab`, `typst-gui`).
 2. **Decomposition of `collab/session.rs`**:
    - At 783 lines, `collab/session.rs` manages both session state actor channels and disk persistence coordination. Splitting persistence synchronization into a dedicated worker would further reduce this file to under 400 lines.
 3. **Multi-Platform Target Verification in CI**:

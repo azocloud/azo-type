@@ -1,6 +1,6 @@
 # AGENTS.md — AI Coding Agent Onboarding & Project Rules
 
-`typst-ide` is a native cross-platform desktop IDE for authoring [Typst](https://typst.app/) documents with live incremental preview, AST outline navigation, and zero-server P2P collaborative editing. It is built for technical writers, researchers, and teams who want local-first speed combined with real-time collaboration. The desktop application lives in `app/` and uses Rust (2021 edition), `egui`/`eframe` 0.31, `typst` 0.15.1, `yrs` 0.28 (Yjs CRDT), and `iroh` 1.4.1 (QUIC P2P transport).
+`azo-type` (Azo Type) is a native cross-platform desktop IDE for authoring [Typst](https://typst.app/) documents with live incremental preview, AST outline navigation, and zero-server P2P collaborative editing. It is built for technical writers, researchers, and teams who want local-first speed combined with real-time collaboration. The desktop application lives in `app/` and uses Rust (2021 edition), `egui`/`eframe` 0.31, `typst` 0.15.1, `yrs` 0.28 (Yjs CRDT), and `iroh` 1.4.1 (QUIC P2P transport).
 
 ## 1. Essential Commands (Run from Repo Root)
 - **Full Check (Mandatory Gate):** `./scripts/check.sh` (runs fmt, clippy `-D warnings`, all tests, and structural/map checks)
@@ -24,7 +24,7 @@ Full auto-verified module map: [`docs/agent/PROJECT_MAP.md`](docs/agent/PROJECT_
 - `app/src/world.rs` & `app/src/compiler.rs` — `typst::World` implementation (`IdeWorld`), package downloading, rasterization, and PDF export.
 - `app/src/highlight.rs` — Typst syntax highlighting into `egui::text::LayoutJob`.
 - `app/src/ui/` — Presentation layer: `theme.rs` (tokens/palettes), `components/` (docked panels), and `dialogs/` (modal sub-windows).
-- `app/src/app.rs` — Top-level `TypstIdeApp` state orchestrator, channel polling, and `eframe::App` update loop.
+- `app/src/app.rs` — Top-level `AzoTypeApp` state orchestrator, channel polling, and `eframe::App` update loop.
 - `app/tests/` — Integration and characterization test suites (`cli_tests`, `diff_tests`, `outline_tests`, `pdf_config_tests`, `persistence_tests`, `project_tests`).
 
 ## 3. Architecture & Dependency Direction
