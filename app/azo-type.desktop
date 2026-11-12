@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Azo Type
+GenericName=Typst IDE
+Comment=Native cross-platform Typst IDE with incremental preview and P2P collaboration
+Exec=azo-type %F
+Icon=azo-type
+Terminal=false
+Categories=Office;Development;IDE;Publishing;
+MimeType=text/x-typst;application/x-typst;
+StartupWMClass=azo-type
+Keywords=typst;editor;latex;ide;preview;collaboration;
