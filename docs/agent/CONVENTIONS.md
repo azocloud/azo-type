@@ -265,3 +265,4 @@ pub fn decode(encoded: &str) -> Result<Self, String> {
     // ...
 }
 ```
+

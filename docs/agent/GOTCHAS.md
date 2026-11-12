@@ -108,3 +108,4 @@ Typst uses `comemo` to memoize pure evaluation queries across compile frames. If
 ### How It Works Here
 - `EditorWorld` caches open buffer texts. Whenever `compile_project` is called, updated buffers are pushed to the world prior to invoking `typst::compile`.
 - Dynamic packages from Typst Universe (`@preview/...`) are downloaded by `ReqwestDownloader` and cached in the system cache directory before compilation proceeds.
+

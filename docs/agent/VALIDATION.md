@@ -104,3 +104,4 @@ Running `./scripts/check.sh` executes all four gates:
 4. `cargo test --manifest-path app/Cargo.toml` (62 tests: 24 unit, 38 integration)
 
 **Result:** `✅ All checks passed!`
+
