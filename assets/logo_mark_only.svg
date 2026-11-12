@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="553" height="392" viewBox="0 0 553 392">
+  <title>Untitled-1</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <polygon id="Letter_A" data-name="Letter A" points="0,392 252,0 339.43,136 259.07,136 94.5,392" fill="#20242d"/>
+    <polygon id="Letter_T" data-name="Letter T" points="270.54,157 553,157 514.43,217 444.5,217 332,392 252,392 364.5,217 231.97,217" fill="#20242d"/>
+    <polygon id="Dot" points="493,332 553,332 514.43,392 454.43,392" fill="#20242d"/>
+  </g>
+</svg>
