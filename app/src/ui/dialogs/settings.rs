@@ -40,10 +40,12 @@ pub fn render_settings_dialog(
     let window_bg = palette.chrome_sidebar;
 
     let viewport_id = ViewportId::from_hash_of("azo_type_settings_os_window");
-    let builder = ViewportBuilder::default()
-        .with_title("Settings")
-        .with_inner_size([540.0, 440.0])
-        .with_min_inner_size([440.0, 340.0]);
+    let builder = crate::platform::configure_viewport_builder(
+        ViewportBuilder::default()
+            .with_title("Settings")
+            .with_inner_size([540.0, 440.0])
+            .with_min_inner_size([440.0, 340.0]),
+    );
 
     ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
         let mut render_body = |ui: &mut Ui| {

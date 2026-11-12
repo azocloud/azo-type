@@ -28,10 +28,12 @@ pub fn render_new_file_modal(
     let window_bg = ThemePalette::for_mode(dark_mode).chrome_sidebar;
 
     let viewport_id = ViewportId::from_hash_of("azo_type_new_file_os_window");
-    let builder = ViewportBuilder::default()
-        .with_title("New File in Project")
-        .with_inner_size([440.0, 160.0])
-        .with_min_inner_size([360.0, 140.0]);
+    let builder = crate::platform::configure_viewport_builder(
+        ViewportBuilder::default()
+            .with_title("New File in Project")
+            .with_inner_size([440.0, 160.0])
+            .with_min_inner_size([360.0, 140.0]),
+    );
 
     ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
         let mut render_body = |ui: &mut Ui| {
@@ -116,10 +118,12 @@ pub fn render_rename_file_modal(
     let window_bg = ThemePalette::for_mode(dark_mode).chrome_sidebar;
 
     let viewport_id = ViewportId::from_hash_of("azo_type_rename_file_os_window");
-    let builder = ViewportBuilder::default()
-        .with_title("Rename File")
-        .with_inner_size([440.0, 160.0])
-        .with_min_inner_size([360.0, 140.0]);
+    let builder = crate::platform::configure_viewport_builder(
+        ViewportBuilder::default()
+            .with_title("Rename File")
+            .with_inner_size([440.0, 160.0])
+            .with_min_inner_size([360.0, 140.0]),
+    );
 
     ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
         let mut render_body = |ui: &mut Ui| {

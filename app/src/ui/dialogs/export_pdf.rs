@@ -35,10 +35,12 @@ pub fn render_export_pdf_dialog(
     let mut trigger_export = false;
 
     let viewport_id = ViewportId::from_hash_of("azo_type_export_pdf_os_window");
-    let builder = ViewportBuilder::default()
-        .with_title("Export PDF")
-        .with_inner_size([560.0, 480.0])
-        .with_min_inner_size([460.0, 380.0]);
+    let builder = crate::platform::configure_viewport_builder(
+        ViewportBuilder::default()
+            .with_title("Export PDF")
+            .with_inner_size([560.0, 480.0])
+            .with_min_inner_size([460.0, 380.0]),
+    );
 
     ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
         let mut render_body = |ui: &mut Ui| {

@@ -10,10 +10,12 @@ fn parse_cli_args() -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) 
 fn main() -> eframe::Result<()> {
     let (initial_folder, screenshot_path) = parse_cli_args();
 
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Azo Type")
-        .with_inner_size([1360.0, 860.0])
-        .with_min_inner_size([800.0, 520.0]);
+    let mut viewport = azo_type::platform::configure_viewport_builder(
+        egui::ViewportBuilder::default()
+            .with_title("Azo Type")
+            .with_inner_size([1360.0, 860.0])
+            .with_min_inner_size([800.0, 520.0]),
+    );
 
     if screenshot_path.is_some() {
         viewport = viewport.with_active(false);

@@ -75,10 +75,12 @@ pub fn render_collaboration_window(
     let win_bg = palette.chrome_sidebar;
 
     let viewport_id = ViewportId::from_hash_of("azo_type_p2p_collab_os_window");
-    let builder = ViewportBuilder::default()
-        .with_title("P2P Collaboration")
-        .with_inner_size([560.0, 500.0])
-        .with_min_inner_size([440.0, 360.0]);
+    let builder = crate::platform::configure_viewport_builder(
+        ViewportBuilder::default()
+            .with_title("P2P Collaboration")
+            .with_inner_size([560.0, 500.0])
+            .with_min_inner_size([440.0, 360.0]),
+    );
 
     ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
         let mut render_body = |ui: &mut Ui| {
