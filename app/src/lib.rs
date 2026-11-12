@@ -3,6 +3,7 @@ use std::path::PathBuf;
 pub mod app;
 pub mod collab;
 pub mod compiler;
+pub mod core;
 pub mod highlight;
 pub mod project;
 pub mod world;

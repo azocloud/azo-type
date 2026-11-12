@@ -2,59 +2,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileKind {
-    Typst,
-    Bib,
-    Svg,
-    Image,
-    Text,
-    Binary,
-}
-
-impl FileKind {
-    pub fn from_path(path: &Path) -> Self {
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        match ext.as_str() {
-            "typ" => Self::Typst,
-            "bib" | "yml" | "yaml" => Self::Bib,
-            "svg" => Self::Svg,
-            "png" | "jpg" | "jpeg" | "gif" | "webp" => Self::Image,
-            "txt" | "md" | "csv" | "json" | "toml" => Self::Text,
-            _ => Self::Binary,
-        }
-    }
-
-    pub fn is_editable_text(self) -> bool {
-        matches!(self, Self::Typst | Self::Bib | Self::Svg | Self::Text)
-    }
-
-    pub fn icon(self) -> &'static str {
-        match self {
-            Self::Typst => "[T]",
-            Self::Bib => "[B]",
-            Self::Svg => "[S]",
-            Self::Image => "[I]",
-            Self::Text => "[F]",
-            Self::Binary => "[#]",
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Typst => "Typst Source (.typ)",
-            Self::Bib => "Bibliography (.bib)",
-            Self::Svg => "Vector Graphic (.svg)",
-            Self::Image => "Raster Image",
-            Self::Text => "Text Document",
-            Self::Binary => "Binary Asset",
-        }
-    }
-}
+use crate::core::outline::SourceResolver;
+pub use crate::core::FileKind;
 
 /// A node in the on-disk project directory tree.
 #[derive(Debug, Clone)]
@@ -515,6 +464,16 @@ impl DiskProject {
         }
         let abs = self.root_dir.join(rel_path);
         fs::read(abs)
+    }
+}
+
+impl SourceResolver for DiskProject {
+    fn read_source_text(&self, path: &Path) -> Result<String, String> {
+        self.read_source_text(path).map_err(|e| e.to_string())
+    }
+
+    fn is_main_entrypoint(&self, path: &Path) -> bool {
+        self.effective_compile_entrypoint() == path
     }
 }
 

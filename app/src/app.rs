@@ -24,8 +24,7 @@ use crate::compiler::{
 use crate::highlight::{highlight_typst_code, ThemePalette, DESIGN_SYSTEM_CSS_TOKENS};
 use crate::project::{ensure_sample_project_on_disk, DiskProject, FileKind, FsTreeNode};
 use crate::world::SharedWorldResources;
-use typst::syntax::ast::AstNode;
-use typst::syntax::{ast, LinkedNode, SyntaxKind, SyntaxNode};
+use typst::syntax::SyntaxNode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
@@ -47,22 +46,12 @@ pub enum MenuAction {
     Quit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DocumentOutlineItem {
-    pub level: usize,
-    pub number_label: String,
-    pub title: String,
-    pub file: PathBuf,
-    pub line_number: usize,
-    pub char_offset: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct OutlineTreeNode {
-    pub item: DocumentOutlineItem,
-    pub is_current: bool,
-    pub children: Vec<OutlineTreeNode>,
-}
+pub use crate::core::outline::{
+    assign_hierarchical_numbers, build_outline_tree, extract_document_outline,
+    extract_typst_ast_outline, extract_typst_markup_plain_text, DocumentOutlineItem,
+    OutlineTreeNode,
+};
+pub use crate::core::settings::{IdeSettings, SettingsTab};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditorContextAction {
@@ -76,51 +65,6 @@ pub enum EditorContextAction {
     InsertSnippet(&'static str),
     Menu(MenuAction),
     SetActiveAsMain,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SettingsTab {
-    Appearance,
-    EditorAndDisk,
-    CompilerAndPreview,
-}
-
-#[derive(Debug, Clone)]
-pub struct IdeSettings {
-    pub dark_mode: bool,
-    pub editor_font_size: f32,
-    pub word_wrap: bool,
-    pub show_line_numbers: bool,
-    pub syntax_highlighting: bool,
-    pub auto_save_on_edit: bool,
-    pub show_hidden_files: bool,
-    pub auto_compile: bool,
-    pub debounce_ms: u64,
-    pub render_dpi_scale: f32,
-    pub user_name: String,
-    pub user_color: [u8; 3],
-}
-
-impl Default for IdeSettings {
-    fn default() -> Self {
-        let default_user = std::env::var("USER")
-            .or_else(|_| std::env::var("USERNAME"))
-            .unwrap_or_else(|_| "Author".to_string());
-        Self {
-            dark_mode: true,
-            editor_font_size: 13.5,
-            word_wrap: true,
-            show_line_numbers: true,
-            syntax_highlighting: true,
-            auto_save_on_edit: true,
-            show_hidden_files: false,
-            auto_compile: true,
-            debounce_ms: 120,
-            render_dpi_scale: 2.0,
-            user_name: default_user,
-            user_color: [56, 189, 248],
-        }
-    }
 }
 
 pub enum IoEvent {
@@ -1873,39 +1817,7 @@ impl TypstIdeApp {
     }
 
     pub fn extract_typst_markup_plain_text(node: &SyntaxNode) -> String {
-        fn visit(n: &SyntaxNode, out: &mut String) {
-            match n.kind() {
-                SyntaxKind::LineComment
-                | SyntaxKind::BlockComment
-                | SyntaxKind::Label
-                | SyntaxKind::HeadingMarker => {}
-                SyntaxKind::Text => out.push_str(n.leaf_text().as_str()),
-                SyntaxKind::Space | SyntaxKind::Parbreak | SyntaxKind::Linebreak => {
-                    if !out.ends_with(' ') && !out.is_empty() {
-                        out.push(' ');
-                    }
-                }
-                SyntaxKind::SmartQuote
-                | SyntaxKind::Shorthand
-                | SyntaxKind::Escape
-                | SyntaxKind::MathText
-                | SyntaxKind::MathIdent
-                | SyntaxKind::Int
-                | SyntaxKind::Float
-                | SyntaxKind::Numeric => out.push_str(n.leaf_text().as_str()),
-                SyntaxKind::Str => {
-                    out.push_str(n.leaf_text().trim_matches('"'));
-                }
-                _ => {
-                    for child in n.children() {
-                        visit(child, out);
-                    }
-                }
-            }
-        }
-        let mut raw = String::new();
-        visit(node, &mut raw);
-        raw.split_whitespace().collect::<Vec<_>>().join(" ")
+        crate::core::outline::extract_typst_markup_plain_text(node)
     }
 
     pub fn extract_typst_ast_outline(
@@ -1914,194 +1826,19 @@ impl TypstIdeApp {
         project: Option<&DiskProject>,
         visited: &mut Vec<PathBuf>,
     ) -> Vec<DocumentOutlineItem> {
-        let root = typst::syntax::parse(text);
-        let linked = LinkedNode::new(&root);
-        let mut items = Vec::new();
-
-        fn walk(
-            node: &LinkedNode<'_>,
-            text: &str,
-            current_file: &Path,
-            project: Option<&DiskProject>,
-            visited: &mut Vec<PathBuf>,
-            items: &mut Vec<DocumentOutlineItem>,
-        ) {
-            match node.kind() {
-                SyntaxKind::Heading => {
-                    if let Some(heading) = node.cast::<ast::Heading>() {
-                        let level = heading.depth().get();
-                        let title = TypstIdeApp::extract_typst_markup_plain_text(
-                            heading.body().to_untyped(),
-                        );
-                        if !title.is_empty() {
-                            let byte_offset = node.offset().min(text.len());
-                            let char_offset = text[..byte_offset].chars().count();
-                            let line_number =
-                                text[..byte_offset].bytes().filter(|&b| b == b'\n').count() + 1;
-                            items.push(DocumentOutlineItem {
-                                level,
-                                number_label: String::new(),
-                                title,
-                                file: current_file.to_path_buf(),
-                                line_number,
-                                char_offset,
-                            });
-                        }
-                    }
-                    return;
-                }
-                SyntaxKind::FuncCall => {
-                    if let Some(call) = node.cast::<ast::FuncCall>() {
-                        let callee_txt = call.callee().to_untyped().full_text();
-                        if callee_txt == "heading" || callee_txt.ends_with(".heading") {
-                            let mut level = 1usize;
-                            let mut body_title = String::new();
-                            for arg in call.args().items() {
-                                match arg {
-                                    ast::Arg::Named(named) => {
-                                        if named.name().as_str() == "level" {
-                                            if let ast::Expr::Int(i) = named.expr() {
-                                                level = (i.get() as usize).max(1);
-                                            }
-                                        }
-                                    }
-                                    ast::Arg::Pos(expr) => {
-                                        let candidate = match expr {
-                                            ast::Expr::ContentBlock(cb) => {
-                                                TypstIdeApp::extract_typst_markup_plain_text(
-                                                    cb.body().to_untyped(),
-                                                )
-                                            }
-                                            ast::Expr::Str(s) => s.get().to_string(),
-                                            other => TypstIdeApp::extract_typst_markup_plain_text(
-                                                other.to_untyped(),
-                                            ),
-                                        };
-                                        if !candidate.is_empty() {
-                                            body_title = candidate;
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            if !body_title.is_empty() {
-                                let byte_offset = node.offset().min(text.len());
-                                let char_offset = text[..byte_offset].chars().count();
-                                let line_number =
-                                    text[..byte_offset].bytes().filter(|&b| b == b'\n').count() + 1;
-                                items.push(DocumentOutlineItem {
-                                    level,
-                                    number_label: String::new(),
-                                    title: body_title,
-                                    file: current_file.to_path_buf(),
-                                    line_number,
-                                    char_offset,
-                                });
-                                return;
-                            }
-                        }
-                    }
-                }
-                SyntaxKind::ModuleInclude => {
-                    if let (Some(inc), Some(proj)) = (node.cast::<ast::ModuleInclude>(), project) {
-                        if let ast::Expr::Str(path_lit) = inc.source() {
-                            let raw_rel = path_lit.get();
-                            let resolved = if let Some(stripped) = raw_rel.strip_prefix('/') {
-                                PathBuf::from(stripped)
-                            } else {
-                                current_file
-                                    .parent()
-                                    .map(|p| p.join(raw_rel.as_str()))
-                                    .unwrap_or_else(|| PathBuf::from(raw_rel.as_str()))
-                            };
-                            let norm_rel =
-                                PathBuf::from(normalize_rel_path(&resolved.to_string_lossy()));
-                            if !visited.contains(&norm_rel) {
-                                visited.push(norm_rel.clone());
-                                if let Ok(inc_text) = proj.read_source_text(&norm_rel) {
-                                    let sub_items = TypstIdeApp::extract_typst_ast_outline(
-                                        &inc_text,
-                                        &norm_rel,
-                                        Some(proj),
-                                        visited,
-                                    );
-                                    items.extend(sub_items);
-                                }
-                            }
-                        }
-                    }
-                    return;
-                }
-                SyntaxKind::ShowRule | SyntaxKind::SetRule => {
-                    // Do not treat styling rules like `show heading.where(level: 1): ...` as document headings
-                    return;
-                }
-                _ => {}
-            }
-
-            for child in node.children() {
-                walk(&child, text, current_file, project, visited, items);
-            }
-        }
-
-        walk(&linked, text, current_file, project, visited, &mut items);
-        items
+        let resolver = project.map(|p| p as &dyn crate::core::outline::SourceResolver);
+        crate::core::outline::extract_typst_ast_outline(text, current_file, resolver, visited)
     }
 
     pub fn assign_hierarchical_numbers(items: &mut [DocumentOutlineItem]) {
-        let mut counters: Vec<usize> = Vec::new();
-        for item in items.iter_mut() {
-            let lvl = item.level.clamp(1, 6);
-            if counters.len() < lvl {
-                counters.resize(lvl, 0);
-            } else {
-                counters.truncate(lvl);
-            }
-            counters[lvl - 1] += 1;
-            for c in &mut counters[..lvl] {
-                if *c == 0 {
-                    *c = 1;
-                }
-            }
-            if item.number_label.is_empty() {
-                item.number_label = counters
-                    .iter()
-                    .map(|c| c.to_string())
-                    .collect::<Vec<_>>()
-                    .join(".");
-            }
-        }
+        crate::core::outline::assign_hierarchical_numbers(items);
     }
 
     pub fn build_outline_tree(
         items: &[DocumentOutlineItem],
         active_idx: Option<usize>,
     ) -> Vec<OutlineTreeNode> {
-        fn build_slice(
-            slice: &[(usize, &DocumentOutlineItem)],
-            active_idx: Option<usize>,
-        ) -> Vec<OutlineTreeNode> {
-            let mut nodes = Vec::new();
-            let mut i = 0;
-            while i < slice.len() {
-                let (idx, curr) = slice[i];
-                let mut j = i + 1;
-                while j < slice.len() && slice[j].1.level > curr.level {
-                    j += 1;
-                }
-                let children = build_slice(&slice[i + 1..j], active_idx);
-                nodes.push(OutlineTreeNode {
-                    item: curr.clone(),
-                    is_current: active_idx == Some(idx),
-                    children,
-                });
-                i = j;
-            }
-            nodes
-        }
-
-        let indexed: Vec<(usize, &DocumentOutlineItem)> = items.iter().enumerate().collect();
-        build_slice(&indexed, active_idx)
+        crate::core::outline::build_outline_tree(items, active_idx)
     }
 
     pub fn extract_document_outline(
@@ -2111,130 +1848,14 @@ impl TypstIdeApp {
         project: Option<&DiskProject>,
         compiled_outline: &[CompiledOutlineItem],
     ) -> Vec<DocumentOutlineItem> {
-        let mut items = match kind {
-            FileKind::Typst => {
-                let mut visited = vec![current_file.to_path_buf()];
-                let mut ast_items =
-                    Self::extract_typst_ast_outline(text, current_file, project, &mut visited);
-
-                // If the active file is the main compiled entrypoint and the Typst compiler
-                // introspector produced additional dynamic headings (e.g., from imported
-                // template/component functions like `#architecture-table()`), merge them
-                // while keeping live AST char_offsets for the active file.
-                let is_main_entrypoint = project
-                    .map(|p| p.effective_compile_entrypoint() == current_file)
-                    .unwrap_or(false);
-                if is_main_entrypoint && !compiled_outline.is_empty() {
-                    let mut merged =
-                        Vec::with_capacity(compiled_outline.len().max(ast_items.len()));
-                    let mut used_ast = vec![false; ast_items.len()];
-                    for comp in compiled_outline {
-                        if let Some((ast_idx, ast_match)) =
-                            ast_items.iter().enumerate().find(|(i, a)| {
-                                !used_ast[*i]
-                                    && a.file == comp.file
-                                    && (a.title == comp.title || a.line_number == comp.line)
-                            })
-                        {
-                            used_ast[ast_idx] = true;
-                            let mut item = ast_match.clone();
-                            item.level = comp.level;
-                            if let Some(ref num) = comp.numbers {
-                                item.number_label = num.clone();
-                            }
-                            merged.push(item);
-                        } else {
-                            merged.push(DocumentOutlineItem {
-                                level: comp.level,
-                                number_label: comp.numbers.clone().unwrap_or_default(),
-                                title: comp.title.clone(),
-                                file: comp.file.clone(),
-                                line_number: comp.line,
-                                char_offset: comp.char_offset,
-                            });
-                        }
-                    }
-                    // Also include any newly-typed AST headings not yet in compiled_outline
-                    for (idx, ast_item) in ast_items.into_iter().enumerate() {
-                        if !used_ast[idx] {
-                            let insert_pos = merged
-                                .iter()
-                                .position(|m| {
-                                    m.file == ast_item.file && m.line_number > ast_item.line_number
-                                })
-                                .unwrap_or(merged.len());
-                            merged.insert(insert_pos, ast_item);
-                        }
-                    }
-                    ast_items = merged;
-                }
-
-                ast_items
-            }
-            FileKind::Bib => {
-                let mut bib_items = Vec::new();
-                let mut char_cursor = 0usize;
-                for (idx, raw_line) in text.split('\n').enumerate() {
-                    let line_number = idx + 1;
-                    let line_char_len = raw_line.chars().count();
-                    let line = raw_line.trim_end_matches('\r');
-                    let trimmed = line.trim_start();
-                    let leading_ws = line.chars().count().saturating_sub(trimmed.chars().count());
-                    if trimmed.starts_with('@') {
-                        if let Some(brace_idx) = trimmed.find('{') {
-                            let entry_type = &trimmed[1..brace_idx];
-                            let after_brace = &trimmed[brace_idx + 1..];
-                            let key = after_brace.split(',').next().unwrap_or("").trim();
-                            if !key.is_empty() {
-                                bib_items.push(DocumentOutlineItem {
-                                    level: 1,
-                                    number_label: (bib_items.len() + 1).to_string(),
-                                    title: format!("@{} ({})", key, entry_type),
-                                    file: current_file.to_path_buf(),
-                                    line_number,
-                                    char_offset: char_cursor + leading_ws,
-                                });
-                            }
-                        }
-                    }
-                    char_cursor += line_char_len + 1;
-                }
-                bib_items
-            }
-            _ => {
-                let mut md_items = Vec::new();
-                let mut char_cursor = 0usize;
-                for (idx, raw_line) in text.split('\n').enumerate() {
-                    let line_number = idx + 1;
-                    let line_char_len = raw_line.chars().count();
-                    let line = raw_line.trim_end_matches('\r');
-                    let trimmed = line.trim_start();
-                    let leading_ws = line.chars().count().saturating_sub(trimmed.chars().count());
-                    let hash_count = trimmed.chars().take_while(|&c| c == '#').count();
-                    if hash_count >= 1 {
-                        let after_hash = &trimmed[hash_count..];
-                        if after_hash.starts_with(' ') {
-                            let title = after_hash.trim().to_string();
-                            if !title.is_empty() {
-                                md_items.push(DocumentOutlineItem {
-                                    level: hash_count,
-                                    number_label: String::new(),
-                                    title,
-                                    file: current_file.to_path_buf(),
-                                    line_number,
-                                    char_offset: char_cursor + leading_ws,
-                                });
-                            }
-                        }
-                    }
-                    char_cursor += line_char_len + 1;
-                }
-                md_items
-            }
-        };
-
-        Self::assign_hierarchical_numbers(&mut items);
-        items
+        let resolver = project.map(|p| p as &dyn crate::core::outline::SourceResolver);
+        crate::core::outline::extract_document_outline(
+            text,
+            kind,
+            current_file,
+            resolver,
+            compiled_outline,
+        )
     }
 
     fn render_outline_tree_node(
@@ -4404,72 +4025,5 @@ mod pollster {
                 Poll::Pending => std::thread::sleep(std::time::Duration::from_millis(10)),
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_word_wrap_enabled_by_default() {
-        let settings = IdeSettings::default();
-        assert!(
-            settings.word_wrap,
-            "Automatic line wrapping must be on by default"
-        );
-    }
-
-    #[test]
-    fn test_extract_document_outline_typst_headings() {
-        let sample = "#set page(paper: \"a4\")\n\n= Executive Summary\nSome intro text.\n\n$ x\n= y + 1 $\n\n== Filesystem & Compilation Pipeline <sec:pipe>\nDetails.\n\n```typst\n= Not A Heading Inside Code Block\n```\n\n=== Mathematical Formulation\n\n#heading(level: 2)[Functional Subheading]\n";
-        let outline = TypstIdeApp::extract_document_outline(
-            sample,
-            FileKind::Typst,
-            Path::new("main.typ"),
-            None,
-            &[],
-        );
-        assert_eq!(outline.len(), 4);
-        assert_eq!(outline[0].level, 1);
-        assert_eq!(outline[0].number_label, "1");
-        assert_eq!(outline[0].title, "Executive Summary");
-        assert_eq!(outline[0].line_number, 3);
-        assert_eq!(outline[1].level, 2);
-        assert_eq!(outline[1].number_label, "1.1");
-        assert_eq!(outline[1].title, "Filesystem & Compilation Pipeline");
-        assert_eq!(outline[1].line_number, 9);
-        assert_eq!(outline[2].level, 3);
-        assert_eq!(outline[2].number_label, "1.1.1");
-        assert_eq!(outline[2].title, "Mathematical Formulation");
-        assert_eq!(outline[2].line_number, 16);
-        assert_eq!(outline[3].level, 2);
-        assert_eq!(outline[3].number_label, "1.2");
-        assert_eq!(outline[3].title, "Functional Subheading");
-
-        // Verify tree construction builds true nested Typst hierarchy
-        let tree = TypstIdeApp::build_outline_tree(&outline, Some(2));
-        assert_eq!(tree.len(), 1);
-        assert_eq!(tree[0].item.title, "Executive Summary");
-        assert_eq!(tree[0].children.len(), 2);
-        assert_eq!(
-            tree[0].children[0].item.title,
-            "Filesystem & Compilation Pipeline"
-        );
-        assert_eq!(tree[0].children[0].children.len(), 1);
-        assert_eq!(
-            tree[0].children[0].children[0].item.title,
-            "Mathematical Formulation"
-        );
-        assert!(tree[0].children[0].children[0].is_current);
-        assert_eq!(tree[0].children[1].item.title, "Functional Subheading");
-
-        // Verify char_offset points accurately to the heading line in the buffer
-        let h2_slice: String = sample
-            .chars()
-            .skip(outline[1].char_offset)
-            .take(5)
-            .collect();
-        assert_eq!(h2_slice, "== Fi");
     }
 }
