@@ -46,4 +46,3 @@ pub fn poll_keyboard_shortcuts(ctx: &Context, collab_active: bool) -> KeyboardSh
 
     outcome
 }
-
