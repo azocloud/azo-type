@@ -194,3 +194,42 @@ fn test_compile_project_extracts_multifile_and_transformed_char_boxes() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_native_engine_compiles_simple_typst_and_exports_pdf() {
+    use super::NativeTypstEngine;
+    use crate::engine::TypstEngine;
+
+    let resources = Arc::new(SharedWorldResources::new());
+    let engine = NativeTypstEngine::new(resources);
+    let meta = engine.metadata();
+    assert!(meta.is_builtin);
+    assert_eq!(meta.version, crate::core::engine::BUILTIN_TYPST_VERSION);
+
+    let mut project = DiskProject::blank();
+    if let Some(buf) = project
+        .buffers
+        .get_mut(&std::path::PathBuf::from("main.typ"))
+    {
+        buf.text = Some("= Integrated Heading\n\nSimple *Typst* document check.".to_string());
+        buf.dirty = true;
+    }
+
+    let snapshot = engine.compile_project(&project, 1.5);
+    assert!(snapshot.compiled_ok);
+    assert!(
+        snapshot.diagnostics.iter().all(|d| !d.is_error),
+        "Unexpected errors: {:?}",
+        snapshot.diagnostics
+    );
+    assert_eq!(snapshot.pages.len(), 1);
+    assert!(!snapshot.pages[0].image.pixels.is_empty());
+    assert!(!snapshot.pages[0].char_boxes.is_empty());
+    assert_eq!(snapshot.outline.len(), 1);
+    assert_eq!(snapshot.outline[0].title, "Integrated Heading");
+
+    let pdf = engine
+        .export_pdf_bytes(&project, &PdfExportConfig::default())
+        .expect("integrated PDF export should succeed");
+    assert!(pdf.starts_with(b"%PDF-"));
+}

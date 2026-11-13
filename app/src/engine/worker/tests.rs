@@ -140,3 +140,78 @@ fn test_json_stdio_worker_compile_and_pdf_roundtrip() {
 
     let _ = fs::remove_dir_all(&work_dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn test_cli_worker_compiles_simple_typst_and_exports_pdf_end_to_end() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let work_dir = std::env::temp_dir().join(format!("azo-mock-cli-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&work_dir).expect("create mock cli dir");
+    let script_path = work_dir.join("typst");
+    let sample_png = work_dir.join("sample.png");
+
+    let img = image::RgbaImage::from_pixel(4, 2, image::Rgba([255, 255, 255, 255]));
+    image::DynamicImage::ImageRgba8(img)
+        .save_with_format(&sample_png, image::ImageFormat::Png)
+        .expect("write sample png");
+
+    let script = format!(
+        r#"#!/bin/sh
+cmd="$1"
+shift
+if [ "$cmd" = "query" ]; then
+  printf '[{{"func":"heading","level":1,"outlined":true,"body":{{"func":"text","text":"Legacy Heading"}}}}]\n'
+  exit 0
+fi
+if [ "$cmd" = "compile" ]; then
+  fmt=""
+  out=""
+  for a in "$@"; do
+    prev="$last"
+    last="$a"
+    if [ "$prev" = "--format" ]; then
+      fmt="$a"
+    fi
+  done
+  out="$last"
+  if [ "$fmt" = "png" ]; then
+    target=$(printf '%s' "$out" | sed 's/{{0p}}/01/')
+    cp "{}" "$target"
+    exit 0
+  elif [ "$fmt" = "pdf" ]; then
+    printf '%%PDF-1.5\n%%mock\n' > "$out"
+    exit 0
+  fi
+fi
+echo "error: unexpected invocation" >&2
+exit 1
+"#,
+        sample_png.display()
+    );
+
+    fs::write(&script_path, script).expect("write mock cli script");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755))
+        .expect("chmod +x mock cli script");
+
+    let engine = ExternalWorkerEngine::new("0.14.2".to_string(), script_path, None);
+    let mut project = DiskProject::blank();
+    if let Some(buf) = project.buffers.get_mut(&PathBuf::from("main.typ")) {
+        buf.text = Some("= Legacy Heading\nSimple typst check.".to_string());
+        buf.dirty = true;
+    }
+
+    let snap = engine.compile_project(&project, 2.0);
+    assert!(snap.compiled_ok, "diags: {:?}", snap.diagnostics);
+    assert_eq!(snap.pages.len(), 1);
+    assert_eq!(snap.pages[0].image.size, [4, 2]);
+    assert_eq!(snap.outline.len(), 1);
+    assert_eq!(snap.outline[0].title, "Legacy Heading");
+
+    let pdf = engine
+        .export_pdf_bytes(&project, &PdfExportConfig::default())
+        .expect("export pdf via mock cli");
+    assert!(pdf.starts_with(b"%PDF-1.5"));
+
+    let _ = fs::remove_dir_all(&work_dir);
+}
