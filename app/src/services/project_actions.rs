@@ -5,8 +5,10 @@ use std::sync::mpsc::Sender;
 
 use egui::Context;
 
-use crate::collab::session::{CollabSessionHandle, UiToSessionCmd};
-use crate::platform::dialogs::spawn_save_file_dialog;
+use crate::collab::doc::CharSelection;
+use crate::collab::session::{CollabSessionHandle, SessionToUiEvent, UiToSessionCmd};
+use crate::collab::ui::CollabUiState;
+use crate::platform::dialogs::{spawn_open_folder_dialog, spawn_save_file_dialog};
 use crate::project::DiskProject;
 
 /// Creates `new_file_str` on disk (or in memory) and notifies peers when P2P collab is active.
@@ -166,4 +168,120 @@ pub fn save_all_project_files(project: &mut DiskProject) -> (bool, String) {
             rust_i18n::t!("app.status_save_error", error = e.to_string()).to_string(),
         ),
     }
+}
+
+/// Replaces `project` with the folder at `path`, leaving any active collab session.
+///
+/// Returns `(opened_ok, status_notice)`.
+pub fn open_picked_folder(
+    path: &Path,
+    show_hidden_files: bool,
+    collab_active: bool,
+    collab_session: &CollabSessionHandle,
+    project: &mut DiskProject,
+) -> (bool, String) {
+    if collab_active {
+        collab_session.send(UiToSessionCmd::LeaveSession);
+    }
+    match DiskProject::open_folder(path, show_hidden_files) {
+        Ok(proj) => {
+            let name = proj.project_name.clone();
+            let root_str = proj.root_dir.display().to_string();
+            *project = proj;
+            (
+                true,
+                rust_i18n::t!(
+                    "app.status_opened_folder",
+                    name = name.as_str(),
+                    path = root_str
+                )
+                .to_string(),
+            )
+        }
+        Err(err) => (
+            false,
+            rust_i18n::t!("app.status_cannot_open_folder", error = err.to_string()).to_string(),
+        ),
+    }
+}
+
+/// Drains pending P2P collaboration actor events onto UI and project state.
+///
+/// Returns `(need_compile, optional_status_notice)`.
+pub fn poll_collab_session_events(
+    collab_session: &CollabSessionHandle,
+    collab_ui: &mut CollabUiState,
+    project: &mut DiskProject,
+    pending_cursor_restore: &mut Option<CharSelection>,
+) -> (bool, Option<String>) {
+    let mut need_compile = false;
+    let mut status_notice = None;
+    while let Some(ev) = collab_session.try_recv() {
+        match ev {
+            SessionToUiEvent::SessionStarted {
+                is_host,
+                ticket_str,
+                local_endpoint_id,
+                files,
+            } => {
+                collab_ui.on_session_started(is_host, ticket_str, local_endpoint_id);
+                if !files.is_empty() {
+                    project.sync_from_crdt_files(&files);
+                    need_compile = true;
+                }
+            }
+            SessionToUiEvent::SessionStopped { reason } => {
+                collab_ui.reset_session();
+                collab_ui.is_host = false;
+                collab_ui.status_banner = Some(reason.clone());
+                status_notice = Some(reason);
+            }
+            SessionToUiEvent::PeerListChanged { peers } => collab_ui.peers = peers,
+            SessionToUiEvent::RemoteFilesUpdated {
+                files,
+                disk_updated_paths: _,
+                preserved_selection,
+            } => {
+                project.sync_from_crdt_files(&files);
+                if let Some(sel) = preserved_selection {
+                    *pending_cursor_restore = Some(sel);
+                }
+                need_compile = true;
+            }
+            SessionToUiEvent::RemotePresenceUpdated { presences } => {
+                collab_ui.remote_presences = presences;
+            }
+            SessionToUiEvent::StatusNotice { message } => {
+                collab_ui.status_banner = Some(message.clone());
+                status_notice = Some(message);
+            }
+            SessionToUiEvent::CollabError { message } => {
+                collab_ui.last_error = Some(message.clone());
+                status_notice = Some(format!("Collab error: {message}"));
+            }
+        }
+    }
+    (need_compile, status_notice)
+}
+
+/// Spawns an OS folder picker rooted at `project.root_dir` (or cwd for blank projects).
+pub fn spawn_project_folder_picker<E: Send + 'static>(
+    ctx: &Context,
+    project: &DiskProject,
+    io_tx: Sender<E>,
+    make_event: fn(PathBuf) -> E,
+) {
+    let ctx_clone = ctx.clone();
+    let start = if project.has_disk_backing() {
+        project.root_dir.clone()
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    };
+    spawn_open_folder_dialog(
+        &start,
+        move |p| {
+            let _ = io_tx.send(make_event(p));
+        },
+        move || ctx_clone.request_repaint(),
+    );
 }
