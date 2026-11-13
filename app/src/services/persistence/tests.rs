@@ -48,6 +48,13 @@ fn test_settings_persist_and_reload_roundtrip_across_restart() {
         preview_pan_mode: true,
         user_name: "Tester".to_string(),
         user_color: [12, 34, 56],
+        spell_check_enabled: true,
+        auto_spell_check: true,
+        grammar_check_enabled: false,
+        spell_check_debounce_ms: 500,
+        spell_check_language: "de".to_string(),
+        user_dictionaries: Vec::new(),
+        ignored_words: vec!["Azo".to_string()],
     };
 
     let saved = PersistedAppState {

@@ -309,6 +309,7 @@ pub fn render_settings_dialog(
                         t!("settings.preview_pan_mode_label"),
                     );
                 }
+                SettingsTab::SpellAndGrammar => {}
             }
 
             ui.add_space(14.0);

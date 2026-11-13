@@ -1,12 +1,25 @@
 //! IDE user preferences, configuration defaults, and settings dialog state.
 
 use crate::core::engine::BUILTIN_TYPST_VERSION;
+use crate::core::spellcheck::UserDictionaryEntry;
 
 #[cfg(test)]
 mod tests;
 
 fn default_typst_version() -> String {
     BUILTIN_TYPST_VERSION.to_string()
+}
+
+fn default_spell_check_language() -> String {
+    "auto".to_string()
+}
+
+fn default_spell_check_debounce_ms() -> u64 {
+    450
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Active tab within the Settings sub-window.
@@ -18,6 +31,8 @@ pub enum SettingsTab {
     EditorAndDisk,
     /// Typst compiler and preview rendering settings.
     CompilerAndPreview,
+    /// Offline spellchecking, grammar checking, and dictionary management settings.
+    SpellAndGrammar,
 }
 
 /// User color theme selection supporting explicit modes and OS tracking.
@@ -85,6 +100,25 @@ pub struct IdeSettings {
     pub user_name: String,
     /// RGB badge color advertised to peers during collaborative editing.
     pub user_color: [u8; 3],
+    /// Master toggle enabling offline spell & grammar checking (disabled by default).
+    pub spell_check_enabled: bool,
+    /// Whether spell & grammar checking automatically runs as you type (disabled by default).
+    pub auto_spell_check: bool,
+    /// Whether offline grammar/style checks run for Tier-1 languages when checking is active.
+    #[serde(default = "default_true")]
+    pub grammar_check_enabled: bool,
+    /// Debounce interval (in milliseconds) before automatic spell/grammar checking runs.
+    #[serde(default = "default_spell_check_debounce_ms")]
+    pub spell_check_debounce_ms: u64,
+    /// Preferred document checking language (`"auto"` or an ISO code like `"en"`, `"de"`, `"fr"`, `"es"`).
+    #[serde(default = "default_spell_check_language")]
+    pub spell_check_language: String,
+    /// User-installed Tier-2 Hunspell dictionaries (`.aff` + `.dic` paths).
+    #[serde(default)]
+    pub user_dictionaries: Vec<UserDictionaryEntry>,
+    /// Case-sensitive custom words ignored during spellchecking.
+    #[serde(default)]
+    pub ignored_words: Vec<String>,
 }
 
 impl Default for IdeSettings {
@@ -109,6 +143,13 @@ impl Default for IdeSettings {
             preview_pan_mode: false,
             user_name: default_user,
             user_color: [56, 189, 248],
+            spell_check_enabled: false,
+            auto_spell_check: false,
+            grammar_check_enabled: true,
+            spell_check_debounce_ms: default_spell_check_debounce_ms(),
+            spell_check_language: default_spell_check_language(),
+            user_dictionaries: Vec::new(),
+            ignored_words: Vec::new(),
         }
     }
 }
@@ -123,6 +164,7 @@ impl IdeSettings {
             defaults.editor_font_size
         };
         self.debounce_ms = self.debounce_ms.clamp(50, 800);
+        self.spell_check_debounce_ms = self.spell_check_debounce_ms.clamp(150, 2000);
         self.render_dpi_scale = if self.render_dpi_scale.is_finite() {
             self.render_dpi_scale.clamp(1.0, 4.0)
         } else {
@@ -133,6 +175,9 @@ impl IdeSettings {
         }
         if self.typst_version.trim().is_empty() {
             self.typst_version = defaults.typst_version;
+        }
+        if self.spell_check_language.trim().is_empty() {
+            self.spell_check_language = defaults.spell_check_language;
         }
         self
     }

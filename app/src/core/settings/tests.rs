@@ -26,6 +26,13 @@ fn test_default_settings_values() {
     assert!(settings.preview_sync_selection);
     assert!(!settings.preview_pan_mode);
     assert!(!settings.user_name.is_empty());
+    assert!(!settings.spell_check_enabled);
+    assert!(!settings.auto_spell_check);
+    assert!(settings.grammar_check_enabled);
+    assert_eq!(settings.spell_check_debounce_ms, 450);
+    assert_eq!(settings.spell_check_language, "auto");
+    assert!(settings.user_dictionaries.is_empty());
+    assert!(settings.ignored_words.is_empty());
 }
 
 #[test]
@@ -116,6 +123,13 @@ fn test_ide_settings_serde_roundtrip_and_partial_defaults() {
         preview_pan_mode: true,
         user_name: "Alice".to_string(),
         user_color: [10, 20, 30],
+        spell_check_enabled: true,
+        auto_spell_check: true,
+        grammar_check_enabled: false,
+        spell_check_debounce_ms: 600,
+        spell_check_language: "de".to_string(),
+        user_dictionaries: Vec::new(),
+        ignored_words: vec!["Typst".to_string()],
     };
 
     let json = serde_json::to_string(&custom).expect("serialize IdeSettings");
