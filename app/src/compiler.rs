@@ -1,5 +1,6 @@
 //! Incremental Typst document compiler, rasterizer, PDF exporter, and diagnostic collector.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -9,13 +10,17 @@ use egui::{ColorImage, Context, TextureHandle, TextureOptions};
 use typst::diag::{Severity, SourceDiagnostic};
 use typst::foundations::{Datetime, NativeElement, StyleChain};
 use typst::introspection::Introspector;
+use typst::layout::{Abs, Frame, FrameItem, Point, Transform};
 use typst::model::HeadingElem;
+use typst::syntax::{FileId, VirtualRoot};
+use typst::text::TextItem;
 use typst::utils::Scalar;
 use typst::{World, WorldExt};
 use typst_layout::PagedDocument;
 use typst_pdf::{PdfOptions, Timestamp};
 use typst_render::RenderOptions;
 
+use crate::core::diff::normalize_rel_path;
 use crate::project::DiskProject;
 use crate::world::{EditorWorld, SharedWorldResources};
 
@@ -32,12 +37,24 @@ pub struct DiagnosticItem {
     pub hints: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreviewCharBox {
+    pub x_min_pt: f32,
+    pub y_min_pt: f32,
+    pub x_max_pt: f32,
+    pub y_max_pt: f32,
+    pub file: PathBuf,
+    pub char_idx: usize,
+    pub text: String,
+}
+
 #[derive(Clone)]
 pub struct RenderedPageData {
     pub page_number: usize,
     pub width_pt: f32,
     pub height_pt: f32,
     pub image: Arc<ColorImage>,
+    pub char_boxes: Arc<Vec<PreviewCharBox>>,
 }
 
 pub struct RenderedPageTexture {
@@ -45,6 +62,7 @@ pub struct RenderedPageTexture {
     pub width_pt: f32,
     pub height_pt: f32,
     pub texture: TextureHandle,
+    pub char_boxes: Arc<Vec<PreviewCharBox>>,
 }
 
 pub struct CompileSnapshot {
@@ -76,6 +94,7 @@ pub fn compile_project(
         Ok(doc) => {
             let doc_pages = doc.pages();
             let mut rendered_pages = Vec::with_capacity(doc_pages.len());
+            let mut file_cache: HashMap<FileId, Option<(PathBuf, Vec<usize>)>> = HashMap::new();
             let scale = pixel_per_pt.clamp(1.0, 4.0);
             let render_options = RenderOptions {
                 pixel_per_pt: Scalar::new(scale as f64),
@@ -90,11 +109,13 @@ pub fn compile_project(
                     [pixmap.width() as usize, pixmap.height() as usize],
                     pixmap.data(),
                 );
+                let char_boxes = Arc::new(extract_page_char_boxes(page, &world, &mut file_cache));
                 rendered_pages.push(RenderedPageData {
                     page_number: idx + 1,
                     width_pt,
                     height_pt,
                     image: Arc::new(color_image),
+                    char_boxes,
                 });
             }
             let compiled_outline = extract_compiled_outline(&world, &doc);
@@ -286,9 +307,170 @@ pub fn upload_page_textures(ctx: &Context, pages: &[RenderedPageData]) -> Vec<Re
                 width_pt: p.width_pt,
                 height_pt: p.height_pt,
                 texture,
+                char_boxes: Arc::clone(&p.char_boxes),
             }
         })
         .collect()
+}
+
+/// Builds an O(1) UTF-8 byte-offset to `char` index lookup table of length `text.len() + 1`.
+pub(crate) fn build_byte_to_char_table(text: &str) -> Vec<usize> {
+    let mut table = vec![0usize; text.len() + 1];
+    let mut char_idx = 0usize;
+    for (byte_idx, ch) in text.char_indices() {
+        let end = byte_idx + ch.len_utf8();
+        for slot in &mut table[byte_idx..end] {
+            *slot = char_idx;
+        }
+        char_idx += 1;
+    }
+    table[text.len()] = char_idx;
+    table
+}
+
+fn extract_page_char_boxes(
+    page: &typst_layout::Page,
+    world: &EditorWorld,
+    file_cache: &mut HashMap<FileId, Option<(PathBuf, Vec<usize>)>>,
+) -> Vec<PreviewCharBox> {
+    let mut out = Vec::new();
+    collect_frame_char_boxes(
+        &page.frame,
+        Transform::identity(),
+        world,
+        file_cache,
+        &mut out,
+    );
+    out
+}
+
+fn collect_frame_char_boxes(
+    frame: &Frame,
+    transform: Transform,
+    world: &EditorWorld,
+    file_cache: &mut HashMap<FileId, Option<(PathBuf, Vec<usize>)>>,
+    out: &mut Vec<PreviewCharBox>,
+) {
+    for (pos, item) in frame.items() {
+        match item {
+            FrameItem::Group(group) => {
+                let child_transform = transform
+                    .pre_concat(Transform::translate(pos.x, pos.y))
+                    .pre_concat(group.transform);
+                collect_frame_char_boxes(&group.frame, child_transform, world, file_cache, out);
+            }
+            FrameItem::Text(text) => {
+                let text_transform = transform.pre_concat(Transform::translate(pos.x, pos.y));
+                collect_text_char_boxes(text, text_transform, world, file_cache, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_text_char_boxes(
+    text: &TextItem,
+    text_transform: Transform,
+    world: &EditorWorld,
+    file_cache: &mut HashMap<FileId, Option<(PathBuf, Vec<usize>)>>,
+    out: &mut Vec<PreviewCharBox>,
+) {
+    let metrics = text.font.metrics();
+    let ascender = metrics.ascender.at(text.size);
+    let descender = metrics.descender.at(text.size);
+    let above = if ascender > Abs::zero() {
+        ascender
+    } else {
+        text.size * 0.8
+    };
+    let below = if descender < Abs::zero() {
+        -descender
+    } else {
+        text.size * 0.2
+    };
+
+    let mut cursor_x = Abs::zero();
+    let mut cursor_y = Abs::zero();
+    let mut last_range: Option<std::ops::Range<usize>> = None;
+
+    for glyph in &text.glyphs {
+        let gx = cursor_x + glyph.x_offset.at(text.size);
+        let gy = cursor_y + glyph.y_offset.at(text.size);
+        let x_adv = glyph.x_advance.at(text.size);
+        cursor_x += x_adv;
+        cursor_y += glyph.y_advance.at(text.size);
+
+        let (span, span_offset) = glyph.span;
+        let Some(id) = span.id() else {
+            continue;
+        };
+        if !matches!(id.root(), VirtualRoot::Project) {
+            continue;
+        }
+
+        let cached = file_cache.entry(id).or_insert_with(|| {
+            let source = world.source(id).ok()?;
+            let raw_path = world.display_path_for_id(id);
+            let norm = normalize_rel_path(&raw_path.to_string_lossy());
+            let file = PathBuf::from(norm);
+            let byte_to_char = build_byte_to_char_table(source.text());
+            Some((file, byte_to_char))
+        });
+        let Some((file, byte_to_char)) = cached.as_ref() else {
+            continue;
+        };
+
+        let Some(range) = world.range(span) else {
+            continue;
+        };
+        let max_byte = byte_to_char.len().saturating_sub(1);
+        let byte_offset = (range.start + span_offset as usize).min(max_byte);
+        let char_idx = byte_to_char[byte_offset];
+
+        let baseline_y = -gy;
+        let y0 = baseline_y - above;
+        let y1 = baseline_y + below;
+        let x0 = gx;
+        let x1 = gx + x_adv;
+
+        let corners = [
+            Point::new(x0, y0).transform(text_transform),
+            Point::new(x1, y0).transform(text_transform),
+            Point::new(x0, y1).transform(text_transform),
+            Point::new(x1, y1).transform(text_transform),
+        ];
+
+        let mut x_min_pt = f32::INFINITY;
+        let mut y_min_pt = f32::INFINITY;
+        let mut x_max_pt = f32::NEG_INFINITY;
+        let mut y_max_pt = f32::NEG_INFINITY;
+        for c in corners {
+            let cx = c.x.to_pt() as f32;
+            let cy = c.y.to_pt() as f32;
+            x_min_pt = x_min_pt.min(cx);
+            y_min_pt = y_min_pt.min(cy);
+            x_max_pt = x_max_pt.max(cx);
+            y_max_pt = y_max_pt.max(cy);
+        }
+
+        let g_range = glyph.range();
+        let glyph_text = if last_range.as_ref() == Some(&g_range) {
+            String::new()
+        } else {
+            text.text.get(g_range.clone()).unwrap_or("").to_string()
+        };
+        last_range = Some(g_range);
+
+        out.push(PreviewCharBox {
+            x_min_pt,
+            y_min_pt,
+            x_max_pt,
+            y_max_pt,
+            file: file.clone(),
+            char_idx,
+            text: glyph_text,
+        });
+    }
 }
 
 #[cfg(test)]
