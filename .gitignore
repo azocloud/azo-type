@@ -12,3 +12,9 @@ pinned/
 
 # Random
 sample-project/
+
+# Test Coverage & LLVM Profiling Artifacts
+coverage/
+lcov.info
+*.profraw
+*.profdata
