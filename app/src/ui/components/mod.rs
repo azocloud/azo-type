@@ -1,5 +1,6 @@
 //! UI reusable panels, controls, and components.
 
+pub mod bottom_panel;
 pub mod editor;
 pub mod editor_actions;
 pub mod menu_bar;
@@ -9,6 +10,10 @@ pub mod sidebar;
 pub mod split_divider;
 pub mod status_bar;
 
+pub use bottom_panel::{
+    diagnostic_char_offset, render_bottom_panel, BottomPanelOutput, BottomPanelParams,
+    BottomPanelState, BottomPanelTab,
+};
 pub use editor::{render_editor_pane, EditorPaneOutput, EditorPaneParams};
 pub use menu_bar::{render_desktop_menu_bar, EditorContextAction, MenuBarOutput, MenuBarParams};
 pub use preview::{

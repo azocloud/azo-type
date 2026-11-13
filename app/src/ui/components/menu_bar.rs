@@ -39,6 +39,7 @@ pub struct MenuBarOutput {
 pub struct MenuBarParams<'a> {
     pub dark_mode: bool,
     pub show_sidebar: bool,
+    pub show_bottom_panel: bool,
     pub word_wrap: bool,
     pub project_root: &'a Path,
     pub active_file: &'a Path,
@@ -168,6 +169,15 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                         output.pending_action = Some(MenuAction::ToggleSidebar);
                         ui.close_menu();
                     }
+                    let bottom_panel_txt = if params.show_bottom_panel {
+                        t!("menu.hide_bottom_panel")
+                    } else {
+                        t!("menu.show_bottom_panel")
+                    };
+                    if ui.button(bottom_panel_txt).clicked() {
+                        output.pending_action = Some(MenuAction::ToggleBottomPanel);
+                        ui.close_menu();
+                    }
                     let wrap_txt = if params.word_wrap {
                         t!("menu.disable_word_wrap")
                     } else {
@@ -228,6 +238,17 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                 });
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui
+                        .selectable_label(
+                            params.show_bottom_panel,
+                            RichText::new(t!("menu.bottom_panel_toggle")).small().strong(),
+                        )
+                        .on_hover_text(t!("menu.bottom_panel_tooltip"))
+                        .clicked()
+                    {
+                        output.pending_action = Some(MenuAction::ToggleBottomPanel);
+                    }
+                    ui.separator();
                     ui.label(
                         RichText::new(format!(
                             "{}: {}",

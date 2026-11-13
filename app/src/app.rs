@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
-use egui::{Align, Context, CornerRadius, Frame, Key, Layout, Margin, Modifiers, Ui};
+use egui::{Align, Context, CornerRadius, Frame, Layout, Margin, Ui};
 
 use crate::collab::awareness::PeerPresence;
 use crate::collab::doc::CharSelection;
@@ -44,6 +44,7 @@ pub struct AzoTypeApp {
     pub show_sidebar: bool,
     pub sidebar_split_ratio: f32,
     pub editor_split_ratio: f32,
+    pub bottom_panel: crate::ui::components::BottomPanelState,
     pub zoom: PreviewZoom,
     pub show_settings_window: bool,
     pub settings_tab: SettingsTab,
@@ -163,6 +164,7 @@ impl AzoTypeApp {
             show_sidebar: true,
             sidebar_split_ratio: 0.42,
             editor_split_ratio: 0.5,
+            bottom_panel: crate::ui::components::BottomPanelState::default(),
             zoom,
             show_settings_window: false,
             settings_tab: SettingsTab::Appearance,
@@ -222,56 +224,25 @@ impl AzoTypeApp {
                 }
             }
             MenuAction::SaveFile => {
-                if !self.project.has_disk_backing() {
-                    let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                    let f = &self.project.active_file;
-                    let name = f.file_name().and_then(|n| n.to_str()).unwrap_or("main.typ");
-                    let data = self.project.read_file_bytes(f).unwrap_or_default();
-                    let tx = self.io_tx.clone();
-                    let ctx_c = ctx.clone();
-                    crate::platform::dialogs::spawn_save_file_dialog(
-                        &start,
-                        name,
-                        "Typst File (*.typ)",
-                        "typ",
-                        data,
-                        move |res| {
-                            let _ = tx.send(match res {
-                                Ok(p) => IoEvent::FileSavedAs(p),
-                                Err(e) => IoEvent::StatusMessage(
-                                    rust_i18n::t!("app.status_save_error", error = e.to_string())
-                                        .to_string(),
-                                ),
-                            });
-                        },
-                        move || ctx_c.request_repaint(),
-                    );
-                } else {
-                    self.status_notice = match self.project.save_active_file() {
-                        Ok(p) => {
-                            self.trigger_compile_now(ctx);
-                            rust_i18n::t!("app.status_saved_file", path = p.display().to_string())
-                                .to_string()
-                        }
-                        Err(e) => rust_i18n::t!("app.status_save_error", error = e.to_string())
-                            .to_string(),
-                    };
+                if let Some((ok, notice)) = crate::services::save_active_or_prompt(
+                    ctx,
+                    &mut self.project,
+                    self.io_tx.clone(),
+                    IoEvent::FileSavedAs,
+                    IoEvent::StatusMessage,
+                ) {
+                    self.status_notice = notice;
+                    if ok {
+                        self.trigger_compile_now(ctx);
+                    }
                 }
             }
             MenuAction::SaveAll => {
-                self.status_notice = if !self.project.has_disk_backing() {
-                    rust_i18n::t!("app.status_unsaved_warning").to_string()
-                } else {
-                    match self.project.save_all_files() {
-                        Ok(n) => {
-                            self.trigger_compile_now(ctx);
-                            let p = self.project.root_dir.display().to_string();
-                            rust_i18n::t!("app.status_saved_all", count = n, path = p).to_string()
-                        }
-                        Err(e) => rust_i18n::t!("app.status_save_error", error = e.to_string())
-                            .to_string(),
-                    }
-                };
+                let (ok, notice) = crate::services::save_all_project_files(&mut self.project);
+                self.status_notice = notice;
+                if ok {
+                    self.trigger_compile_now(ctx);
+                }
             }
             MenuAction::ExportPdf => {
                 self.show_export_pdf_dialog = true;
@@ -280,6 +251,7 @@ impl AzoTypeApp {
             MenuAction::OpenSettings => self.show_settings_window = true,
             MenuAction::OpenCollab => self.collab_ui.show_window = true,
             MenuAction::ToggleSidebar => self.show_sidebar = !self.show_sidebar,
+            MenuAction::ToggleBottomPanel => self.bottom_panel.toggle_visible(),
             MenuAction::ToggleWordWrap => self.settings.word_wrap = !self.settings.word_wrap,
             MenuAction::ToggleTheme => {
                 let next_dark = !self.settings.dark_mode;
@@ -330,6 +302,12 @@ impl AzoTypeApp {
         if snapshot.compiled_ok {
             self.compiled_outline = snapshot.outline;
         }
+        let errs = self.diagnostics.iter().filter(|d| d.is_error).count();
+        let warns = self.diagnostics.len().saturating_sub(errs);
+        self.bottom_panel.push_console_log(format!(
+            "[compile] {} ms | {errs} error(s), {warns} warning(s)",
+            snapshot.duration_ms.round() as u64
+        ));
     }
 
     fn poll_channels(&mut self, ctx: &Context) {
@@ -449,41 +427,17 @@ impl AzoTypeApp {
     }
 
     fn handle_keyboard_shortcuts(&mut self, ctx: &Context) {
-        let mut triggered = None;
-        let collab_active = self.collab_ui.is_active;
-        let active_rel = self.project.active_file.clone();
-
-        ctx.input_mut(|i| {
-            let shortcuts = [
-                (Modifiers::COMMAND, Key::Comma, MenuAction::OpenSettings),
-                (Modifiers::COMMAND, Key::S, MenuAction::SaveFile),
-                (Modifiers::COMMAND, Key::O, MenuAction::OpenFolder),
-                (Modifiers::COMMAND, Key::N, MenuAction::NewFile),
-                (Modifiers::COMMAND, Key::B, MenuAction::ToggleSidebar),
-                (Modifiers::COMMAND, Key::E, MenuAction::ExportPdf),
-                (Modifiers::NONE, Key::F5, MenuAction::RescanFolder),
-            ];
-            for (m, k, act) in shortcuts {
-                if i.consume_key(m, k) {
-                    triggered = Some(act);
-                    return;
-                }
-            }
-            if collab_active {
-                if i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
-                    || i.consume_key(Modifiers::COMMAND, Key::Y)
-                {
-                    self.collab_session.send(UiToSessionCmd::LocalRedo {
-                        rel_path: active_rel.clone(),
-                    });
-                } else if i.consume_key(Modifiers::COMMAND, Key::Z) {
-                    self.collab_session.send(UiToSessionCmd::LocalUndo {
-                        rel_path: active_rel.clone(),
-                    });
-                }
-            }
-        });
-        if let Some(action) = triggered {
+        let outcome = crate::platform::poll_keyboard_shortcuts(ctx, self.collab_ui.is_active);
+        if outcome.collab_redo {
+            self.collab_session.send(UiToSessionCmd::LocalRedo {
+                rel_path: self.project.active_file.clone(),
+            });
+        } else if outcome.collab_undo {
+            self.collab_session.send(UiToSessionCmd::LocalUndo {
+                rel_path: self.project.active_file.clone(),
+            });
+        }
+        if let Some(action) = outcome.menu_action {
             self.dispatch_menu_action(ctx, action);
         }
     }
@@ -573,6 +527,7 @@ impl AzoTypeApp {
             crate::ui::components::MenuBarParams {
                 dark_mode: self.settings.dark_mode,
                 show_sidebar: self.show_sidebar,
+                show_bottom_panel: self.bottom_panel.visible,
                 word_wrap: self.settings.word_wrap,
                 project_root: &self.project.root_dir,
                 active_file: &self.project.active_file,
@@ -606,25 +561,15 @@ impl AzoTypeApp {
             &mut self.new_file_name,
             self.settings.dark_mode,
         ) {
-            match self.project.create_file_on_disk(&new_file_str) {
-                Ok(rel) => {
-                    let initial_text = self.project.read_source_text(&rel).unwrap_or_default();
-                    if self.collab_ui.is_active {
-                        self.collab_session.send(UiToSessionCmd::LocalFileCreated {
-                            rel_path: rel.clone(),
-                            initial_text,
-                        });
-                    }
-                    let disk_p = self.project.root_dir.join(&rel).display().to_string();
-                    self.status_notice =
-                        rust_i18n::t!("app.status_created_file", path = disk_p).to_string();
-                    self.trigger_compile_now(ctx);
-                }
-                Err(e) => {
-                    self.status_notice =
-                        rust_i18n::t!("app.status_create_failed", error = e.to_string())
-                            .to_string();
-                }
+            let (ok, notice) = crate::services::create_project_file(
+                &mut self.project,
+                self.collab_ui.is_active,
+                &self.collab_session,
+                &new_file_str,
+            );
+            self.status_notice = notice;
+            if ok {
+                self.trigger_compile_now(ctx);
             }
         }
 
@@ -634,26 +579,16 @@ impl AzoTypeApp {
             &mut self.rename_file_input,
             self.settings.dark_mode,
         ) {
-            match self.project.rename_file_on_disk(&old_rel, &new_str) {
-                Ok(new_rel) => {
-                    if self.collab_ui.is_active {
-                        self.collab_session.send(UiToSessionCmd::LocalFileRenamed {
-                            old_rel_path: old_rel.clone(),
-                            new_rel_path: new_rel.clone(),
-                        });
-                    }
-                    let old_s = old_rel.display().to_string();
-                    let new_s = new_rel.display().to_string();
-                    self.status_notice =
-                        rust_i18n::t!("app.status_renamed_file", old = old_s, new = new_s)
-                            .to_string();
-                    self.trigger_compile_now(ctx);
-                }
-                Err(e) => {
-                    self.status_notice =
-                        rust_i18n::t!("app.status_rename_failed", error = e.to_string())
-                            .to_string();
-                }
+            let (ok, notice) = crate::services::rename_project_file(
+                &mut self.project,
+                self.collab_ui.is_active,
+                &self.collab_session,
+                &old_rel,
+                &new_str,
+            );
+            self.status_notice = notice;
+            if ok {
+                self.trigger_compile_now(ctx);
             }
         }
     }
@@ -806,23 +741,15 @@ impl AzoTypeApp {
             self.rename_target_file = Some(rel_to_rename);
         }
         if let Some(rel_to_delete) = output.delete_req {
-            match self.project.delete_file_on_disk(&rel_to_delete) {
-                Ok(()) => {
-                    if self.collab_ui.is_active {
-                        self.collab_session.send(UiToSessionCmd::LocalFileDeleted {
-                            rel_path: rel_to_delete.clone(),
-                        });
-                    }
-                    let del_s = rel_to_delete.display().to_string();
-                    self.status_notice =
-                        rust_i18n::t!("app.status_deleted_file", path = del_s).to_string();
-                    self.trigger_compile_now(ctx);
-                }
-                Err(e) => {
-                    self.status_notice =
-                        rust_i18n::t!("app.status_delete_failed", error = e.to_string())
-                            .to_string();
-                }
+            let (ok, notice) = crate::services::delete_project_file(
+                &mut self.project,
+                self.collab_ui.is_active,
+                &self.collab_session,
+                &rel_to_delete,
+            );
+            self.status_notice = notice;
+            if ok {
+                self.trigger_compile_now(ctx);
             }
         }
     }
@@ -973,6 +900,49 @@ impl AzoTypeApp {
             self.clipboard_fallback = copied;
         }
     }
+    fn render_editor_preview_split(&mut self, ctx: &Context, ui: &mut Ui) {
+        let total_rect = ui.available_rect_before_wrap();
+        let split = crate::ui::components::compute_vertical_split(
+            total_rect,
+            4.0,
+            220.0,
+            340.0,
+            self.editor_split_ratio,
+        );
+
+        let mut left_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(split.first_rect)
+                .layout(Layout::top_down(Align::Min)),
+        );
+        self.render_editor_pane(ctx, &mut left_ui);
+
+        let mut right_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(split.second_rect)
+                .layout(Layout::top_down(Align::Min)),
+        );
+        self.render_preview_pane(ctx, &mut right_ui);
+
+        crate::ui::components::render_vertical_split_divider(
+            ctx,
+            ui,
+            &ThemePalette::for_mode(self.settings.dark_mode),
+            total_rect,
+            &split,
+            &mut self.editor_split_ratio,
+        );
+    }
+
+    fn jump_to_diagnostic(&mut self, ctx: &Context, diag: crate::engine::DiagnosticItem) {
+        let char_offset = crate::ui::components::diagnostic_char_offset(&self.project, &diag);
+        self.navigate_editor_to_source(
+            ctx,
+            &diag.file,
+            CharSelection::caret(char_offset),
+            char_offset,
+        );
+    }
 }
 
 impl eframe::App for AzoTypeApp {
@@ -1021,40 +991,59 @@ impl eframe::App for AzoTypeApp {
                     .inner_margin(Margin::ZERO),
             )
             .show(ctx, |ui| {
-                let total_rect = ui.available_rect_before_wrap();
-                let split = crate::ui::components::compute_vertical_split(
-                    total_rect,
-                    4.0,
-                    180.0,
-                    self.editor_split_ratio,
-                );
+                if !self.bottom_panel.visible {
+                    self.render_editor_preview_split(ctx, ui);
+                } else {
+                    let total_rect = ui.available_rect_before_wrap();
+                    let content_split = crate::ui::components::compute_horizontal_split(
+                        total_rect,
+                        6.0,
+                        160.0,
+                        110.0,
+                        self.bottom_panel.split_ratio,
+                    );
 
-                // Left Pane: Code Editor
-                let mut left_ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(split.first_rect)
-                        .layout(Layout::top_down(Align::Min)),
-                );
-                self.render_editor_pane(ctx, &mut left_ui);
+                    let mut top_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(content_split.first_rect)
+                            .layout(Layout::top_down(Align::Min)),
+                    );
+                    self.render_editor_preview_split(ctx, &mut top_ui);
 
-                // Right Pane: Live Document Preview
-                let mut right_ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(split.second_rect)
-                        .layout(Layout::top_down(Align::Min)),
-                );
-                self.render_preview_pane(ctx, &mut right_ui);
+                    let mut bottom_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(content_split.second_rect)
+                            .layout(Layout::top_down(Align::Min)),
+                    );
+                    let panel_out = crate::ui::components::render_bottom_panel(
+                        &mut bottom_ui,
+                        crate::ui::components::BottomPanelParams {
+                            dark_mode: self.settings.dark_mode,
+                            state: &mut self.bottom_panel,
+                            diagnostics: &self.diagnostics,
+                            active_file: &self.project.active_file,
+                            language: &self.language,
+                        },
+                    );
+                    if panel_out.close_requested {
+                        self.bottom_panel.visible = false;
+                    }
+                    if let Some(diag) = panel_out.open_diagnostic {
+                        self.jump_to_diagnostic(ctx, diag);
+                    }
 
-                // Interactive Resizable Vertical Split Divider between Editor and Live Preview
-                crate::ui::components::render_vertical_split_divider(
-                    ctx,
-                    ui,
-                    &palette,
-                    total_rect,
-                    split.avail_span,
-                    split.divider_center,
-                    &mut self.editor_split_ratio,
-                );
+                    crate::ui::components::render_horizontal_split_divider(
+                        ctx,
+                        ui,
+                        &palette,
+                        "content_bottom_panel_split_divider",
+                        "Drag to resize Workspace and Bottom Panel (double-click to reset)",
+                        total_rect,
+                        &content_split,
+                        0.72,
+                        &mut self.bottom_panel.split_ratio,
+                    );
+                }
             });
 
         // Native OS Sub-Windows (Settings, Export PDF, New/Rename File, P2P Collaboration)

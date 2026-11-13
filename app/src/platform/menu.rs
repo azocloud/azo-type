@@ -15,6 +15,7 @@ pub enum MenuAction {
     OpenSettings,
     OpenCollab,
     ToggleSidebar,
+    ToggleBottomPanel,
     ToggleWordWrap,
     ToggleTheme,
     ZoomIn,
@@ -58,6 +59,7 @@ mod macos {
         id_collab: MenuId,
         id_quit: MenuId,
         id_toggle_sidebar: MenuId,
+        id_toggle_bottom_panel: MenuId,
         id_toggle_theme: MenuId,
         id_zoom_in: MenuId,
         id_zoom_out: MenuId,
@@ -95,12 +97,14 @@ mod macos {
 
             let view_menu = Submenu::new("View", true);
             let item_toggle_sidebar = MenuItem::new("Toggle Project File Tree", true, None);
+            let item_toggle_bottom_panel = MenuItem::new("Toggle Bottom Panel", true, None);
             let item_toggle_theme = MenuItem::new("Switch Theme (Dark / Light)", true, None);
             let item_zoom_in = MenuItem::new("Zoom In (+)", true, None);
             let item_zoom_out = MenuItem::new("Zoom Out (-)", true, None);
             let item_zoom_reset = MenuItem::new("Reset Zoom (100%)", true, None);
             let _ = view_menu.append_items(&[
                 &item_toggle_sidebar,
+                &item_toggle_bottom_panel,
                 &item_toggle_theme,
                 &PredefinedMenuItem::separator(),
                 &item_zoom_in,
@@ -132,6 +136,7 @@ mod macos {
                 id_collab: item_collab.id().clone(),
                 id_quit: item_quit.id().clone(),
                 id_toggle_sidebar: item_toggle_sidebar.id().clone(),
+                id_toggle_bottom_panel: item_toggle_bottom_panel.id().clone(),
                 id_toggle_theme: item_toggle_theme.id().clone(),
                 id_zoom_in: item_zoom_in.id().clone(),
                 id_zoom_out: item_zoom_out.id().clone(),
@@ -163,6 +168,8 @@ mod macos {
                 Some(MenuAction::Quit)
             } else if *id == self.id_toggle_sidebar {
                 Some(MenuAction::ToggleSidebar)
+            } else if *id == self.id_toggle_bottom_panel {
+                Some(MenuAction::ToggleBottomPanel)
             } else if *id == self.id_toggle_theme {
                 Some(MenuAction::ToggleTheme)
             } else if *id == self.id_zoom_in {
