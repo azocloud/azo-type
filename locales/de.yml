@@ -198,7 +198,6 @@ settings:
   preview_pan_mode_label: "Verschiebe-Modus: Textauswahl in der Vorschau deaktivieren und Ansicht per Ziehen verschieben"
   status_diagnostics_summary: "Kompilierungsstatus: %{errors} Fehler, %{warnings} Warnung(en) in %{duration} ms"
   reset_defaults: "Auf Standard zurücksetzen"
-  close_btn: "Einstellungen schließen"
 export_pdf:
   window_title: "PDF exportieren"
   target_document: "Zieldokument:"
@@ -257,4 +256,3 @@ collab:
   waiting_peers: "Warte auf Beitritt von Teilnehmern mit dem Einladungsticket..."
   offline_mode: "Offline-Modus — lokale Dateien funktionieren ohne Netzwerk."
   editing_file: "bearbeitet %{path}"
-  close_btn: "Schließen"

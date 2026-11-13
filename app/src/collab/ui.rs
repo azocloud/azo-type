@@ -438,15 +438,6 @@ pub fn render_collaboration_window(
                             }
                         });
                 });
-
-            ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button(t!("collab.close_btn")).clicked() {
-                        close_clicked = true;
-                    }
-                });
-            });
         };
 
         if class == ViewportClass::Embedded {

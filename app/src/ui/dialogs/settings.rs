@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use egui::{
-    Align, CentralPanel, Context, DragValue, Frame, Layout, Margin, RichText, Ui, ViewportBuilder,
-    ViewportClass, ViewportId, Window,
+    CentralPanel, Context, DragValue, Frame, Margin, RichText, Ui, ViewportBuilder, ViewportClass,
+    ViewportId, Window,
 };
 use rust_i18n::t;
 
@@ -41,7 +41,6 @@ pub fn render_settings_dialog(
     }
 
     let mut is_open = *open;
-    let mut close_clicked = false;
     let mut output = SettingsModalOutput::default();
 
     let dark_mode = settings.dark_mode;
@@ -314,26 +313,17 @@ pub fn render_settings_dialog(
 
             ui.add_space(14.0);
             ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button(t!("settings.reset_defaults")).clicked() {
-                    let prev_dark = settings.dark_mode;
-                    *settings = IdeSettings::default();
-                    settings.dark_mode = crate::platform::resolve_effective_dark_mode(
-                        ctx,
-                        settings.theme_preference,
-                    );
-                    if prev_dark != settings.dark_mode {
-                        output.theme_changed = true;
-                    }
-                    output.dpi_changed = true;
-                    output.engine_changed = true;
+            if ui.button(t!("settings.reset_defaults")).clicked() {
+                let prev_dark = settings.dark_mode;
+                *settings = IdeSettings::default();
+                settings.dark_mode =
+                    crate::platform::resolve_effective_dark_mode(ctx, settings.theme_preference);
+                if prev_dark != settings.dark_mode {
+                    output.theme_changed = true;
                 }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button(t!("settings.close_btn")).clicked() {
-                        close_clicked = true;
-                    }
-                });
-            });
+                output.dpi_changed = true;
+                output.engine_changed = true;
+            }
         };
 
         if class == ViewportClass::Embedded {
@@ -359,7 +349,7 @@ pub fn render_settings_dialog(
         }
     });
 
-    *open = is_open && !close_clicked;
+    *open = is_open;
     output
 }
 

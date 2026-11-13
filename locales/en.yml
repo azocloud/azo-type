@@ -198,7 +198,6 @@ settings:
   preview_pan_mode_label: "Hand pan mode: disable preview text selection and drag cursor to pan"
   status_diagnostics_summary: "Compilation Status: %{errors} Error(s), %{warnings} Warning(s) in %{duration} ms"
   reset_defaults: "Reset to Defaults"
-  close_btn: "Close Settings"
 export_pdf:
   window_title: "Export PDF"
   target_document: "Target Document:"
@@ -257,4 +256,3 @@ collab:
   waiting_peers: "Waiting for peers to join using the invite ticket..."
   offline_mode: "Offline mode — local files work normally without network."
   editing_file: "editing %{path}"
-  close_btn: "Close"
