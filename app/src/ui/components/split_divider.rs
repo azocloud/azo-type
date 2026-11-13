@@ -10,28 +10,52 @@ pub struct SplitGeometry {
     pub second_rect: Rect,
     pub divider_center: f32,
     pub avail_span: f32,
+    pub min_ratio: f32,
+    pub max_ratio: f32,
+}
+
+fn clamp_split_span(
+    avail_span: f32,
+    min_first: f32,
+    min_second: f32,
+    ratio: f32,
+) -> (f32, f32, f32) {
+    let min_sum = (min_first + min_second).max(1.0);
+    let scale = if min_sum > avail_span {
+        avail_span / min_sum
+    } else {
+        1.0
+    };
+    let min_f = min_first * scale;
+    let max_f = (avail_span - min_second * scale).max(min_f);
+    let first_len = (avail_span * ratio).clamp(min_f, max_f);
+    let min_ratio = (min_f / avail_span).clamp(0.05, 0.9);
+    let max_ratio = (max_f / avail_span).clamp(min_ratio, 0.95);
+    (first_len, min_ratio, max_ratio)
 }
 
 /// Computes left/right pane rectangles for a vertical split divider inside `total_rect`.
 pub fn compute_vertical_split(
     total_rect: Rect,
     spacing: f32,
-    min_pane_w: f32,
+    min_left_w: f32,
+    min_right_w: f32,
     ratio: f32,
 ) -> SplitGeometry {
     let full_h = total_rect.height();
     let avail_span = (total_rect.width() - spacing).max(200.0);
-    let min_w = min_pane_w.min(avail_span * 0.4);
-    let max_w = (avail_span - min_w).max(min_w);
-    let first_w = (avail_span * ratio).clamp(min_w, max_w);
+    let (first_w, min_ratio, max_ratio) =
+        clamp_split_span(avail_span, min_left_w, min_right_w, ratio);
     SplitGeometry {
         first_rect: Rect::from_min_size(total_rect.min, Vec2::new(first_w, full_h)),
         divider_center: total_rect.min.x + first_w + spacing * 0.5,
         second_rect: Rect::from_min_size(
             Pos2::new(total_rect.min.x + first_w + spacing, total_rect.min.y),
-            Vec2::new((avail_span - first_w).max(min_w), full_h),
+            Vec2::new((avail_span - first_w).max(0.0), full_h),
         ),
         avail_span,
+        min_ratio,
+        max_ratio,
     }
 }
 
@@ -39,22 +63,24 @@ pub fn compute_vertical_split(
 pub fn compute_horizontal_split(
     total_rect: Rect,
     spacing: f32,
-    min_pane_h: f32,
+    min_top_h: f32,
+    min_bottom_h: f32,
     ratio: f32,
 ) -> SplitGeometry {
     let full_w = total_rect.width();
     let avail_span = (total_rect.height() - spacing).max(160.0);
-    let min_h = min_pane_h.min(avail_span * 0.4);
-    let max_h = (avail_span - min_h).max(min_h);
-    let first_h = (avail_span * ratio).clamp(min_h, max_h);
+    let (first_h, min_ratio, max_ratio) =
+        clamp_split_span(avail_span, min_top_h, min_bottom_h, ratio);
     SplitGeometry {
         first_rect: Rect::from_min_size(total_rect.min, Vec2::new(full_w, first_h)),
         divider_center: total_rect.min.y + first_h + spacing * 0.5,
         second_rect: Rect::from_min_size(
             Pos2::new(total_rect.min.x, total_rect.min.y + first_h + spacing),
-            Vec2::new(full_w, (avail_span - first_h).max(min_h)),
+            Vec2::new(full_w, (avail_span - first_h).max(0.0)),
         ),
         avail_span,
+        min_ratio,
+        max_ratio,
     }
 }
 
@@ -74,16 +100,17 @@ fn divider_colors(palette: &ThemePalette, active: bool) -> (Color32, f32, Color3
 }
 
 /// Renders the interactive vertical split divider and updates `split_ratio` on drag or double-click.
+#[allow(clippy::too_many_arguments)]
 pub fn render_vertical_split_divider(
     ctx: &Context,
     ui: &mut Ui,
     palette: &ThemePalette,
     total_rect: Rect,
-    avail_w: f32,
-    div_x: f32,
+    split: &SplitGeometry,
     split_ratio: &mut f32,
 ) {
     let full_h = total_rect.height();
+    let div_x = split.divider_center;
     let divider_hit_rect = Rect::from_center_size(
         Pos2::new(div_x, total_rect.center().y),
         Vec2::new(10.0, full_h),
@@ -100,13 +127,13 @@ pub fn render_vertical_split_divider(
 
     if div_resp.dragged() {
         if let Some(pointer_pos) = ctx.pointer_interact_pos() {
-            let new_ratio = (pointer_pos.x - total_rect.min.x) / avail_w.max(1.0);
-            *split_ratio = new_ratio.clamp(0.15, 0.85);
+            let new_ratio = (pointer_pos.x - total_rect.min.x) / split.avail_span.max(1.0);
+            *split_ratio = new_ratio.clamp(split.min_ratio, split.max_ratio);
             ctx.request_repaint();
         }
     }
     if div_resp.double_clicked() {
-        *split_ratio = 0.5;
+        *split_ratio = (0.5_f32).clamp(split.min_ratio, split.max_ratio);
     }
 
     let div_active = div_resp.hovered() || div_resp.dragged();
@@ -134,17 +161,21 @@ pub fn render_vertical_split_divider(
     ui.advance_cursor_after_rect(total_rect);
 }
 
-/// Renders the interactive horizontal split divider and updates `split_ratio` on drag or double-click.
+/// Renders an interactive horizontal split divider and updates `split_ratio` on drag or double-click.
+#[allow(clippy::too_many_arguments)]
 pub fn render_horizontal_split_divider(
     ctx: &Context,
     ui: &mut Ui,
     palette: &ThemePalette,
+    id_salt: &str,
+    hover_text: &str,
     total_rect: Rect,
-    avail_h: f32,
-    div_y: f32,
+    split: &SplitGeometry,
+    default_ratio: f32,
     split_ratio: &mut f32,
 ) {
     let full_w = total_rect.width();
+    let div_y = split.divider_center;
     let divider_hit_rect = Rect::from_center_size(
         Pos2::new(total_rect.center().x, div_y),
         Vec2::new(full_w, 10.0),
@@ -152,20 +183,20 @@ pub fn render_horizontal_split_divider(
     let div_resp = ui
         .interact(
             divider_hit_rect,
-            ui.id().with("sidebar_tree_outline_split_divider"),
+            ui.id().with(id_salt),
             Sense::click_and_drag(),
         )
-        .on_hover_text("Drag to resize Project Files and Outline panels (double-click to reset)");
+        .on_hover_text(hover_text);
 
     if div_resp.dragged() {
         if let Some(pointer_pos) = ctx.pointer_interact_pos() {
-            let new_ratio = (pointer_pos.y - total_rect.min.y) / avail_h.max(1.0);
-            *split_ratio = new_ratio.clamp(0.15, 0.85);
+            let new_ratio = (pointer_pos.y - total_rect.min.y) / split.avail_span.max(1.0);
+            *split_ratio = new_ratio.clamp(split.min_ratio, split.max_ratio);
             ctx.request_repaint();
         }
     }
     if div_resp.double_clicked() {
-        *split_ratio = 0.42;
+        *split_ratio = default_ratio.clamp(split.min_ratio, split.max_ratio);
     }
 
     let div_active = div_resp.hovered() || div_resp.dragged();

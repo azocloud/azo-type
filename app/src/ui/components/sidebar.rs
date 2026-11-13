@@ -70,6 +70,7 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                 total_rect,
                 8.0,
                 110.0,
+                110.0,
                 *params.sidebar_split_ratio,
             );
 
@@ -237,9 +238,11 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                 ctx,
                 ui,
                 &palette,
+                "sidebar_tree_outline_split_divider",
+                "Drag to resize Project Files and Outline panels (double-click to reset)",
                 total_rect,
-                split.avail_span,
-                split.divider_center,
+                &split,
+                0.42,
                 params.sidebar_split_ratio,
             );
         });

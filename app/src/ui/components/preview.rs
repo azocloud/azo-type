@@ -56,7 +56,7 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
         .iter()
         .map(|p| p.width_pt)
         .fold(0.0_f32, f32::max);
-    let initial_avail_w = (ui.available_width() - 36.0).max(160.0);
+    let initial_avail_w = (ui.available_width() - 48.0).max(160.0);
     let display_scale = params
         .zoom
         .effective_scale_for_viewport(initial_avail_w, max_page_width_pt);
@@ -107,7 +107,7 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
                     }
                 }
 
-                let avail_w = (canvas_rect.width() - 36.0).max(160.0);
+                let avail_w = (canvas_rect.width() - 48.0).max(160.0);
                 let active_scale = params
                     .zoom
                     .effective_scale_for_viewport(avail_w, max_page_width_pt);
@@ -130,7 +130,7 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
                                 );
                             });
                         } else {
-                            let viewport_w = canvas_rect.width().max(160.0);
+                            let viewport_w = ui.available_width().max(160.0);
                             let mut page_rects = Vec::with_capacity(params.page_textures.len());
                             let page_sense = if *params.pan_mode {
                                 Sense::hover()
@@ -142,14 +142,22 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
                                 let display_w = page.width_pt * active_scale;
                                 let display_h = page.height_pt * active_scale;
                                 let page_size = Vec2::new(display_w, display_h);
-                                let side_pad = ((viewport_w - display_w) * 0.5).max(18.0);
+                                let fits_horizontally = display_w <= viewport_w;
+                                let side_pad = if fits_horizontally {
+                                    ((viewport_w - display_w) * 0.5).floor().max(0.0)
+                                } else {
+                                    18.0
+                                };
 
                                 let (rect, response) = ui
                                     .horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 0.0;
                                         ui.add_space(side_pad);
                                         let allocated =
                                             ui.allocate_exact_size(page_size, page_sense);
-                                        ui.add_space(side_pad);
+                                        if !fits_horizontally {
+                                            ui.add_space(side_pad);
+                                        }
                                         allocated
                                     })
                                     .inner;
