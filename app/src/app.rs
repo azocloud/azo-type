@@ -90,6 +90,7 @@ pub struct AzoTypeApp {
     pub screenshot_path: Option<PathBuf>,
     pub frame_count: u32,
     pub screenshot_requested: bool,
+    pub last_persisted_state: crate::services::PersistedAppState,
 }
 
 impl AzoTypeApp {
@@ -99,15 +100,14 @@ impl AzoTypeApp {
         screenshot_path: Option<PathBuf>,
     ) -> Self {
         let resources = Arc::new(SharedWorldResources::new());
-        let mut settings = IdeSettings::default();
-        settings.dark_mode =
-            crate::platform::resolve_effective_dark_mode(&cc.egui_ctx, settings.theme_preference);
-
-        let language = cc
-            .storage
-            .and_then(|s| eframe::get_value::<crate::core::AppSavedState>(s, eframe::APP_KEY))
-            .map(|st| st.language)
-            .unwrap_or_else(|| crate::core::detect_system_locale(&rust_i18n::available_locales!()));
+        let mut persisted =
+            crate::services::load_persisted_state(cc.storage, &rust_i18n::available_locales!());
+        persisted.settings.dark_mode = crate::platform::resolve_effective_dark_mode(
+            &cc.egui_ctx,
+            persisted.settings.theme_preference,
+        );
+        let last_persisted_state = persisted.clone();
+        let (language, settings, zoom) = (persisted.language, persisted.settings, persisted.zoom);
         rust_i18n::set_locale(&language);
 
         let project = initial_folder
@@ -156,7 +156,7 @@ impl AzoTypeApp {
             settings,
             show_sidebar: true,
             editor_split_ratio: 0.5,
-            zoom: PreviewZoom::default(),
+            zoom,
             show_settings_window: false,
             settings_tab: SettingsTab::Appearance,
             show_export_pdf_dialog: false,
@@ -186,6 +186,7 @@ impl AzoTypeApp {
             screenshot_path,
             frame_count: 0,
             screenshot_requested: false,
+            last_persisted_state,
         }
     }
 
@@ -974,7 +975,7 @@ impl AzoTypeApp {
 }
 
 impl eframe::App for AzoTypeApp {
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         self.poll_channels(ctx);
         if self.settings.theme_preference == ThemePreference::SystemDefault {
             let resolved =
@@ -1083,15 +1084,16 @@ impl eframe::App for AzoTypeApp {
             &mut self.frame_count,
             &mut self.screenshot_requested,
         );
+        crate::services::flush_if_changed(
+            frame,
+            &mut self.last_persisted_state,
+            &self.language,
+            &self.settings,
+            self.zoom,
+        );
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(
-            storage,
-            eframe::APP_KEY,
-            &crate::core::AppSavedState {
-                language: self.language.clone(),
-            },
-        );
+        crate::services::save_persisted_parts(storage, &self.language, &self.settings, self.zoom);
     }
 }
