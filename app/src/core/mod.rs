@@ -2,6 +2,7 @@
 //!
 //! This module contains pure logic with zero GUI and zero operating-system dependencies:
 //! - [`diff`]: UTF-16 code unit offset calculations, text differencing, and path collisions.
+//! - [`engine`]: Hardcoded Typst release catalog, target matching, and pure-Rust SHA-256 verification.
 //! - [`file_kind`]: Semantic file type classification.
 //! - [`i18n`]: Cross-platform locale normalization, language detection, and native display names.
 //! - [`outline`]: Document outline extraction, AST traversal, and hierarchical numbering.
@@ -11,6 +12,7 @@
 #![warn(missing_docs)]
 
 pub mod diff;
+pub mod engine;
 pub mod file_kind;
 pub mod i18n;
 pub mod outline;
@@ -20,6 +22,11 @@ pub mod settings;
 pub use diff::{
     char_to_utf16_offset, compute_utf16_diff, format_collision_path, normalize_rel_path,
     utf16_to_char_offset, CharSelection, Utf16TextDiff,
+};
+pub use engine::{
+    all_selectable_versions, find_asset_for_target, find_host_asset, find_release_for_version,
+    host_target_triple, is_builtin_version, sha256_hex, verify_sha256_hex, EngineArchiveKind,
+    EngineReleaseAsset, TypstEngineRelease, AVAILABLE_TYPST_RELEASES, BUILTIN_TYPST_VERSION,
 };
 pub use file_kind::FileKind;
 pub use i18n::{

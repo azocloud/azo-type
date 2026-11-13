@@ -43,6 +43,7 @@ fn test_settings_persist_and_reload_roundtrip_across_restart() {
         auto_compile: false,
         debounce_ms: 420,
         render_dpi_scale: 3.0,
+        typst_version: "0.14.2".to_string(),
         preview_sync_selection: false,
         preview_pan_mode: true,
         user_name: "Tester".to_string(),

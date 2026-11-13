@@ -111,6 +111,7 @@ fn test_ide_settings_serde_roundtrip_and_partial_defaults() {
         auto_compile: false,
         debounce_ms: 350,
         render_dpi_scale: 3.0,
+        typst_version: "0.14.2".to_string(),
         preview_sync_selection: false,
         preview_pan_mode: true,
         user_name: "Alice".to_string(),
@@ -127,6 +128,7 @@ fn test_ide_settings_serde_roundtrip_and_partial_defaults() {
     let sanitized = partial.sanitized();
     assert_eq!(sanitized.editor_font_size, 22.0);
     assert_eq!(sanitized.debounce_ms, 50);
+    assert_eq!(sanitized.typst_version, BUILTIN_TYPST_VERSION);
     assert_eq!(sanitized.theme_preference, ThemePreference::SystemDefault);
     assert!(sanitized.preview_sync_selection);
     assert!(!sanitized.preview_pan_mode);

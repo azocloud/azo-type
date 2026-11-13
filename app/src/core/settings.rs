@@ -1,7 +1,13 @@
 //! IDE user preferences, configuration defaults, and settings dialog state.
 
+use crate::core::engine::BUILTIN_TYPST_VERSION;
+
 #[cfg(test)]
 mod tests;
+
+fn default_typst_version() -> String {
+    BUILTIN_TYPST_VERSION.to_string()
+}
 
 /// Active tab within the Settings sub-window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +74,9 @@ pub struct IdeSettings {
     pub debounce_ms: u64,
     /// Rasterization DPI scale factor for preview rendering.
     pub render_dpi_scale: f32,
+    /// Selected Typst compiler version identifier (default `"0.15.1"`).
+    #[serde(default = "default_typst_version")]
+    pub typst_version: String,
     /// Whether selecting text in the preview automatically jumps the editor to the source text.
     pub preview_sync_selection: bool,
     /// Whether cursor dragging pans the preview canvas instead of selecting preview text.
@@ -95,6 +104,7 @@ impl Default for IdeSettings {
             auto_compile: true,
             debounce_ms: 120,
             render_dpi_scale: 2.0,
+            typst_version: default_typst_version(),
             preview_sync_selection: true,
             preview_pan_mode: false,
             user_name: default_user,
@@ -120,6 +130,9 @@ impl IdeSettings {
         };
         if self.user_name.trim().is_empty() {
             self.user_name = defaults.user_name;
+        }
+        if self.typst_version.trim().is_empty() {
+            self.typst_version = defaults.typst_version;
         }
         self
     }

@@ -6,7 +6,7 @@ use typst_pdf::{PdfStandard, PdfStandards};
 mod tests;
 
 /// Selectable PDF version in the Export PDF dialog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PdfVersionChoice {
     /// PDF 1.4 standard.
     V1_4,
@@ -60,7 +60,7 @@ impl PdfVersionChoice {
 }
 
 /// Selectable PDF archival (PDF/A) standard in the Export PDF dialog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PdfArchivalStandard {
     /// Standard non-archival PDF export.
     None,
@@ -173,7 +173,7 @@ impl PdfArchivalStandard {
 }
 
 /// Configuration for PDF export chosen by the user in the Export PDF dialog.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PdfExportConfig {
     /// Target PDF specification version.
     pub version: PdfVersionChoice,
@@ -219,5 +219,30 @@ impl PdfExportConfig {
             parts.push("PDF/UA-1".to_string());
         }
         parts.join(" + ")
+    }
+
+    /// Formats Typst CLI `--pdf-standard` values corresponding to this configuration.
+    pub fn cli_pdf_standards(&self) -> Vec<&'static str> {
+        let mut standards = vec![self.version.short_label()];
+        if let Some(code) = match self.archival_standard {
+            PdfArchivalStandard::None => None,
+            PdfArchivalStandard::A1b => Some("a-1b"),
+            PdfArchivalStandard::A1a => Some("a-1a"),
+            PdfArchivalStandard::A2b => Some("a-2b"),
+            PdfArchivalStandard::A2u => Some("a-2u"),
+            PdfArchivalStandard::A2a => Some("a-2a"),
+            PdfArchivalStandard::A3b => Some("a-3b"),
+            PdfArchivalStandard::A3u => Some("a-3u"),
+            PdfArchivalStandard::A3a => Some("a-3a"),
+            PdfArchivalStandard::A4 => Some("a-4"),
+            PdfArchivalStandard::A4f => Some("a-4f"),
+            PdfArchivalStandard::A4e => Some("a-4e"),
+        } {
+            standards.push(code);
+        }
+        if self.pdf_ua1 {
+            standards.push("ua-1");
+        }
+        standards
     }
 }

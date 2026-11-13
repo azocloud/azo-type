@@ -35,3 +35,14 @@ fn test_incompatible_version_and_standard_fails() {
     };
     assert!(cfg.build_standards().is_err());
 }
+
+#[test]
+fn test_cli_pdf_standards_mapping() {
+    let cfg = PdfExportConfig {
+        version: PdfVersionChoice::V1_7,
+        archival_standard: PdfArchivalStandard::A3a,
+        pdf_ua1: true,
+        tagged: true,
+    };
+    assert_eq!(cfg.cli_pdf_standards(), vec!["1.7", "a-3a", "ua-1"]);
+}

@@ -27,7 +27,7 @@ pub trait SourceResolver {
 }
 
 /// Outline item extracted from compiled Typst document introspection.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CompiledOutlineItem {
     /// Heading nesting depth (1-based).
     pub level: usize,
