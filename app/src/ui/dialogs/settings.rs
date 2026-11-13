@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use egui::{
-    Align, CentralPanel, Context, DragValue, Frame, Layout, Margin, RichText, Slider, Ui,
-    ViewportBuilder, ViewportClass, ViewportId, Window,
+    Align, CentralPanel, Context, DragValue, Frame, Layout, Margin, RichText, Ui, ViewportBuilder,
+    ViewportClass, ViewportId, Window,
 };
 use rust_i18n::t;
 
@@ -121,7 +121,11 @@ pub fn render_settings_dialog(
                     ui.horizontal(|ui| {
                         ui.label(t!("settings.font_size_label"));
                         ui.add(
-                            Slider::new(&mut settings.editor_font_size, 10.0..=22.0).suffix(" pt"),
+                            DragValue::new(&mut settings.editor_font_size)
+                                .range(10.0..=22.0)
+                                .speed(0.5)
+                                .fixed_decimals(1)
+                                .suffix(" pt"),
                         );
                     });
 
