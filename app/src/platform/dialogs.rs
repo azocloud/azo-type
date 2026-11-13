@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
+use crate::core::spellcheck::UserDictionaryEntry;
+use crate::core::typst_prose::normalize_full_language_tag;
+
 /// Minimal spinning future executor used for waiting on asynchronous native dialogs
 /// without pulling in full multi-threaded async runtime scaffolding for UI threads.
 pub fn block_on_or_spin<F: Future>(mut fut: F) -> F::Output {
@@ -81,3 +84,81 @@ pub fn spawn_save_file_dialog(
         block_on_or_spin(task);
     });
 }
+
+/// Spawns an asynchronous native file picker for selecting a Hunspell `.dic` or `.aff` file.
+pub fn spawn_open_dictionary_dialog(
+    start_dir: Option<&Path>,
+    on_picked: impl FnOnce(Result<UserDictionaryEntry, String>) + Send + 'static,
+    repaint: impl Fn() + Send + 'static,
+) {
+    let start_dir = start_dir.map(Path::to_path_buf);
+    std::thread::spawn(move || {
+        let task = async move {
+            let mut dialog = rfd::AsyncFileDialog::new()
+                .set_title("Import Hunspell Dictionary (.dic / .aff)")
+                .add_filter("Hunspell Dictionary", &["dic", "aff"]);
+            if let Some(dir) = start_dir {
+                if dir.is_dir() {
+                    dialog = dialog.set_directory(dir);
+                }
+            }
+            if let Some(file) = dialog.pick_file().await {
+                let res = resolve_dictionary_pair(file.path());
+                on_picked(res);
+                repaint();
+            }
+        };
+        block_on_or_spin(task);
+    });
+}
+
+/// Resolves the matching `.aff` + `.dic` companion pair from a single picked dictionary file.
+pub fn resolve_dictionary_pair(picked: &Path) -> Result<UserDictionaryEntry, String> {
+    let ext = picked
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    if ext != "dic" && ext != "aff" {
+        return Err(format!(
+            "Selected file '{}' is not a .dic or .aff Hunspell dictionary file.",
+            picked.display()
+        ));
+    }
+
+    let parent = picked
+        .parent()
+        .ok_or_else(|| format!("Invalid dictionary file path: '{}'.", picked.display()))?;
+    let stem = picked
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("Invalid dictionary filename: '{}'.", picked.display()))?;
+
+    let companion_ext = if ext == "dic" { "aff" } else { "dic" };
+    let companion = parent.join(format!("{stem}.{companion_ext}"));
+    if !companion.is_file() {
+        return Err(format!(
+            "Companion .{companion_ext} file not found next to '{}' (expected '{}').",
+            picked.display(),
+            companion.display()
+        ));
+    }
+
+    let (aff_path, dic_path) = if ext == "aff" {
+        (picked.to_path_buf(), companion)
+    } else {
+        (companion, picked.to_path_buf())
+    };
+
+    let lang_code = normalize_full_language_tag(stem).unwrap_or_else(|| stem.to_ascii_lowercase());
+    Ok(UserDictionaryEntry {
+        lang_code,
+        label: stem.to_string(),
+        aff_path,
+        dic_path,
+    })
+}
+
+#[cfg(test)]
+mod tests;
