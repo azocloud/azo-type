@@ -103,6 +103,9 @@ cargo build --release --manifest-path app/Cargo.toml
 # Run the complete test suite (unit + characterization tests)
 cargo test --manifest-path app/Cargo.toml
 
+# Generate HTML, LCOV, and JSON coverage reports in app/coverage/
+./scripts/coverage.sh
+
 # Check code formatting
 cargo fmt --check --manifest-path app/Cargo.toml
 

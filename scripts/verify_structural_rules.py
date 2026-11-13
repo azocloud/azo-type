@@ -321,8 +321,13 @@ def check_all(write_map: bool = False) -> int:
         doc_text = doc_file.read_text(encoding="utf-8")
         for match in path_token_re.finditer(doc_text):
             candidate = match.group(1).rstrip("/")
-            # Skip glob/placeholder patterns like `<name>`, `*`, or `foo.rs`
-            if any(ch in candidate for ch in ("*", "<", ">")) or "foo" in candidate:
+            # Skip glob/placeholder patterns and gitignored generated output paths
+            if (
+                any(ch in candidate for ch in ("*", "<", ">"))
+                or "foo" in candidate
+                or candidate == "app/coverage"
+                or candidate.startswith("app/coverage/")
+            ):
                 continue
             target = REPO_ROOT / candidate
             if not target.exists():

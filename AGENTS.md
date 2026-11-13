@@ -9,6 +9,7 @@
 - **Run Single Integration Test:** `cargo test --manifest-path app/Cargo.toml --test outline_tests`
 - **Run Single Unit Test:** `cargo test --manifest-path app/Cargo.toml --lib core::diff::tests::test_compute_diff_deletions`
 - **Run All Tests:** `cargo test --manifest-path app/Cargo.toml`
+- **Run Coverage Report:** `./scripts/coverage.sh` (generates HTML, LCOV, and JSON summary in `app/coverage/`)
 - **Format Check:** `cargo fmt --check --manifest-path app/Cargo.toml`
 - **Linter (Strict):** `cargo clippy --all-targets --manifest-path app/Cargo.toml -- -D warnings`
 - **Regenerate Project Map:** `python3 scripts/verify_structural_rules.py --write-map`
