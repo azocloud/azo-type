@@ -22,7 +22,7 @@ use crate::ui::components::PreviewSelectionState;
 use crate::ui::theme::apply_theme;
 use crate::world::SharedWorldResources;
 
-pub use crate::core::settings::{IdeSettings, PreviewZoom, SettingsTab};
+pub use crate::core::settings::{IdeSettings, PreviewZoom, SettingsTab, ThemePreference};
 #[cfg(target_os = "macos")]
 use crate::platform::menu::MacOsMenuBar;
 pub use crate::platform::menu::MenuAction;
@@ -99,7 +99,9 @@ impl AzoTypeApp {
         screenshot_path: Option<PathBuf>,
     ) -> Self {
         let resources = Arc::new(SharedWorldResources::new());
-        let settings = IdeSettings::default();
+        let mut settings = IdeSettings::default();
+        settings.dark_mode =
+            crate::platform::resolve_effective_dark_mode(&cc.egui_ctx, settings.theme_preference);
 
         let language = cc
             .storage
@@ -272,8 +274,14 @@ impl AzoTypeApp {
             MenuAction::ToggleSidebar => self.show_sidebar = !self.show_sidebar,
             MenuAction::ToggleWordWrap => self.settings.word_wrap = !self.settings.word_wrap,
             MenuAction::ToggleTheme => {
-                self.settings.dark_mode = !self.settings.dark_mode;
-                apply_theme(ctx, self.settings.dark_mode);
+                let next_dark = !self.settings.dark_mode;
+                self.settings.theme_preference = if next_dark {
+                    ThemePreference::Dark
+                } else {
+                    ThemePreference::Light
+                };
+                self.settings.dark_mode = next_dark;
+                apply_theme(ctx, next_dark);
             }
             MenuAction::ZoomIn => self.zoom.step_in(),
             MenuAction::ZoomOut => self.zoom.step_out(),
@@ -968,6 +976,14 @@ impl AzoTypeApp {
 impl eframe::App for AzoTypeApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         self.poll_channels(ctx);
+        if self.settings.theme_preference == ThemePreference::SystemDefault {
+            let resolved =
+                crate::platform::resolve_effective_dark_mode(ctx, self.settings.theme_preference);
+            if resolved != self.settings.dark_mode {
+                self.settings.dark_mode = resolved;
+                apply_theme(ctx, resolved);
+            }
+        }
         self.handle_keyboard_shortcuts(ctx);
 
         // Debounced non-blocking compilation

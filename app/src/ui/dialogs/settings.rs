@@ -3,13 +3,13 @@
 use std::path::Path;
 
 use egui::{
-    Align, CentralPanel, Context, CornerRadius, Frame, Layout, Margin, RichText, Slider, Stroke,
-    Ui, ViewportBuilder, ViewportClass, ViewportId, Window,
+    Align, CentralPanel, Context, DragValue, Frame, Layout, Margin, RichText, Slider, Ui,
+    ViewportBuilder, ViewportClass, ViewportId, Window,
 };
 use rust_i18n::t;
 
-use crate::core::settings::{IdeSettings, SettingsTab};
-use crate::ui::theme::{apply_theme, ThemePalette, DESIGN_SYSTEM_CSS_TOKENS};
+use crate::core::settings::{IdeSettings, SettingsTab, ThemePreference};
+use crate::ui::theme::{apply_theme, ThemePalette};
 
 /// Actions and side effects requested by user interaction within the Settings dialog.
 #[derive(Debug, Default)]
@@ -94,18 +94,27 @@ pub fn render_settings_dialog(
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         ui.label(t!("settings.theme_label"));
-                        if ui
-                            .radio_value(&mut settings.dark_mode, true, t!("settings.theme_dark"))
-                            .changed()
-                        {
-                            output.theme_changed = true;
-                        }
-                        if ui
-                            .radio_value(&mut settings.dark_mode, false, t!("settings.theme_light"))
-                            .changed()
-                        {
-                            output.theme_changed = true;
-                        }
+                        let selected_theme_label =
+                            theme_preference_label(settings.theme_preference);
+                        egui::ComboBox::from_id_salt("settings_theme_combo")
+                            .selected_text(selected_theme_label)
+                            .show_ui(ui, |ui| {
+                                for pref in ThemePreference::ALL {
+                                    let label = theme_preference_label(pref);
+                                    if ui
+                                        .selectable_label(settings.theme_preference == pref, label)
+                                        .clicked()
+                                    {
+                                        settings.theme_preference = pref;
+                                        let next_dark =
+                                            crate::platform::resolve_effective_dark_mode(ctx, pref);
+                                        if next_dark != settings.dark_mode {
+                                            settings.dark_mode = next_dark;
+                                            output.theme_changed = true;
+                                        }
+                                    }
+                                }
+                            });
                     });
 
                     ui.add_space(8.0);
@@ -126,64 +135,6 @@ pub fn render_settings_dialog(
                         &mut settings.syntax_highlighting,
                         t!("settings.syntax_highlighting_label"),
                     );
-
-                    ui.add_space(8.0);
-                    Frame::new()
-                        .fill(palette.editor_canvas)
-                        .stroke(Stroke::new(1.0_f32, palette.panel_border))
-                        .corner_radius(CornerRadius::same(5))
-                        .inner_margin(Margin::symmetric(10, 8))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(t!("settings.design_system_tokens"))
-                                        .small()
-                                        .strong()
-                                        .color(palette.text_primary),
-                                );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui
-                                        .small_button(t!("settings.copy_css_tokens"))
-                                        .on_hover_text(t!("settings.copy_css_tooltip"))
-                                        .clicked()
-                                    {
-                                        ctx.copy_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
-                                        if let Ok(mut cb) = arboard::Clipboard::new() {
-                                            let _ =
-                                                cb.set_text(DESIGN_SYSTEM_CSS_TOKENS.to_string());
-                                        }
-                                    }
-                                });
-                            });
-                            ui.add_space(4.0);
-                            ui.horizontal_wrapped(|ui| {
-                                let swatches = [
-                                    ("Canvas", palette.editor_canvas),
-                                    ("Chrome", palette.chrome_sidebar),
-                                    ("Workspace", palette.preview_workspace),
-                                    ("Line", palette.active_line_highlight),
-                                    ("Keyword", palette.syn_keyword),
-                                    ("String", palette.syn_string),
-                                    ("Prop/Fn", palette.syn_property_or_func),
-                                    ("Number", palette.syn_number),
-                                ];
-                                for (name, col) in swatches {
-                                    Frame::new()
-                                        .fill(col)
-                                        .stroke(Stroke::new(1.0_f32, palette.panel_border))
-                                        .corner_radius(CornerRadius::same(4))
-                                        .inner_margin(Margin::symmetric(6, 3))
-                                        .show(ui, |ui| {
-                                            ui.label(
-                                                RichText::new(name)
-                                                    .size(10.5)
-                                                    .monospace()
-                                                    .color(palette.text_primary),
-                                            );
-                                        });
-                                }
-                            });
-                        });
                 }
                 SettingsTab::EditorAndDisk => {
                     ui.heading(t!("settings.heading_editor"));
@@ -227,7 +178,12 @@ pub fn render_settings_dialog(
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         ui.label(t!("settings.debounce_label"));
-                        ui.add(Slider::new(&mut settings.debounce_ms, 50..=800).suffix(" ms"));
+                        ui.add(
+                            DragValue::new(&mut settings.debounce_ms)
+                                .range(50..=800)
+                                .speed(5)
+                                .suffix(" ms"),
+                        );
                     });
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
@@ -283,6 +239,10 @@ pub fn render_settings_dialog(
                 if ui.button(t!("settings.reset_defaults")).clicked() {
                     let prev_dark = settings.dark_mode;
                     *settings = IdeSettings::default();
+                    settings.dark_mode = crate::platform::resolve_effective_dark_mode(
+                        ctx,
+                        settings.theme_preference,
+                    );
                     if prev_dark != settings.dark_mode {
                         output.theme_changed = true;
                     }
@@ -321,4 +281,12 @@ pub fn render_settings_dialog(
 
     *open = is_open && !close_clicked;
     output
+}
+
+fn theme_preference_label(pref: ThemePreference) -> String {
+    match pref {
+        ThemePreference::Light => t!("settings.theme_light").to_string(),
+        ThemePreference::Dark => t!("settings.theme_dark").to_string(),
+        ThemePreference::SystemDefault => t!("settings.theme_system").to_string(),
+    }
 }
