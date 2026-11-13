@@ -1,4 +1,6 @@
-//! Hardcoded Typst engine release catalog, target matching, and pure-Rust SHA-256 integrity checks.
+//! Typst engine release catalog loaded from embedded JSON, target matching, and pure-Rust SHA-256 checks.
+
+use std::sync::OnceLock;
 
 #[cfg(test)]
 mod tests;
@@ -6,8 +8,11 @@ mod tests;
 /// Built-in Typst compiler version bundled directly via Cargo dependencies.
 pub const BUILTIN_TYPST_VERSION: &str = "0.15.1";
 
+const TYPST_RELEASES_JSON: &str = include_str!("../../assets/typst_releases.json");
+
 /// Archive container format used for downloadable Typst release packages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EngineArchiveKind {
     /// XZ-compressed TAR archive (`.tar.xz`, standard on Linux and macOS).
     TarXz,
@@ -16,182 +21,51 @@ pub enum EngineArchiveKind {
 }
 
 /// Platform-specific downloadable archive metadata and expected SHA-256 digest.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct EngineReleaseAsset {
     /// Target triple matching official Typst release naming (e.g. `"x86_64-unknown-linux-musl"`).
-    pub target_triple: &'static str,
+    pub target_triple: String,
     /// Direct HTTPS download URL on official Typst GitHub releases.
-    pub download_url: &'static str,
+    pub download_url: String,
     /// Expected lowercase 64-character hexadecimal SHA-256 checksum of the compressed archive.
-    pub sha256_hex: &'static str,
+    pub sha256_hex: String,
     /// Archive container format.
     pub archive_kind: EngineArchiveKind,
     /// Executable filename extracted into the local engine cache directory.
-    pub binary_name: &'static str,
+    pub binary_name: String,
 }
 
 /// Release descriptor for an on-demand downloadable legacy Typst version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct TypstEngineRelease {
     /// Semantic version string (e.g. `"0.14.2"`).
-    pub version: &'static str,
+    pub version: String,
     /// Per-target release artifacts with verified SHA-256 digests.
-    pub assets: &'static [EngineReleaseAsset],
+    pub assets: Vec<EngineReleaseAsset>,
 }
 
-/// Official Typst `0.14.2` release artifacts and SHA-256 checksums.
-const ASSETS_0_14_2: &[EngineReleaseAsset] = &[
-    EngineReleaseAsset {
-        target_triple: "x86_64-unknown-linux-musl",
-        download_url: "https://github.com/typst/typst/releases/download/v0.14.2/typst-x86_64-unknown-linux-musl.tar.xz",
-        sha256_hex: "a6044cbad2a954deb921167e257e120ac0a16b20339ec01121194ff9d394996d",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-unknown-linux-musl",
-        download_url: "https://github.com/typst/typst/releases/download/v0.14.2/typst-aarch64-unknown-linux-musl.tar.xz",
-        sha256_hex: "491b101aa40a3a7ea82a3f8a6232cabb4e6a7e233810082e5ac812d43fdcd47a",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "x86_64-apple-darwin",
-        download_url: "https://github.com/typst/typst/releases/download/v0.14.2/typst-x86_64-apple-darwin.tar.xz",
-        sha256_hex: "4e91d8e1e33ab164f949c5762e01ee3faa585c8615a2a6bd5e3677fa8506b249",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-apple-darwin",
-        download_url: "https://github.com/typst/typst/releases/download/v0.14.2/typst-aarch64-apple-darwin.tar.xz",
-        sha256_hex: "470aa49a2298d20b65c119a10e4ff8808550453e0cb4d85625b89caf0cedf048",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "x86_64-pc-windows-msvc",
-        download_url: "https://github.com/typst/typst/releases/download/v0.14.2/typst-x86_64-pc-windows-msvc.zip",
-        sha256_hex: "51353994ac83218c3497052e89b2c432c53b9d4439cdc1b361e2ea4798ebfc13",
-        archive_kind: EngineArchiveKind::Zip,
-        binary_name: "typst.exe",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-pc-windows-msvc",
-        download_url: "https://github.com/typst/typst/releases/download/v0.14.2/typst-aarch64-pc-windows-msvc.zip",
-        sha256_hex: "1c4aaa0de000ab1787dda354c34f4fa1fe3c2525d3d038e692a3d7daa333d551",
-        archive_kind: EngineArchiveKind::Zip,
-        binary_name: "typst.exe",
-    },
-];
+#[derive(Debug, serde::Deserialize)]
+struct TypstReleasesManifest {
+    schema_version: u32,
+    releases: Vec<TypstEngineRelease>,
+}
 
-/// Official Typst `0.13.1` release artifacts and SHA-256 checksums.
-const ASSETS_0_13_1: &[EngineReleaseAsset] = &[
-    EngineReleaseAsset {
-        target_triple: "x86_64-unknown-linux-musl",
-        download_url: "https://github.com/typst/typst/releases/download/v0.13.1/typst-x86_64-unknown-linux-musl.tar.xz",
-        sha256_hex: "7d214bfeffc2e585dc422d1a09d2b144969421281e8c7f5d784b65fc69b5673f",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-unknown-linux-musl",
-        download_url: "https://github.com/typst/typst/releases/download/v0.13.1/typst-aarch64-unknown-linux-musl.tar.xz",
-        sha256_hex: "4f5b7ee6e57fb639019ee0f6bffcf940edad228ede6ff5269a9f05a1544ceed4",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "x86_64-apple-darwin",
-        download_url: "https://github.com/typst/typst/releases/download/v0.13.1/typst-x86_64-apple-darwin.tar.xz",
-        sha256_hex: "4dabfe647f7f01ed9cc13ad8196a6c7f5e16f0732821b522d50740d3a9f5207b",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-apple-darwin",
-        download_url: "https://github.com/typst/typst/releases/download/v0.13.1/typst-aarch64-apple-darwin.tar.xz",
-        sha256_hex: "541e4f9eaca3f34ee865f81fc663e4839cb84d6253f71a372cd855b0a7283213",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "x86_64-pc-windows-msvc",
-        download_url: "https://github.com/typst/typst/releases/download/v0.13.1/typst-x86_64-pc-windows-msvc.zip",
-        sha256_hex: "44170d0632298ba68cbabc43dbfb6908b17ca9236859e0767b0e5d54b2d19f48",
-        archive_kind: EngineArchiveKind::Zip,
-        binary_name: "typst.exe",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-pc-windows-msvc",
-        download_url: "https://github.com/typst/typst/releases/download/v0.13.1/typst-aarch64-pc-windows-msvc.zip",
-        sha256_hex: "4ddfb94f33589bcd13c4f98c3ac111f220862ae954037a2be4a743fe1114a838",
-        archive_kind: EngineArchiveKind::Zip,
-        binary_name: "typst.exe",
-    },
-];
+static TYPST_RELEASES_CACHE: OnceLock<Vec<TypstEngineRelease>> = OnceLock::new();
 
-/// Official Typst `0.12.0` release artifacts and SHA-256 checksums.
-const ASSETS_0_12_0: &[EngineReleaseAsset] = &[
-    EngineReleaseAsset {
-        target_triple: "x86_64-unknown-linux-musl",
-        download_url: "https://github.com/typst/typst/releases/download/v0.12.0/typst-x86_64-unknown-linux-musl.tar.xz",
-        sha256_hex: "605130a770ebd59a4a579673079cb913a13e75985231657a71d6239a57539ec3",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-unknown-linux-musl",
-        download_url: "https://github.com/typst/typst/releases/download/v0.12.0/typst-aarch64-unknown-linux-musl.tar.xz",
-        sha256_hex: "e81ae98e6b12db5a36c2276e5a9890da48f7a339b92476dd22daf90de3699e11",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "x86_64-apple-darwin",
-        download_url: "https://github.com/typst/typst/releases/download/v0.12.0/typst-x86_64-apple-darwin.tar.xz",
-        sha256_hex: "cba1b1e43b992603da9cc7777ac1c8af2c413f381453169a22c57d9a9aa02efb",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-apple-darwin",
-        download_url: "https://github.com/typst/typst/releases/download/v0.12.0/typst-aarch64-apple-darwin.tar.xz",
-        sha256_hex: "0e7e7b370b240dab104654bad1ceffdbbcb17b1c98ee8b7778360ddad479fb5d",
-        archive_kind: EngineArchiveKind::TarXz,
-        binary_name: "typst",
-    },
-    EngineReleaseAsset {
-        target_triple: "x86_64-pc-windows-msvc",
-        download_url: "https://github.com/typst/typst/releases/download/v0.12.0/typst-x86_64-pc-windows-msvc.zip",
-        sha256_hex: "07dceb7666b8418d5f7a0b7ebacdf0ca4a4372c0588926374e60976d55b415ff",
-        archive_kind: EngineArchiveKind::Zip,
-        binary_name: "typst.exe",
-    },
-    EngineReleaseAsset {
-        target_triple: "aarch64-pc-windows-msvc",
-        download_url: "https://github.com/typst/typst/releases/download/v0.12.0/typst-aarch64-pc-windows-msvc.zip",
-        sha256_hex: "d0f1cd63470bbcd36d3b38b7b60b03e58b56142f0009b5232a506e083528a33d",
-        archive_kind: EngineArchiveKind::Zip,
-        binary_name: "typst.exe",
-    },
-];
-
-/// Hardcoded catalog of downloadable legacy Typst releases with verified SHA-256 digests.
-pub const AVAILABLE_TYPST_RELEASES: &[TypstEngineRelease] = &[
-    TypstEngineRelease {
-        version: "0.14.2",
-        assets: ASSETS_0_14_2,
-    },
-    TypstEngineRelease {
-        version: "0.13.1",
-        assets: ASSETS_0_13_1,
-    },
-    TypstEngineRelease {
-        version: "0.12.0",
-        assets: ASSETS_0_12_0,
-    },
-];
+/// Returns the catalog of downloadable legacy Typst releases parsed from the embedded JSON manifest.
+pub fn available_typst_releases() -> &'static [TypstEngineRelease] {
+    TYPST_RELEASES_CACHE
+        .get_or_init(|| {
+            let manifest: TypstReleasesManifest = serde_json::from_str(TYPST_RELEASES_JSON)
+                .expect("embedded typst_releases.json must be valid JSON");
+            assert_eq!(
+                manifest.schema_version, 1,
+                "unsupported typst_releases.json schema_version"
+            );
+            manifest.releases
+        })
+        .as_slice()
+}
 
 /// Returns whether `version` identifies the built-in bundled Typst compiler.
 pub fn is_builtin_version(version: &str) -> bool {
@@ -219,7 +93,7 @@ pub fn host_target_triple() -> Option<&'static str> {
 
 /// Looks up a legacy release descriptor by version string.
 pub fn find_release_for_version(version: &str) -> Option<&'static TypstEngineRelease> {
-    AVAILABLE_TYPST_RELEASES
+    available_typst_releases()
         .iter()
         .find(|rel| rel.version == version.trim())
 }
@@ -243,10 +117,11 @@ pub fn find_host_asset(version: &str) -> Option<&'static EngineReleaseAsset> {
 
 /// Returns all selectable Typst version identifiers (`"0.15.1"` first, followed by legacy versions).
 pub fn all_selectable_versions() -> Vec<&'static str> {
-    let mut versions = Vec::with_capacity(1 + AVAILABLE_TYPST_RELEASES.len());
+    let releases = available_typst_releases();
+    let mut versions = Vec::with_capacity(1 + releases.len());
     versions.push(BUILTIN_TYPST_VERSION);
-    for release in AVAILABLE_TYPST_RELEASES {
-        versions.push(release.version);
+    for release in releases {
+        versions.push(release.version.as_str());
     }
     versions
 }

@@ -170,7 +170,7 @@ impl EngineManager {
             return None;
         }
         let binary_name = find_host_asset(version)
-            .map(|a| a.binary_name)
+            .map(|a| a.binary_name.as_str())
             .unwrap_or(default_exe_filename());
 
         let direct = self.engines_dir.join(version).join(binary_name);
@@ -429,10 +429,10 @@ impl EngineManager {
 
             let result = download_and_install_blocking(
                 &version_owned,
-                asset.download_url,
-                asset.sha256_hex,
+                &asset.download_url,
+                &asset.sha256_hex,
                 asset.archive_kind,
-                asset.binary_name,
+                &asset.binary_name,
                 &dest_version_dir,
                 &progress_map,
                 &ctx,

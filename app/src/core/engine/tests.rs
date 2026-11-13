@@ -28,7 +28,8 @@ fn test_sha256_known_nist_test_vectors() {
 
 #[test]
 fn test_hardcoded_catalog_contains_valid_checksums_and_targets() {
-    assert!(!AVAILABLE_TYPST_RELEASES.is_empty());
+    let releases = available_typst_releases();
+    assert!(!releases.is_empty());
     let expected_targets = [
         "x86_64-unknown-linux-musl",
         "aarch64-unknown-linux-musl",
@@ -38,11 +39,11 @@ fn test_hardcoded_catalog_contains_valid_checksums_and_targets() {
         "aarch64-pc-windows-msvc",
     ];
 
-    for release in AVAILABLE_TYPST_RELEASES {
+    for release in releases {
         assert!(!release.version.is_empty());
-        assert!(!is_builtin_version(release.version));
+        assert!(!is_builtin_version(&release.version));
         for target in expected_targets {
-            let asset = find_asset_for_target(release.version, target)
+            let asset = find_asset_for_target(&release.version, target)
                 .expect("every catalog release must cover all desktop targets");
             assert!(asset
                 .download_url

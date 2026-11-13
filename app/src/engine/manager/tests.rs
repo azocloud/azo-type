@@ -55,7 +55,7 @@ fn test_resolve_cached_legacy_binary_activates_external_engine() {
     if let Some(asset) = find_host_asset("0.14.2") {
         let ver_dir = dir.join("0.14.2");
         fs::create_dir_all(&ver_dir).expect("create version dir");
-        fs::write(ver_dir.join(asset.binary_name), b"stub-binary").expect("write stub bin");
+        fs::write(ver_dir.join(&asset.binary_name), b"stub-binary").expect("write stub bin");
 
         let resources = Arc::new(SharedWorldResources::new());
         let mgr = EngineManager::with_paths(resources, dir.clone(), None);
@@ -180,10 +180,10 @@ fn test_live_download_and_compile_0_14_2() {
     let progress_map = Arc::new(Mutex::new(HashMap::new()));
     let res = super::archive::download_and_install_blocking(
         "0.14.2",
-        asset.download_url,
-        asset.sha256_hex,
+        &asset.download_url,
+        &asset.sha256_hex,
         asset.archive_kind,
-        asset.binary_name,
+        &asset.binary_name,
         &dir.join("0.14.2"),
         &progress_map,
         &egui::Context::default(),
@@ -266,7 +266,7 @@ fn test_pdf_export_prefers_managed_downloaded_engine_binary() {
     if let Some(asset) = find_host_asset("0.14.2") {
         let ver_dir = dir.join("0.14.2");
         fs::create_dir_all(&ver_dir).expect("create managed version dir");
-        let bin_path = ver_dir.join(asset.binary_name);
+        let bin_path = ver_dir.join(&asset.binary_name);
         let script = r#"#!/bin/sh
 cmd="$1"
 shift
