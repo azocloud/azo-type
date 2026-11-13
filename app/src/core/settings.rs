@@ -15,7 +15,7 @@ pub enum SettingsTab {
 }
 
 /// User color theme selection supporting explicit modes and OS tracking.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ThemePreference {
     /// Follow the operating system's light/dark appearance (defaults to Dark if unavailable).
     #[default]
@@ -42,8 +42,9 @@ impl ThemePreference {
     }
 }
 
-/// Global settings model persisted for user preferences.
-#[derive(Debug, Clone, PartialEq)]
+/// Global settings model persisted across restarts via `eframe` storage.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct IdeSettings {
     /// User-selected theme mode (`Light`, `Dark`, or `SystemDefault`).
     pub theme_preference: ThemePreference,
@@ -102,6 +103,28 @@ impl Default for IdeSettings {
     }
 }
 
+impl IdeSettings {
+    /// Clamps numeric fields to safe ranges after loading persisted data.
+    pub fn sanitized(mut self) -> Self {
+        let defaults = Self::default();
+        self.editor_font_size = if self.editor_font_size.is_finite() {
+            self.editor_font_size.clamp(10.0, 22.0)
+        } else {
+            defaults.editor_font_size
+        };
+        self.debounce_ms = self.debounce_ms.clamp(50, 800);
+        self.render_dpi_scale = if self.render_dpi_scale.is_finite() {
+            self.render_dpi_scale.clamp(1.0, 4.0)
+        } else {
+            defaults.render_dpi_scale
+        };
+        if self.user_name.trim().is_empty() {
+            self.user_name = defaults.user_name;
+        }
+        self
+    }
+}
+
 /// Predefined zoom percentage presets shown in the preview zoom selector.
 pub const PREVIEW_ZOOM_PRESETS: &[f32] = &[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
@@ -115,7 +138,8 @@ pub const MAX_PREVIEW_ZOOM: f32 = 4.0;
 const ZOOM_STEP: f32 = 0.15;
 
 /// Preview zoom state supporting both Fit Width and fixed zoom scales.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct PreviewZoom {
     /// Whether pages automatically scale to fit the preview viewport width.
     pub fit_width: bool,

@@ -96,3 +96,38 @@ fn test_theme_preference_resolution_and_dark_fallback() {
         "Unsupported or failed OS detection must default to Dark"
     );
 }
+
+#[test]
+fn test_ide_settings_serde_roundtrip_and_partial_defaults() {
+    let custom = IdeSettings {
+        theme_preference: ThemePreference::Light,
+        dark_mode: false,
+        editor_font_size: 16.5,
+        word_wrap: false,
+        show_line_numbers: false,
+        syntax_highlighting: false,
+        auto_save_on_edit: false,
+        show_hidden_files: true,
+        auto_compile: false,
+        debounce_ms: 350,
+        render_dpi_scale: 3.0,
+        preview_sync_selection: false,
+        preview_pan_mode: true,
+        user_name: "Alice".to_string(),
+        user_color: [10, 20, 30],
+    };
+
+    let json = serde_json::to_string(&custom).expect("serialize IdeSettings");
+    let loaded: IdeSettings = serde_json::from_str(&json).expect("deserialize IdeSettings");
+    assert_eq!(loaded, custom);
+
+    // Older or partial configs missing newly added fields fill in defaults cleanly.
+    let partial: IdeSettings = serde_json::from_str(r#"{"editor_font_size":99.0,"debounce_ms":5}"#)
+        .expect("deserialize partial IdeSettings");
+    let sanitized = partial.sanitized();
+    assert_eq!(sanitized.editor_font_size, 22.0);
+    assert_eq!(sanitized.debounce_ms, 50);
+    assert_eq!(sanitized.theme_preference, ThemePreference::SystemDefault);
+    assert!(sanitized.preview_sync_selection);
+    assert!(!sanitized.preview_pan_mode);
+}
