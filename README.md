@@ -119,7 +119,7 @@ When extending `azo-type`, follow these architectural guidelines to maintain mod
 ### 1. Place Pure Domain Logic in `core/`
 - If your feature involves data structures, validation, parsing, calculations, or algorithms that do not require GUI or network access, implement them in `app/src/core/<feature_name>.rs`.
 - Decouple disk or external dependencies behind traits (like `SourceResolver`).
-- Write comprehensive unit tests in a companion test file `app/src/core/<feature_name>/tests.rs` or in `app/tests/`.
+- Write comprehensive unit tests in a centralized test file `app/src/tests/core/<feature_name>_tests.rs` (wired with `#[cfg(test)] #[path = "../tests/core/<feature_name>_tests.rs"] mod tests;`) or in `app/tests/`.
 
 ### 2. Implement Background or I/O Operations in `services/` or `platform/`
 - For OS-specific features (e.g., custom window badges, shell integration), place them under `app/src/platform/` using appropriate `#[cfg(target_os = "...")]` attributes.

@@ -66,18 +66,18 @@ PLATFORM_FORBIDDEN_IMPORTS = {
 INTEGRATION_TEST_MAP = {
     "app/src/lib.rs": "`app/tests/cli_tests.rs`",
     "app/src/main.rs": "`app/tests/cli_tests.rs`",
-    "app/src/core/diff.rs": "`app/src/core/diff/tests.rs`, `app/tests/diff_tests.rs`",
-    "app/src/core/file_kind.rs": "`app/src/core/file_kind/tests.rs`, `app/tests/project_tests.rs`",
-    "app/src/core/outline.rs": "`app/src/core/outline/tests.rs`, `app/tests/outline_tests.rs`",
-    "app/src/core/pdf.rs": "`app/src/core/pdf/tests.rs`, `app/tests/pdf_config_tests.rs`",
-    "app/src/core/settings.rs": "`app/src/core/settings/tests.rs`",
+    "app/src/core/diff.rs": "`app/src/tests/core/diff_tests.rs`, `app/tests/diff_tests.rs`",
+    "app/src/core/file_kind.rs": "`app/src/tests/core/file_kind_tests.rs`, `app/tests/project_tests.rs`",
+    "app/src/core/outline.rs": "`app/src/tests/core/outline_tests.rs`, `app/tests/outline_tests.rs`",
+    "app/src/core/pdf.rs": "`app/src/tests/core/pdf_tests.rs`, `app/tests/pdf_config_tests.rs`",
+    "app/src/core/settings.rs": "`app/src/tests/core/settings_tests.rs`",
     "app/src/project.rs": "`app/tests/project_tests.rs`",
     "app/src/collab/persistence.rs": "`app/tests/persistence_tests.rs`",
-    "app/src/compiler.rs": "`app/src/compiler/tests.rs`",
-    "app/src/collab/awareness.rs": "`app/src/collab/awareness/tests.rs`",
-    "app/src/collab/doc.rs": "`app/src/collab/doc/tests.rs`",
-    "app/src/collab/session.rs": "`app/src/collab/session/tests.rs`",
-    "app/src/collab/transport.rs": "`app/src/collab/transport/tests.rs`",
+    "app/src/compiler.rs": "`app/src/tests/compiler_tests.rs`",
+    "app/src/collab/awareness.rs": "`app/src/tests/collab/awareness_tests.rs`",
+    "app/src/collab/doc.rs": "`app/src/tests/collab/doc_tests.rs`",
+    "app/src/collab/session.rs": "`app/src/tests/collab/session_tests.rs`",
+    "app/src/collab/transport.rs": "`app/src/tests/collab/transport_tests.rs`",
 }
 
 MODULE_NOTES = {
@@ -92,7 +92,7 @@ MODULE_NOTES = {
 
 
 def is_test_file(rel_path: str) -> bool:
-    return rel_path.endswith("/tests.rs") or rel_path.startswith("app/tests/")
+    return rel_path.startswith("app/src/tests/") or rel_path.startswith("app/tests/")
 
 
 def extract_first_module_doc(lines: list[str]) -> str | None:
@@ -171,15 +171,13 @@ def generate_project_map() -> str:
 
     out.extend([
         "",
-        "## 3. Companion Unit Test Modules (`app/src/**/tests.rs`)",
+        "## 3. Centralized Unit Test Modules (`app/src/tests/`)",
         "",
         "| Test Module Path | Purpose (`//!` Summary) |",
         "| :--- | :--- |",
     ])
 
-    unit_test_files = sorted(
-        p for p in APP_SRC.rglob("tests.rs")
-    )
+    unit_test_files = sorted((APP_SRC / "tests").rglob("*_tests.rs")) if (APP_SRC / "tests").exists() else []
     for path in unit_test_files:
         rel = path.relative_to(REPO_ROOT).as_posix()
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -236,13 +234,20 @@ def check_all(write_map: bool = False) -> int:
                 f"  -> Ref: docs/agent/CONVENTIONS.md#documentation-rules"
             )
 
+        if rel.endswith("/tests.rs"):
+            errors.append(
+                f"[RULE: MISPLACED_UNIT_TESTS] `{rel}` uses the deprecated `<module>/tests.rs` layout.\n"
+                f"  -> Fix: Move unit tests into `app/src/tests/` (e.g., `app/src/tests/<path>/<module>_tests.rs`) and link via `#[cfg(test)] #[path = \"...\"] mod tests;`.\n"
+                f"  -> Ref: docs/agent/CONVENTIONS.md#5-test-organization--naming"
+            )
+
         if not is_test_file(rel):
             # Rule 3: No inline `mod tests {` in production files
             if re.search(r"\bmod\s+tests\s*\{", content):
                 errors.append(
                     f"[RULE: NO_INLINE_TESTS] `{rel}` contains an inline `mod tests {{ ... }}` block.\n"
-                    f"  -> Fix: Replace the inline block with `#[cfg(test)] mod tests;` and move the tests into a companion `tests.rs` file.\n"
-                    f"  -> Ref: docs/agent/CONVENTIONS.md#test-organization"
+                    f"  -> Fix: Replace the inline block with `#[cfg(test)] #[path = \"...\"] mod tests;` and move the tests into `app/src/tests/`.\n"
+                    f"  -> Ref: docs/agent/CONVENTIONS.md#5-test-organization--naming"
                 )
 
             # Rule 4: File size limit

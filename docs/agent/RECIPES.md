@@ -16,7 +16,7 @@ Use this recipe when adding a new docked panel (e.g., a diagnostics drawer) or a
 
 ### Step-by-Step Order
 1. **Domain Model (`app/src/core/`):**
-   - If the view needs pure configuration or state calculation, add types/functions in `app/src/core/` (e.g., `app/src/core/pdf.rs`) with `///` doc comments and unit tests in `app/src/core/<module>/tests.rs`.
+   - If the view needs pure configuration or state calculation, add types/functions in `app/src/core/` (e.g., `app/src/core/pdf.rs`) with `///` doc comments and unit tests in `app/src/tests/core/<module>_tests.rs`.
    - *Commit:* `feat(core): add domain model for <feature>`
 2. **View Module (`app/src/ui/components/` or `app/src/ui/dialogs/`):**
    - Create the new module starting with a `//!` inner doc comment.
@@ -80,7 +80,7 @@ Use this recipe when adding a configurable user preference (e.g., editor behavio
 1. **Extend `IdeSettings` (`app/src/core/settings.rs`):**
    - Add the `pub` field with a `///` doc comment to `IdeSettings`.
    - Set its default value in `impl Default for IdeSettings`.
-   - Add a unit test in `app/src/core/settings/tests.rs` verifying the default value.
+   - Add a unit test in `app/src/tests/core/settings_tests.rs` verifying the default value.
    - *Commit:* `feat(core): add <field_name> to IdeSettings`
 2. **Expose Controls in Settings Dialog (`app/src/ui/dialogs/settings.rs`):**
    - Add the UI control (checkbox, slider, or text input) under the appropriate `SettingsTab` (`Appearance`, `EditorAndDisk`, or `CompilerAndPreview`).
@@ -92,7 +92,7 @@ Use this recipe when adding a configurable user preference (e.g., editor behavio
 ### Checklist
 - [ ] Field has a `///` doc comment in `app/src/core/settings.rs` (`#![warn(missing_docs)]` is enforced).
 - [ ] Clicking "Restore Defaults" in `app/src/ui/dialogs/settings.rs` resets the field via `IdeSettings::default()`.
-- [ ] Unit test in `app/src/core/settings/tests.rs` covers the default.
+- [ ] Unit test in `app/src/tests/core/settings_tests.rs` covers the default.
 
 ---
 
@@ -148,20 +148,22 @@ Use this recipe when introducing fallible operations in `core/`, `project.rs`, `
 Use this recipe when adding test coverage for new features or bug fixes.
 
 - **Reference Implementations:**
-  - Companion unit test: `app/src/core/diff/tests.rs` (declared via `#[cfg(test)] mod tests;` in `app/src/core/diff.rs`)
+  - Centralized unit test: `app/src/tests/core/diff_tests.rs` (declared via `#[cfg(test)] #[path = "../tests/core/diff_tests.rs"] mod tests;` in `app/src/core/diff.rs`)
   - Integration test suite: `app/tests/outline_tests.rs` and `app/tests/project_tests.rs`
 
 ### Step-by-Step Order
 1. **Choose the Right Test Tier:**
-   - **Companion Unit Test (`app/src/<path>/<module>/tests.rs`):** For testing internal functions, edge cases, and module-private invariants.
+   - **Centralized Unit Test (`app/src/tests/<path>/<module>_tests.rs`):** For testing internal functions, edge cases, and module-private invariants.
    - **Integration Test (`app/tests/<topic>_tests.rs`):** For testing public library APIs across modules (`azo_type::...`).
 2. **No Inline Tests Rule:**
    - In `app/src/<path>/<module>.rs`, add only:
      ```rust
      #[cfg(test)]
+     #[path = "../tests/<path>/<module>_tests.rs"] // adjust `..` depth to `app/src/`
      mod tests;
      ```
-   - Put the test functions in `app/src/<path>/<module>/tests.rs` starting with a `//!` inner doc comment.
+   - Do **not** declare `mod tests;` in `app/src/lib.rs`.
+   - Put the test functions in `app/src/tests/<path>/<module>_tests.rs` starting with a `//!` inner doc comment.
 3. **Isolated Temporary Directories for Disk Tests:**
    - When a test requires a filesystem directory (e.g., `DiskProject` or `CollabPersistence`), create a unique temp directory under `std::env::temp_dir()` using process ID / atomic counter and remove it at the end of the test (see `unique_temp_dir` in `app/tests/project_tests.rs`).
 4. **Descriptive Behavioral Naming:**
@@ -169,8 +171,8 @@ Use this recipe when adding test coverage for new features or bug fixes.
 
 ### Checklist
 - [ ] No `mod tests { ... }` inline in any production `.rs` file.
-- [ ] New `tests.rs` file starts with a `//!` module doc comment.
-- [ ] `python3 scripts/verify_structural_rules.py --write-map` run if a new `tests.rs` file was created.
+- [ ] New `*_tests.rs` file starts with a `//!` module doc comment.
+- [ ] `python3 scripts/verify_structural_rules.py --write-map` run if a new unit test file was created.
 
 ---
 
@@ -213,7 +215,7 @@ Use this recipe when extracting hardcoded user-facing strings or adding support 
    - Files MUST start with `_version: 1` (Weblate standard single-locale format).
 2. **Support Native Display Name (`app/src/core/i18n.rs`):**
    - If adding a new locale, register its native human-readable name in `locale_native_name(locale: &str)`.
-   - Update unit tests in `app/src/core/i18n/tests.rs`.
+   - Update unit tests in `app/src/tests/core/i18n_tests.rs`.
 3. **Use the `t!` Macro in Presentation Modules (`app/src/ui/`):**
    - Import `use rust_i18n::t;`.
    - Replace literal strings with `t!("section.key")` or `t!("section.key", param = val)`.

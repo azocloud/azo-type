@@ -10,6 +10,6 @@ This directory contains pure domain logic for `azo-type`. In addition to root [`
    - When file contents are needed (e.g., resolving `#include "chapter.typ"` in `outline.rs`), accept a `&dyn SourceResolver` trait implementation so callers can pass in-memory test doubles or `DiskProject`.
 3. **Mandatory Documentation (`#![warn(missing_docs)]`):**
    - Every `pub` struct, struct field, enum, enum variant, trait, constant, and function in `app/src/core/` MUST have a `///` doc comment.
-4. **Companion Unit Tests Only:**
-   - Every `app/src/core/<name>.rs` declares `#[cfg(test)] mod tests;` and places all unit tests in `app/src/core/<name>/tests.rs`.
+4. **Centralized Unit Tests Only:**
+   - Every `app/src/core/<name>.rs` declares `#[cfg(test)] #[path = "../tests/core/<name>_tests.rs"] mod tests;` and places all unit tests in `app/src/tests/core/<name>_tests.rs`.
    - All tests must run purely in-memory in `< 10ms` without temporary directories or network sockets.

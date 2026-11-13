@@ -29,7 +29,7 @@ A new agent needs to read **only `AGENTS.md` (~890 tokens)** on startup, keeping
      - Target: `app/src/core/settings.rs` + `app/src/ui/dialogs/settings.rs` (Ref: `app/src/core/settings.rs`).
   2. `docs/agent/RECIPES.md` § Recipe 3 ("Adding a New User Setting Field"):
      - Lists exact 3-step sequence:
-       - Step 1: Add field to `IdeSettings` in `app/src/core/settings.rs` with `///` doc comment, update `Default`, add unit test in `app/src/core/settings/tests.rs`. Commit atomically.
+       - Step 1: Add field to `IdeSettings` in `app/src/core/settings.rs` with `///` doc comment, update `Default`, add unit test in `app/src/tests/core/settings_tests.rs`. Commit atomically.
        - Step 2: Add checkbox widget to `app/src/ui/dialogs/settings.rs`.
        - Step 3: Pass into `EditorPaneParams` in `app/src/app.rs`. Commit atomically.
 - **Documents Read:** **2 documents** (`AGENTS.md` → `RECIPES.md`) before directly opening the 3 target files. Zero tree-search required.
@@ -50,7 +50,7 @@ A new agent needs to read **only `AGENTS.md` (~890 tokens)** on startup, keeping
      - Target: `app/src/core/<module>.rs` (Ref: `app/src/core/diff.rs`).
   2. `docs/agent/PROJECT_MAP.md` (Row `app/src/core/diff.rs`):
      - Summarizes purpose: UTF-16 code units vs `char` conversions.
-     - Points to test locations: `app/src/core/diff/tests.rs` (unit) and `app/tests/diff_tests.rs` (integration).
+     - Points to test locations: `app/src/tests/core/diff_tests.rs` (unit) and `app/tests/diff_tests.rs` (integration).
   3. `docs/agent/GOTCHAS.md` § 2 ("The Three String Offset Systems"):
      - Clarifies the non-obvious difference between byte offsets, `char` indices, and `yrs` UTF-16 surrogate pairs.
 - **Documents Read:** **3 documents** (`AGENTS.md` → `PROJECT_MAP.md` → `GOTCHAS.md`).
@@ -73,8 +73,8 @@ The mechanical enforcement script (`scripts/verify_structural_rules.py`, invoked
 ```
 ❌ Structural Convention Checks FAILED:
 [RULE: NO_INLINE_TESTS] `app/src/core/file_kind.rs` contains an inline `mod tests { ... }` block.
-  -> Fix: Replace the inline block with `#[cfg(test)] mod tests;` and move the tests into a companion `tests.rs` file.
-  -> Ref: docs/agent/CONVENTIONS.md#test-organization
+  -> Fix: Replace the inline block with `#[cfg(test)] #[path = "..."] mod tests;` and move the tests into `app/src/tests/`.
+  -> Ref: docs/agent/CONVENTIONS.md#5-test-organization--naming
 ```
 
 ### Test C: Forbidden UI Dependency inside `app/src/core/` (`use egui::Color32;`)

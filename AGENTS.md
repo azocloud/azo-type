@@ -45,7 +45,7 @@ Dependencies point strictly **inward**:
 | OS-specific dialog or native integration | `app/src/platform/<name>.rs` | `app/src/platform/dialogs.rs` |
 | New localization key or translation | `locales/<lang>.yml` + `app/src/core/i18n.rs` | `locales/en.yml` |
 | P2P wire message or CRDT operation | `app/src/collab/protocol.rs` + `app/src/collab/doc.rs` | `app/src/collab/protocol.rs` |
-| Unit tests for module `foo.rs` | `app/src/<path>/foo/tests.rs` (via `#[cfg(test)] mod tests;`) | `app/src/core/pdf/tests.rs` |
+| Unit tests for module `foo.rs` | `app/src/tests/<path>/foo_tests.rs` (via `#[cfg(test)] #[path = "..."] mod tests;`) | `app/src/tests/core/pdf_tests.rs` |
 | Cross-module / black-box test | `app/tests/<topic>_tests.rs` | `app/tests/outline_tests.rs` |
 
 ## 5. Core Conventions (Short Form)
@@ -53,7 +53,7 @@ Full details with Good/Bad examples: [`docs/agent/CONVENTIONS.md`](docs/agent/CO
 - **Git & Atomic Conventional Commits:** Never work directly on `main`/`master`; create a feature/fix/chore branch first. Commit **after every logical step** using `<type>(<scope>): <summary>` (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `style`, `perf`, `build`, `ci`). Never batch multiple features or steps into one end-of-session commit.
 - **File Size & Naming:** Keep production files under ~400 lines (hard cap: 600 lines unless explicitly whitelisted in `scripts/verify_structural_rules.py`). Never create `utils.rs`, `helpers.rs`, `misc.rs`, or `common.rs`.
 - **Module Docs:** Every `.rs` file in `app/src/` must begin with an inner `//!` doc comment; public items in `core/` require `///` docs (`#![warn(missing_docs)]`).
-- **Tests:** Zero inline `mod tests { ... }` blocks in production files. Always use `#[cfg(test)] mod tests;` pointing to a companion `tests.rs` file, or integration tests in `app/tests/`.
+- **Tests:** Zero inline `mod tests { ... }` blocks in production files. Always use `#[cfg(test)] #[path = "..."] mod tests;` pointing into `app/src/tests/`, or integration tests in `app/tests/`.
 - **UI State vs. Rendering:** Use the `Params` + `Output` struct pattern (`render_*(ui, Params) -> Output`).
 - **Error Handling & Threading:** Return `Result<T, String>` or typed errors; never `unwrap()` user input or network/disk I/O. Never block the `egui` thread with synchronous dialogs or network calls.
 
@@ -64,7 +64,7 @@ Full details with Good/Bad examples: [`docs/agent/CONVENTIONS.md`](docs/agent/CO
 
 ## 7. Definition of Done (Every Change)
 1. Logical steps committed atomically with Conventional Commit messages on a dedicated branch.
-2. New behavior covered by unit (`foo/tests.rs`) or integration (`app/tests/`) tests.
+2. New behavior covered by unit (`app/src/tests/<path>/foo_tests.rs`) or integration (`app/tests/`) tests.
 3. Documentation (`//!` module docs, `PROJECT_MAP.md`, and relevant `docs/agent/*.md`) updated in the same commit as structural changes.
 4. `./scripts/check.sh` exits with `0` (fmt, clippy `-D warnings`, 100% tests green, all structural checks passing).
 

@@ -18,23 +18,23 @@
 | Module Path | Purpose (`//!` Summary) | Key Public Types / Entrypoints | Internal `crate::` Deps | Tests Location | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `app/src/app.rs` | Top-level application state orchestrator (`AzoTypeApp`), event loop, and channel dispatcher. | `IoEvent`, `TypstIdeApp`, `AzoTypeApp`, `set_language` | `collab`, `compiler`, `core`, `engine`, `highlight`, `language_check`, `platform`, `project`, `ui`, `world` | *(covered via integration/UI)* | Top-level `eframe::App` state orchestrator; delegates view rendering to `ui/`. |
-| `app/src/collab/awareness.rs` | Ephemeral peer presence, active file tracking, and remote cursor awareness synchronization. | `PeerPresence`, `CollabAwareness`, `client_id`, `set_local_presence`, `encode_full_update`, `apply_remote_awareness_bytes` | *(none)* | `app/src/collab/awareness/tests.rs` | — |
-| `app/src/collab/doc.rs` | Multi-file Yrs CRDT document container (`CollabProjectDoc`), sticky cursors, and local undo manager. | `LOCAL_ORIGIN`, `REMOTE_ORIGIN`, `FILES_MAP_KEY`, `CollabFileEntry`, `CollabProjectDoc`, `with_client_id` | `core` | `app/src/collab/doc/tests.rs` | — |
+| `app/src/collab/awareness.rs` | Ephemeral peer presence, active file tracking, and remote cursor awareness synchronization. | `PeerPresence`, `CollabAwareness`, `client_id`, `set_local_presence`, `encode_full_update`, `apply_remote_awareness_bytes` | *(none)* | `app/src/tests/collab/awareness_tests.rs` | — |
+| `app/src/collab/doc.rs` | Multi-file Yrs CRDT document container (`CollabProjectDoc`), sticky cursors, and local undo manager. | `LOCAL_ORIGIN`, `REMOTE_ORIGIN`, `FILES_MAP_KEY`, `CollabFileEntry`, `CollabProjectDoc`, `with_client_id` | `core` | `app/src/tests/collab/doc_tests.rs` | — |
 | `app/src/collab/mod.rs` | Peer-to-peer real-time collaborative editing subsystem (Yrs CRDT + Iroh QUIC transport). | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/collab/persistence.rs` | Atomic disk persistence for CRDT state snapshots (`.typst-collab/state.yrs`) and workspace reconciliation. | `PersistedFileIdMap`, `CollabPersistence`, `snapshot_path`, `file_ids_path`, `load_and_reconcile_from_disk`, `save_snapshot` | `collab`, `project` | `app/tests/persistence_tests.rs` | — |
 | `app/src/collab/protocol.rs` | Wire protocol definitions, tickets, and abstract transport trait for P2P collaboration. | `COLLAB_ALPN`, `COLLAB_PROTOCOL_VERSION`, `MAX_WIRE_FRAME_BYTES`, `TICKET_PREFIX`, `ConnectionRoute`, `badge_label` | *(none)* | *(covered via integration/UI)* | `SessionTicket` redacts secret bytes in `Debug` impl. |
-| `app/src/collab/session.rs` | Background asynchronous collaboration session actor coordinating CRDT state, transport, and UI channels. | `PeerLifecycleState`, `label`, `ConnectedPeerStatus`, `UiToSessionCmd`, `SessionToUiEvent`, `CollabSessionHandle` | `collab` | `app/src/collab/session/tests.rs` | Runs a dedicated `tokio` runtime on a background thread; communicates via `mpsc`. |
-| `app/src/collab/transport.rs` | Concrete `Iroh` QUIC peer-to-peer network transport implementation (`IrohCollabTransport`). | `inspect_connection_route`, `write_framed_message`, `read_framed_message`, `IrohTransport`, `bind_host`, `connect_with_ticket` | `collab` | `app/src/collab/transport/tests.rs` | — |
+| `app/src/collab/session.rs` | Background asynchronous collaboration session actor coordinating CRDT state, transport, and UI channels. | `PeerLifecycleState`, `label`, `ConnectedPeerStatus`, `UiToSessionCmd`, `SessionToUiEvent`, `CollabSessionHandle` | `collab` | `app/src/tests/collab/session_tests.rs` | Runs a dedicated `tokio` runtime on a background thread; communicates via `mpsc`. |
+| `app/src/collab/transport.rs` | Concrete `Iroh` QUIC peer-to-peer network transport implementation (`IrohCollabTransport`). | `inspect_connection_route`, `write_framed_message`, `read_framed_message`, `IrohTransport`, `bind_host`, `connect_with_ticket` | `collab` | `app/src/tests/collab/transport_tests.rs` | — |
 | `app/src/collab/ui.rs` | Collaborative UI window, peer list badges, session controls, and in-editor remote cursor painting. | `CollabUiState`, `connected_peer_count`, `peers_in_file`, `on_session_started`, `reset_session`, `render_collaboration_window` | `collab`, `highlight` | *(covered via integration/UI)* | — |
-| `app/src/compiler.rs` | Incremental Typst document compiler, rasterizer, PDF exporter, and diagnostic collector. | `NativeTypstEngine`, `compile_project`, `export_pdf_bytes_with_config`, `build_byte_to_char_table` | `core`, `engine`, `project`, `world` | `app/src/compiler/tests.rs` | — |
-| `app/src/core/diff.rs` | Pure text differencing and UTF-16 code-unit conversion utilities. | `Utf16TextDiff`, `CharSelection`, `caret`, `char_to_utf16_offset`, `utf16_to_char_offset`, `compute_utf16_diff` | *(none)* | `app/src/core/diff/tests.rs`, `app/tests/diff_tests.rs` | Converts between Rust `char` indices (`egui`) and UTF-16 offsets (`yrs`). |
+| `app/src/compiler.rs` | Incremental Typst document compiler, rasterizer, PDF exporter, and diagnostic collector. | `NativeTypstEngine`, `compile_project`, `export_pdf_bytes_with_config`, `build_byte_to_char_table` | `core`, `engine`, `project`, `world` | `app/src/tests/compiler_tests.rs` | — |
+| `app/src/core/diff.rs` | Pure text differencing and UTF-16 code-unit conversion utilities. | `Utf16TextDiff`, `CharSelection`, `caret`, `char_to_utf16_offset`, `utf16_to_char_offset`, `compute_utf16_diff` | *(none)* | `app/src/tests/core/diff_tests.rs`, `app/tests/diff_tests.rs` | Converts between Rust `char` indices (`egui`) and UTF-16 offsets (`yrs`). |
 | `app/src/core/engine.rs` | Typst engine release catalog loaded from embedded JSON, target matching, and pure-Rust SHA-256 checks. | `BUILTIN_TYPST_VERSION`, `EngineArchiveKind`, `EngineReleaseAsset`, `TypstEngineRelease`, `available_typst_releases`, `is_builtin_version` | *(none)* | *(covered via integration/UI)* | — |
-| `app/src/core/file_kind.rs` | File type identification and classification based on file extensions. | `FileKind`, `from_path`, `is_editable_text`, `icon`, `label` | *(none)* | `app/src/core/file_kind/tests.rs`, `app/tests/project_tests.rs` | — |
+| `app/src/core/file_kind.rs` | File type identification and classification based on file extensions. | `FileKind`, `from_path`, `is_editable_text`, `icon`, `label` | *(none)* | `app/src/tests/core/file_kind_tests.rs`, `app/tests/project_tests.rs` | — |
 | `app/src/core/i18n.rs` | Cross-platform locale normalization, system language detection, and native display names. | `normalize_locale_tag`, `resolve_locale`, `detect_system_locale`, `locale_native_name`, `AppSavedState` | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/core/mod.rs` | Core domain models, algorithms, and data types. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
-| `app/src/core/outline.rs` | Pure document outline extraction, AST traversal, and hierarchical numbering. | `SourceResolver`, `CompiledOutlineItem`, `DocumentOutlineItem`, `OutlineTreeNode`, `extract_typst_markup_plain_text`, `extract_typst_ast_outline` | `core` | `app/src/core/outline/tests.rs`, `app/tests/outline_tests.rs` | Uses `SourceResolver` trait to stay independent of filesystem I/O. |
-| `app/src/core/pdf.rs` | PDF export configuration, PDF versions, and PDF/A archival standards. | `PdfVersionChoice`, `ALL`, `label`, `short_label`, `to_standard`, `PdfArchivalStandard` | *(none)* | `app/src/core/pdf/tests.rs`, `app/tests/pdf_config_tests.rs` | — |
-| `app/src/core/settings.rs` | IDE user preferences, configuration defaults, and settings dialog state. | `SettingsTab`, `ThemePreference`, `ALL`, `resolve_dark_mode`, `IdeSettings`, `sanitized` | `core` | `app/src/core/settings/tests.rs` | — |
+| `app/src/core/outline.rs` | Pure document outline extraction, AST traversal, and hierarchical numbering. | `SourceResolver`, `CompiledOutlineItem`, `DocumentOutlineItem`, `OutlineTreeNode`, `extract_typst_markup_plain_text`, `extract_typst_ast_outline` | `core` | `app/src/tests/core/outline_tests.rs`, `app/tests/outline_tests.rs` | Uses `SourceResolver` trait to stay independent of filesystem I/O. |
+| `app/src/core/pdf.rs` | PDF export configuration, PDF versions, and PDF/A archival standards. | `PdfVersionChoice`, `ALL`, `label`, `short_label`, `to_standard`, `PdfArchivalStandard` | *(none)* | `app/src/tests/core/pdf_tests.rs`, `app/tests/pdf_config_tests.rs` | — |
+| `app/src/core/settings.rs` | IDE user preferences, configuration defaults, and settings dialog state. | `SettingsTab`, `ThemePreference`, `ALL`, `resolve_dark_mode`, `IdeSettings`, `sanitized` | `core` | `app/src/tests/core/settings_tests.rs` | — |
 | `app/src/core/spellcheck.rs` | Pure spellcheck/grammar domain types, embedded dictionary catalog, Hunspell encoding | `TIER1_LANGUAGES`, `DictionaryFileRole`, `AssetCompression`, `DictionaryFileAsset`, `Tier1LanguagePack`, `total_size_bytes` | `core` | *(covered via integration/UI)* | — |
 | `app/src/core/typst_prose.rs` | Pure Typst AST prose extraction, `#set text(lang: ...)` detection, and byte-preserving masking. | `TypstProseMask`, `ProseParagraph`, `normalize_language_code`, `normalize_full_language_tag`, `detect_typst_document_language`, `extract_typst_prose_mask` | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/engine/manager/archive.rs` | SHA-256 verification, release archive extraction, TLS provider setup, streaming HTTPS downloads, | `ensure_tls_crypto_provider`, `DownloadStage`, `DownloadProgress`, `elapsed_secs`, `fraction`, `speed_bytes_per_sec` | `core`, `engine` | *(covered via integration/UI)* | — |
@@ -86,38 +86,38 @@
 | `app/src/ui/theme.rs` | UI Design System tokens, ThemePalette, and egui Visuals styling. | `DESIGN_SYSTEM_CSS_TOKENS`, `ThemePalette`, `DARK`, `LIGHT`, `for_mode`, `apply_theme` | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/world.rs` | Implementation of `typst::World` (`IdeWorld`) providing fonts, packages, and file sources to the compiler. | `ReqwestDownloader`, `SharedWorldResources`, `font_family_count`, `EditorWorld`, `display_path_for_id` | `project` | *(covered via integration/UI)* | — |
 
-## 3. Companion Unit Test Modules (`app/src/**/tests.rs`)
+## 3. Centralized Unit Test Modules (`app/src/tests/`)
 
 | Test Module Path | Purpose (`//!` Summary) |
 | :--- | :--- |
-| `app/src/collab/awareness/tests.rs` | Unit tests for peer awareness state encoding, decoding, and synchronization. |
-| `app/src/collab/doc/tests.rs` | Unit tests for Yrs CRDT convergence, sticky cursors, path collisions, and local undo. |
-| `app/src/collab/session/tests.rs` | Unit tests for end-to-end multi-file P2P session synchronization over Iroh. |
-| `app/src/collab/transport/tests.rs` | Unit tests for session ticket encoding, redaction, and Iroh QUIC handshake. |
-| `app/src/compiler/tests.rs` | Unit tests for the Typst compiler, package fetching, and PDF export pipeline. |
-| `app/src/core/diff/tests.rs` | Unit tests for UTF-16 text differencing, emoji offsets, and collision path formatting. |
-| `app/src/core/engine/tests.rs` | Unit tests for the hardcoded Typst release catalog and pure-Rust SHA-256 verification. |
-| `app/src/core/file_kind/tests.rs` | Unit tests for file kind extension classification and text editability. |
-| `app/src/core/i18n/tests.rs` | Unit tests for locale normalization, system language detection, and native display names. |
-| `app/src/core/outline/tests.rs` | Unit tests for Typst AST heading extraction and outline hierarchy construction. |
-| `app/src/core/pdf/tests.rs` | Unit tests for PDF export version choices and archival standard validation. |
-| `app/src/core/settings/tests.rs` | Unit tests for default IDE user preferences and settings initialization. |
-| `app/src/core/spellcheck/tests.rs` | Unit tests for the embedded dictionary manifest, Hunspell encoding transcoding, and pure rules. |
-| `app/src/core/typst_prose/tests.rs` | Unit tests for Typst AST prose masking, language directive detection, and span conversion. |
-| `app/src/engine/manager/tests.rs` | Unit tests for [`EngineManager`] resolution, fallback behavior, and SHA-256 verification. |
-| `app/src/engine/types/tests.rs` | Unit tests for version-agnostic engine DTO serialization and RGBA/glyph roundtrips. |
-| `app/src/engine/worker/tests.rs` | Unit tests for the external engine worker bridge (`cli` parsers, staging, and JSON-stdio protocol). |
-| `app/src/language_check/downloader/tests.rs` | Unit tests for the Tier-1 dictionary cache and download status tracking. |
-| `app/src/language_check/engine/tests.rs` | Unit tests for offline spell/grammar engine tokenization, language detection, and caching. |
-| `app/src/platform/dialogs/tests.rs` | Unit tests for Hunspell dictionary companion file resolution. |
-| `app/src/platform/icon/tests.rs` | Unit tests for application icon decoding, caching, and viewport builder configuration. |
-| `app/src/platform/theme/tests.rs` | Unit tests for OS theme detection parsers and System-Default fallback behavior. |
-| `app/src/services/language_actions/tests.rs` | Unit tests for spell/grammar suggestion application and Tier-2 dictionary registration. |
-| `app/src/services/persistence/tests.rs` | Unit tests for `eframe::Storage` settings persistence and reload behavior. |
-| `app/src/ui/components/bottom_panel/tests.rs` | Unit tests for the collapsible multi-tab bottom workspace panel state and diagnostics sorting. |
-| `app/src/ui/components/editor_diagnostics/tests.rs` | Unit tests for editor language diagnostic underline geometry and color mapping. |
-| `app/src/ui/components/preview_selection/tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
-| `app/src/ui/components/split_divider/tests.rs` | Unit tests for split divider pane geometry calculations. |
+| `app/src/tests/collab/awareness_tests.rs` | Unit tests for peer awareness state encoding, decoding, and synchronization. |
+| `app/src/tests/collab/doc_tests.rs` | Unit tests for Yrs CRDT convergence, sticky cursors, path collisions, and local undo. |
+| `app/src/tests/collab/session_tests.rs` | Unit tests for end-to-end multi-file P2P session synchronization over Iroh. |
+| `app/src/tests/collab/transport_tests.rs` | Unit tests for session ticket encoding, redaction, and Iroh QUIC handshake. |
+| `app/src/tests/compiler_tests.rs` | Unit tests for the Typst compiler, package fetching, and PDF export pipeline. |
+| `app/src/tests/core/diff_tests.rs` | Unit tests for UTF-16 text differencing, emoji offsets, and collision path formatting. |
+| `app/src/tests/core/engine_tests.rs` | Unit tests for the hardcoded Typst release catalog and pure-Rust SHA-256 verification. |
+| `app/src/tests/core/file_kind_tests.rs` | Unit tests for file kind extension classification and text editability. |
+| `app/src/tests/core/i18n_tests.rs` | Unit tests for locale normalization, system language detection, and native display names. |
+| `app/src/tests/core/outline_tests.rs` | Unit tests for Typst AST heading extraction and outline hierarchy construction. |
+| `app/src/tests/core/pdf_tests.rs` | Unit tests for PDF export version choices and archival standard validation. |
+| `app/src/tests/core/settings_tests.rs` | Unit tests for default IDE user preferences and settings initialization. |
+| `app/src/tests/core/spellcheck_tests.rs` | Unit tests for the embedded dictionary manifest, Hunspell encoding transcoding, and pure rules. |
+| `app/src/tests/core/typst_prose_tests.rs` | Unit tests for Typst AST prose masking, language directive detection, and span conversion. |
+| `app/src/tests/engine/manager_tests.rs` | Unit tests for [`EngineManager`] resolution, fallback behavior, and SHA-256 verification. |
+| `app/src/tests/engine/types_tests.rs` | Unit tests for version-agnostic engine DTO serialization and RGBA/glyph roundtrips. |
+| `app/src/tests/engine/worker_tests.rs` | Unit tests for the external engine worker bridge (`cli` parsers, staging, and JSON-stdio protocol). |
+| `app/src/tests/language_check/downloader_tests.rs` | Unit tests for the Tier-1 dictionary cache and download status tracking. |
+| `app/src/tests/language_check/engine_tests.rs` | Unit tests for offline spell/grammar engine tokenization, language detection, and caching. |
+| `app/src/tests/platform/dialogs_tests.rs` | Unit tests for Hunspell dictionary companion file resolution. |
+| `app/src/tests/platform/icon_tests.rs` | Unit tests for application icon decoding, caching, and viewport builder configuration. |
+| `app/src/tests/platform/theme_tests.rs` | Unit tests for OS theme detection parsers and System-Default fallback behavior. |
+| `app/src/tests/services/language_actions_tests.rs` | Unit tests for spell/grammar suggestion application and Tier-2 dictionary registration. |
+| `app/src/tests/services/persistence_tests.rs` | Unit tests for `eframe::Storage` settings persistence and reload behavior. |
+| `app/src/tests/ui/components/bottom_panel_tests.rs` | Unit tests for the collapsible multi-tab bottom workspace panel state and diagnostics sorting. |
+| `app/src/tests/ui/components/editor_diagnostics_tests.rs` | Unit tests for editor language diagnostic underline geometry and color mapping. |
+| `app/src/tests/ui/components/preview_selection_tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
+| `app/src/tests/ui/components/split_divider_tests.rs` | Unit tests for split divider pane geometry calculations. |
 
 ## 4. Integration & Characterization Suites (`app/tests/`)
 

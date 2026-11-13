@@ -25,7 +25,7 @@ git commit -m "add export pdf dialog, fix highlight bug, refactor project.rs and
 #### ✅ Good: Atomic Conventional Commits
 ```bash
 # Step 1: Core domain logic
-git add app/src/core/pdf.rs app/src/core/pdf/tests.rs
+git add app/src/core/pdf.rs app/src/tests/core/pdf_tests.rs
 git commit -m "feat(core): add PdfExportConfig and PDF/A archival validation"
 
 # Step 2: UI presentation
@@ -149,7 +149,8 @@ pub fn compute_utf16_diff(old_text: &str, new_text: &str) -> Option<Utf16TextDif
 
 ### Rule
 - **Zero inline `mod tests { ... }` in production files:** Production files remain lean and focused exclusively on production code.
-- Declare `#[cfg(test)] mod tests;` in `foo.rs` and place the unit tests in `foo/tests.rs`.
+- Declare `#[cfg(test)] #[path = "<rel>/tests/<path>/foo_tests.rs"] mod tests;` in `foo.rs` and place the unit tests in `app/src/tests/<path>/foo_tests.rs`.
+- Do **not** register `src/tests/` as a standalone module in `app/src/lib.rs` so unit tests continue to access private items via `use super::*;`.
 - Integration and characterization tests belong in `app/tests/<topic>_tests.rs`.
 - **Descriptive test names:** Name tests after the exact behavior or edge case being verified (`verb_expectation_under_condition`).
 
@@ -167,14 +168,15 @@ mod tests {
 }
 ```
 
-#### ✅ Good: Companion File with Behavioral Names
+#### ✅ Good: Centralized Unit Test File with Behavioral Names
 In `app/src/core/pdf.rs`:
 ```rust
 #[cfg(test)]
+#[path = "../tests/core/pdf_tests.rs"]
 mod tests;
 ```
 
-In `app/src/core/pdf/tests.rs`:
+In `app/src/tests/core/pdf_tests.rs`:
 ```rust
 //! Unit tests for PDF export version choices and archival standard validation.
 
