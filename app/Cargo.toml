@@ -49,6 +49,13 @@ uuid = { version = "1", features = ["v4", "serde"] }
 base64 = "0.22"
 rand = "0.8"
 
+# Offline Spellchecking, Grammar Checking & Language Detection
+spellbook = "0.4"
+nlprule = { version = "0.6.4", default-features = false, features = ["regex-fancy"] }
+lingua = { version = "1.8", default-features = false, features = ["english", "german", "french", "spanish"] }
+encoding_rs = "0.8"
+flate2 = "1.1"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = { version = "0.21.2", default-features = false }
 
