@@ -22,7 +22,7 @@ use crate::ui::components::PreviewSelectionState;
 use crate::ui::theme::apply_theme;
 use crate::world::SharedWorldResources;
 
-pub use crate::core::settings::{IdeSettings, SettingsTab};
+pub use crate::core::settings::{IdeSettings, PreviewZoom, SettingsTab};
 #[cfg(target_os = "macos")]
 use crate::platform::menu::MacOsMenuBar;
 pub use crate::platform::menu::MenuAction;
@@ -44,7 +44,7 @@ pub struct AzoTypeApp {
     pub settings: IdeSettings,
     pub show_sidebar: bool,
     pub editor_split_ratio: f32,
-    pub zoom: f32,
+    pub zoom: PreviewZoom,
     pub show_settings_window: bool,
     pub settings_tab: SettingsTab,
     pub show_export_pdf_dialog: bool,
@@ -154,7 +154,7 @@ impl AzoTypeApp {
             settings,
             show_sidebar: true,
             editor_split_ratio: 0.5,
-            zoom: 1.0,
+            zoom: PreviewZoom::default(),
             show_settings_window: false,
             settings_tab: SettingsTab::Appearance,
             show_export_pdf_dialog: false,
@@ -275,9 +275,9 @@ impl AzoTypeApp {
                 self.settings.dark_mode = !self.settings.dark_mode;
                 apply_theme(ctx, self.settings.dark_mode);
             }
-            MenuAction::ZoomIn => self.zoom = (self.zoom + 0.15).clamp(0.4, 2.5),
-            MenuAction::ZoomOut => self.zoom = (self.zoom - 0.15).clamp(0.4, 2.5),
-            MenuAction::ZoomReset => self.zoom = 1.0,
+            MenuAction::ZoomIn => self.zoom.step_in(),
+            MenuAction::ZoomOut => self.zoom.step_out(),
+            MenuAction::ZoomReset => self.zoom.reset_100(),
             MenuAction::CompileNow => self.trigger_compile_now(ctx),
             MenuAction::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         }
@@ -597,13 +597,8 @@ impl AzoTypeApp {
                 word_wrap: self.settings.word_wrap,
                 project_root: &self.project.root_dir,
                 active_file: &self.project.active_file,
-                language: &self.language,
             },
         );
-
-        if let Some(l) = output.language_changed {
-            self.set_language(ctx, l);
-        }
 
         if let Some(act) = output.editor_action {
             self.pending_editor_context_action = Some(act);
@@ -948,6 +943,8 @@ impl AzoTypeApp {
             crate::ui::components::PreviewPaneParams {
                 dark_mode: self.settings.dark_mode,
                 zoom: &mut self.zoom,
+                sync_selection: &mut self.settings.preview_sync_selection,
+                pan_mode: &mut self.settings.preview_pan_mode,
                 page_textures: &self.page_textures,
                 diagnostics: &self.diagnostics,
                 selection: &mut self.preview_selection,

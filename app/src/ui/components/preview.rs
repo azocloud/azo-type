@@ -10,6 +10,7 @@ use rust_i18n::t;
 
 use crate::compiler::{DiagnosticItem, PreviewCharBox, RenderedPageTexture};
 use crate::core::diff::CharSelection;
+use crate::core::settings::{PreviewZoom, PREVIEW_ZOOM_PRESETS};
 use crate::ui::components::preview_selection::{
     collect_selected_preview_text, compute_multifile_selection_jump, contains_pt, find_char_box_at,
     find_drag_char_box, find_target_page_for_pos, paint_char_box_selection, screen_to_page_pt,
@@ -30,7 +31,9 @@ pub struct PreviewPaneOutput {
 /// Parameters for rendering the live preview canvas and diagnostics banner.
 pub struct PreviewPaneParams<'a> {
     pub dark_mode: bool,
-    pub zoom: &'a mut f32,
+    pub zoom: &'a mut PreviewZoom,
+    pub sync_selection: &'a mut bool,
+    pub pan_mode: &'a mut bool,
     pub page_textures: &'a [RenderedPageTexture],
     pub diagnostics: &'a [DiagnosticItem],
     pub selection: &'a mut PreviewSelectionState,
@@ -44,7 +47,29 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
     let border_col = palette.panel_border;
     let prev_selection = params.selection.clone();
 
-    render_preview_header(ui, &palette, params.zoom, params.page_textures.len());
+    if *params.pan_mode {
+        params.selection.clear();
+    }
+
+    let max_page_width_pt = params
+        .page_textures
+        .iter()
+        .map(|p| p.width_pt)
+        .fold(0.0_f32, f32::max);
+    let initial_avail_w = (ui.available_width() - 36.0).max(160.0);
+    let display_scale = params
+        .zoom
+        .effective_scale_for_viewport(initial_avail_w, max_page_width_pt);
+    params.zoom.effective_scale = display_scale;
+
+    render_preview_header(
+        ui,
+        &palette,
+        params.zoom,
+        params.sync_selection,
+        params.pan_mode,
+        params.page_textures.len(),
+    );
 
     let has_diagnostics = !params.diagnostics.is_empty();
     let available_height = ui.available_height();
@@ -68,65 +93,89 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
             .stroke(Stroke::new(1.0_f32, border_col))
             .corner_radius(CornerRadius::ZERO)
             .show(ui, |ui| {
-                if ui.ui_contains_pointer() {
+                let canvas_rect = ui.available_rect_before_wrap();
+                if ui.rect_contains_pointer(canvas_rect) {
                     let zoom_delta = ui.input(|i| i.zoom_delta());
-                    if (zoom_delta - 1.0).abs() > 0.001 {
-                        *params.zoom = (*params.zoom * zoom_delta).clamp(0.4, 2.5);
+                    params.zoom.apply_zoom_delta(zoom_delta);
+                    if *params.pan_mode {
+                        let cursor = if ui.input(|i| i.pointer.primary_down()) {
+                            CursorIcon::Grabbing
+                        } else {
+                            CursorIcon::Grab
+                        };
+                        ui.ctx().set_cursor_icon(cursor);
                     }
                 }
+
+                let avail_w = (canvas_rect.width() - 36.0).max(160.0);
+                let active_scale = params
+                    .zoom
+                    .effective_scale_for_viewport(avail_w, max_page_width_pt);
+                params.zoom.effective_scale = active_scale;
 
                 ScrollArea::both()
                     .id_salt("typst_preview_scroll_area")
                     .auto_shrink([false, false])
+                    .drag_to_scroll(*params.pan_mode)
                     .show(ui, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(18.0);
+                        ui.add_space(18.0);
 
-                            if params.page_textures.is_empty() {
+                        if params.page_textures.is_empty() {
+                            ui.vertical_centered(|ui| {
                                 ui.add_space(40.0);
                                 ui.label(
                                     RichText::new(t!("preview.no_pages"))
                                         .size(14.0)
                                         .color(palette.text_muted),
                                 );
+                            });
+                        } else {
+                            let viewport_w = canvas_rect.width().max(160.0);
+                            let mut page_rects = Vec::with_capacity(params.page_textures.len());
+                            let page_sense = if *params.pan_mode {
+                                Sense::hover()
                             } else {
-                                let avail_w = (ui.available_width() - 36.0).max(200.0);
-                                let mut page_rects = Vec::with_capacity(params.page_textures.len());
+                                Sense::click_and_drag()
+                            };
 
-                                for (page_idx, page) in params.page_textures.iter().enumerate() {
-                                    let base_scale = (avail_w / page.width_pt).clamp(0.45, 1.35);
-                                    let display_w = page.width_pt * base_scale * *params.zoom;
-                                    let display_h = page.height_pt * base_scale * *params.zoom;
-                                    let page_size = Vec2::new(display_w, display_h);
+                            for (page_idx, page) in params.page_textures.iter().enumerate() {
+                                let display_w = page.width_pt * active_scale;
+                                let display_h = page.height_pt * active_scale;
+                                let page_size = Vec2::new(display_w, display_h);
+                                let side_pad = ((viewport_w - display_w) * 0.5).max(18.0);
 
-                                    let (rect, response) =
-                                        ui.allocate_exact_size(page_size, Sense::click_and_drag());
-                                    page_rects.push(rect);
+                                let (rect, response) = ui
+                                    .horizontal(|ui| {
+                                        ui.add_space(side_pad);
+                                        let allocated =
+                                            ui.allocate_exact_size(page_size, page_sense);
+                                        ui.add_space(side_pad);
+                                        allocated
+                                    })
+                                    .inner;
+                                page_rects.push(rect);
 
-                                    let painter = ui.painter();
-                                    let shadow_rect =
-                                        rect.translate(Vec2::new(0.0, 2.0)).expand(1.0);
-                                    painter.rect_filled(
-                                        shadow_rect,
-                                        CornerRadius::ZERO,
-                                        Color32::from_black_alpha(if params.dark_mode {
-                                            45
-                                        } else {
-                                            22
-                                        }),
-                                    );
+                                let painter = ui.painter();
+                                let shadow_rect = rect.translate(Vec2::new(0.0, 2.0)).expand(1.0);
+                                painter.rect_filled(
+                                    shadow_rect,
+                                    CornerRadius::ZERO,
+                                    Color32::from_black_alpha(if params.dark_mode {
+                                        45
+                                    } else {
+                                        22
+                                    }),
+                                );
 
-                                    painter.rect_filled(rect, CornerRadius::ZERO, Color32::WHITE);
-                                    painter.image(
-                                        page.texture.id(),
-                                        rect,
-                                        Rect::from_min_max(
-                                            Pos2::new(0.0, 0.0),
-                                            Pos2::new(1.0, 1.0),
-                                        ),
-                                        Color32::WHITE,
-                                    );
+                                painter.rect_filled(rect, CornerRadius::ZERO, Color32::WHITE);
+                                painter.image(
+                                    page.texture.id(),
+                                    rect,
+                                    Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                                    Color32::WHITE,
+                                );
 
+                                if !*params.pan_mode {
                                     if let Some((start, end)) = params.selection.ordered_range() {
                                         if page_idx >= start.page_idx
                                             && page_idx <= end.page_idx
@@ -152,14 +201,16 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
                                             );
                                         }
                                     }
+                                }
 
-                                    painter.rect_stroke(
-                                        rect,
-                                        CornerRadius::ZERO,
-                                        Stroke::new(1.0_f32, border_col),
-                                        StrokeKind::Outside,
-                                    );
+                                painter.rect_stroke(
+                                    rect,
+                                    CornerRadius::ZERO,
+                                    Stroke::new(1.0_f32, border_col),
+                                    StrokeKind::Outside,
+                                );
 
+                                if !*params.pan_mode {
                                     handle_page_pointer_interaction(
                                         ui,
                                         page_idx,
@@ -169,21 +220,27 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
                                         params.selection,
                                         &mut output,
                                     );
+                                }
 
-                                    ui.add_space(6.0);
-                                    let page_str = t!(
-                                        "preview.page_x_of_y",
-                                        current = page.page_number,
-                                        total = params.page_textures.len()
-                                    );
+                                ui.add_space(6.0);
+                                let page_str = t!(
+                                    "preview.page_x_of_y",
+                                    current = page.page_number,
+                                    total = params.page_textures.len()
+                                );
+                                ui.horizontal(|ui| {
+                                    let row_w = (display_w + 2.0 * side_pad).max(viewport_w);
+                                    ui.add_space((row_w * 0.5 - 45.0).max(18.0));
                                     ui.label(
                                         RichText::new(page_str)
                                             .size(11.0)
                                             .color(palette.text_muted),
                                     );
-                                    ui.add_space(18.0);
-                                }
+                                });
+                                ui.add_space(18.0);
+                            }
 
+                            if !*params.pan_mode {
                                 update_active_drag(
                                     ui,
                                     params.page_textures,
@@ -191,13 +248,15 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
                                     params.selection,
                                 );
                             }
-                        });
+                        }
                     });
             });
     });
 
-    if params.selection.anchor != prev_selection.anchor
-        || params.selection.focus != prev_selection.focus
+    if !*params.pan_mode
+        && *params.sync_selection
+        && (params.selection.anchor != prev_selection.anchor
+            || params.selection.focus != prev_selection.focus)
     {
         let pages_boxes: Vec<&[PreviewCharBox]> = params
             .page_textures
@@ -209,7 +268,7 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
         }
     }
 
-    if !params.selection.is_empty() {
+    if !*params.pan_mode && !params.selection.is_empty() {
         if ui.input(|i| i.key_pressed(Key::Escape)) {
             params.selection.clear();
         } else if ui.input(|i| i.events.iter().any(|e| matches!(e, Event::Copy))) {
@@ -243,7 +302,14 @@ pub fn render_preview_pane(ui: &mut Ui, params: PreviewPaneParams<'_>) -> Previe
     output
 }
 
-fn render_preview_header(ui: &mut Ui, palette: &ThemePalette, zoom: &mut f32, page_count: usize) {
+fn render_preview_header(
+    ui: &mut Ui,
+    palette: &ThemePalette,
+    zoom: &mut PreviewZoom,
+    sync_selection: &mut bool,
+    pan_mode: &mut bool,
+    page_count: usize,
+) {
     Frame::new()
         .fill(palette.chrome_sidebar)
         .stroke(Stroke::new(1.0_f32, palette.panel_border))
@@ -268,20 +334,58 @@ fn render_preview_header(ui: &mut Ui, palette: &ThemePalette, zoom: &mut f32, pa
                 );
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui
-                        .small_button(t!("preview.fit_width"))
-                        .on_hover_text(t!("preview.fit_width_tooltip"))
-                        .clicked()
-                    {
-                        *zoom = 1.0;
-                    }
-                    let scale_str = t!("preview.scale", percent = format!("{:.0}", *zoom * 100.0));
+                    let selected_label = if zoom.fit_width {
+                        t!("preview.fit_width").to_string()
+                    } else {
+                        t!("preview.zoom_percent", percent = zoom.display_percent()).to_string()
+                    };
+                    egui::ComboBox::from_id_salt("preview_zoom_selector")
+                        .width(105.0)
+                        .selected_text(selected_label)
+                        .show_ui(ui, |ui| {
+                            for &preset in PREVIEW_ZOOM_PRESETS {
+                                let is_selected =
+                                    !zoom.fit_width && (zoom.scale - preset).abs() < 0.005;
+                                let label = t!(
+                                    "preview.zoom_percent",
+                                    percent = format!("{:.0}", preset * 100.0)
+                                );
+                                if ui.selectable_label(is_selected, label).clicked() {
+                                    zoom.set_scale(preset);
+                                }
+                            }
+                            ui.separator();
+                            if ui
+                                .selectable_label(zoom.fit_width, t!("preview.fit_width"))
+                                .on_hover_text(t!("preview.fit_width_tooltip"))
+                                .clicked()
+                            {
+                                zoom.set_fit_width();
+                            }
+                        })
+                        .response
+                        .on_hover_text(t!("preview.zoom_tooltip"));
+
+                    let scale_str = t!("preview.zoom_percent", percent = zoom.display_percent());
                     ui.label(
                         RichText::new(scale_str)
                             .size(11.5)
                             .monospace()
                             .color(palette.text_muted),
                     );
+
+                    ui.separator();
+                    ui.toggle_value(
+                        pan_mode,
+                        RichText::new(t!("preview.pan_mode_short")).size(11.5),
+                    )
+                    .on_hover_text(t!("preview.pan_mode_tooltip"));
+
+                    ui.toggle_value(
+                        sync_selection,
+                        RichText::new(t!("preview.sync_selection_short")).size(11.5),
+                    )
+                    .on_hover_text(t!("preview.sync_selection_tooltip"));
                 });
             });
         });

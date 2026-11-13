@@ -263,6 +263,17 @@ pub fn render_settings_dialog(
                             output.dpi_changed = true;
                         }
                     });
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(6.0);
+                    ui.checkbox(
+                        &mut settings.preview_sync_selection,
+                        t!("settings.preview_sync_selection_label"),
+                    );
+                    ui.checkbox(
+                        &mut settings.preview_pan_mode,
+                        t!("settings.preview_pan_mode_label"),
+                    );
                 }
             }
 
