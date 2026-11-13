@@ -3,6 +3,7 @@
 use typst_pdf::{PdfStandard, PdfStandards};
 
 #[cfg(test)]
+#[path = "../tests/core/pdf_tests.rs"]
 mod tests;
 
 /// Selectable PDF version in the Export PDF dialog.

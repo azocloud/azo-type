@@ -174,4 +174,5 @@ pub fn ensure_linux_desktop_integration() {
 pub fn ensure_linux_desktop_integration() {}
 
 #[cfg(test)]
+#[path = "../tests/platform/icon_tests.rs"]
 mod tests;

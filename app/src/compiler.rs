@@ -446,4 +446,5 @@ fn collect_text_char_boxes(
 }
 
 #[cfg(test)]
+#[path = "tests/compiler_tests.rs"]
 mod tests;

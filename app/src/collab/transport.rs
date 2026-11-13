@@ -566,4 +566,5 @@ impl CollabTransport for IrohTransport {
 }
 
 #[cfg(test)]
+#[path = "../tests/collab/transport_tests.rs"]
 mod tests;

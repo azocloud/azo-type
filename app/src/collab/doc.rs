@@ -419,4 +419,5 @@ impl Default for CollabProjectDoc {
 }
 
 #[cfg(test)]
+#[path = "../tests/collab/doc_tests.rs"]
 mod tests;

@@ -1,6 +1,7 @@
 //! On-demand Tier-1 Hunspell dictionary and `nlprule` grammar model downloader and cache manager.
 
 #[cfg(test)]
+#[path = "../tests/language_check/downloader_tests.rs"]
 mod tests;
 
 use std::collections::HashMap;

@@ -782,4 +782,5 @@ impl SessionActor {
 }
 
 #[cfg(test)]
+#[path = "../tests/collab/session_tests.rs"]
 mod tests;

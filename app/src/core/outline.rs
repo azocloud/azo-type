@@ -13,6 +13,7 @@ use crate::core::diff::normalize_rel_path;
 use crate::core::file_kind::FileKind;
 
 #[cfg(test)]
+#[path = "../tests/core/outline_tests.rs"]
 mod tests;
 
 /// Trait abstracting source file resolution for outline extraction.

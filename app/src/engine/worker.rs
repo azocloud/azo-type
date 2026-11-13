@@ -2,6 +2,7 @@
 
 mod cli_parse;
 #[cfg(test)]
+#[path = "../tests/engine/worker_tests.rs"]
 mod tests;
 
 use std::fs;

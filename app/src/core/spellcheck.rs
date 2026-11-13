@@ -10,6 +10,7 @@ use encoding_rs::{Encoding, UTF_8};
 use crate::core::typst_prose::{normalize_language_code, span_touches_masked_syntax};
 
 #[cfg(test)]
+#[path = "../tests/core/spellcheck_tests.rs"]
 mod tests;
 
 const DICTIONARIES_JSON: &str = include_str!("../../assets/dictionaries.json");

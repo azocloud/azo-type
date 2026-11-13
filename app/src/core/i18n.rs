@@ -1,6 +1,7 @@
 //! Cross-platform locale normalization, system language detection, and native display names.
 
 #[cfg(test)]
+#[path = "../tests/core/i18n_tests.rs"]
 mod tests;
 
 /// Normalizes an RFC 5646 / BCP 47 or POSIX locale identifier (e.g. `"de-DE"`, `"en_US"`, `"de"`)

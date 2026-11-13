@@ -1,6 +1,7 @@
 //! Cross-platform OS dark/light theme detection (`System-Default`) with safe Dark fallback.
 
 #[cfg(test)]
+#[path = "../tests/platform/theme_tests.rs"]
 mod tests;
 
 #[cfg(target_os = "linux")]

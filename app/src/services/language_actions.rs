@@ -1,6 +1,7 @@
 //! Orchestration helpers wiring Settings/Bottom-Panel spell & grammar actions to the app state.
 
 #[cfg(test)]
+#[path = "../tests/services/language_actions_tests.rs"]
 mod tests;
 
 use std::sync::mpsc::Sender;

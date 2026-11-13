@@ -494,4 +494,5 @@ pub fn diagnostic_char_offset(project: &DiskProject, diag: &DiagnosticItem) -> u
 }
 
 #[cfg(test)]
+#[path = "../../tests/ui/components/bottom_panel_tests.rs"]
 mod tests;

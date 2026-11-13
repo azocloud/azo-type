@@ -2,6 +2,7 @@
 
 mod archive;
 #[cfg(test)]
+#[path = "../tests/engine/manager_tests.rs"]
 mod tests;
 
 use std::collections::HashMap;

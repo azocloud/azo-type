@@ -7,6 +7,7 @@
 use std::path::Path;
 
 #[cfg(test)]
+#[path = "../tests/core/diff_tests.rs"]
 mod tests;
 
 /// Minimal text edit operation expressed in `yrs` UTF-16 code-unit offsets.

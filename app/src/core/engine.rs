@@ -3,6 +3,7 @@
 use std::sync::OnceLock;
 
 #[cfg(test)]
+#[path = "../tests/core/engine_tests.rs"]
 mod tests;
 
 /// Built-in Typst compiler version bundled directly via Cargo dependencies.

@@ -1,6 +1,7 @@
 //! Version-agnostic compiler trait, plain Rust boundary types, and external worker DTOs.
 
 #[cfg(test)]
+#[path = "../tests/engine/types_tests.rs"]
 mod tests;
 
 use std::path::PathBuf;

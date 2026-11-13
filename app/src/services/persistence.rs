@@ -1,6 +1,7 @@
 //! Persistent application preferences, language, and preview zoom backed by `eframe::Storage`.
 
 #[cfg(test)]
+#[path = "../tests/services/persistence_tests.rs"]
 mod tests;
 
 use crate::core::i18n::{detect_system_locale, AppSavedState};

@@ -4,6 +4,7 @@ use crate::core::engine::BUILTIN_TYPST_VERSION;
 use crate::core::spellcheck::UserDictionaryEntry;
 
 #[cfg(test)]
+#[path = "../tests/core/settings_tests.rs"]
 mod tests;
 
 fn default_typst_version() -> String {

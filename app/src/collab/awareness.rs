@@ -93,4 +93,5 @@ impl CollabAwareness {
 }
 
 #[cfg(test)]
+#[path = "../tests/collab/awareness_tests.rs"]
 mod tests;

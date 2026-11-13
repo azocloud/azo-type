@@ -2,6 +2,7 @@
 //! engine with paragraph-level hash caching and 1:1 Typst source offset mapping.
 
 #[cfg(test)]
+#[path = "../tests/language_check/engine_tests.rs"]
 mod tests;
 
 use std::collections::{HashMap, HashSet};

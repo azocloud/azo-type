@@ -3,6 +3,7 @@
 use std::path::Path;
 
 #[cfg(test)]
+#[path = "../tests/core/file_kind_tests.rs"]
 mod tests;
 
 /// Semantic classification of project files for syntax highlighting, editing, and preview.

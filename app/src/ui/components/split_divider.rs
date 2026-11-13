@@ -225,4 +225,5 @@ pub fn render_horizontal_split_divider(
 }
 
 #[cfg(test)]
+#[path = "../../tests/ui/components/split_divider_tests.rs"]
 mod tests;

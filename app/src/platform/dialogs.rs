@@ -161,4 +161,5 @@ pub fn resolve_dictionary_pair(picked: &Path) -> Result<UserDictionaryEntry, Str
 }
 
 #[cfg(test)]
+#[path = "../tests/platform/dialogs_tests.rs"]
 mod tests;

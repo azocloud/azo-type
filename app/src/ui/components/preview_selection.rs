@@ -422,4 +422,5 @@ pub(crate) fn paint_char_box_selection(
 }
 
 #[cfg(test)]
+#[path = "../../tests/ui/components/preview_selection_tests.rs"]
 mod tests;

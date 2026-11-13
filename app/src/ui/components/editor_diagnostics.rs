@@ -8,6 +8,7 @@ use crate::core::spellcheck::{DiagnosticCategory, LanguageCheckDiagnostic};
 use crate::ui::theme::ThemePalette;
 
 #[cfg(test)]
+#[path = "../../tests/ui/components/editor_diagnostics_tests.rs"]
 mod tests;
 
 /// Returns the semantic underline color for a language diagnostic category.

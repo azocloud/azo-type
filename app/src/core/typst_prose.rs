@@ -7,6 +7,7 @@
 use typst::syntax::{ast, LinkedNode, SyntaxKind};
 
 #[cfg(test)]
+#[path = "../tests/core/typst_prose_tests.rs"]
 mod tests;
 
 /// Result of extracting prose from a Typst source file with 1:1 UTF-8 byte alignment.
