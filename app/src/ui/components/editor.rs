@@ -24,6 +24,7 @@ pub struct EditorPaneOutput {
     pub text_changed: bool,
     pub edited_text_snapshot: Option<String>,
     pub observed_cursor: Option<CharSelection>,
+    pub user_interacted: bool,
     pub context_action: Option<EditorContextAction>,
     pub select_tab: Option<PathBuf>,
     pub close_tab: Option<PathBuf>,
@@ -330,7 +331,7 @@ pub fn render_editor_pane(
                                 let active_line_shape_idx = ui.painter().add(egui::Shape::Noop);
 
                                 let mut edit_output = TextEdit::multiline(text_ref)
-                                    .id_salt("typst_code_editor")
+                                    .id_salt(("typst_code_editor", &active_path))
                                     .code_editor()
                                     .desired_width(if word_wrap {
                                         avail_editor_size.x
@@ -558,6 +559,15 @@ pub fn render_editor_pane(
                                     output.text_changed = true;
                                     output.edited_text_snapshot = Some(text_ref.clone());
                                 }
+
+                                let cursor_moved_by_user = output.observed_cursor.is_some()
+                                    && output.observed_cursor != prev_selection;
+                                output.user_interacted = restore_cursor.is_none()
+                                    && scroll_to_char.is_none()
+                                    && (edit_output.response.clicked()
+                                        || edit_output.response.dragged()
+                                        || output.text_changed
+                                        || cursor_moved_by_user);
                             });
                     });
                 });

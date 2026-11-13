@@ -49,8 +49,10 @@
 | `app/src/ui/components/editor_actions.rs` | Context menu and edit action handlers (Undo, Redo, Cut, Copy, Paste, Format Snippets) for the text editor. | `render_editor_context_menu`, `apply_editor_context_action` | `core`, `platform`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/menu_bar.rs` | Desktop menu bar rendered inside the application window on Linux and Windows. | `EditorContextAction`, `MenuBarOutput`, `MenuBarParams`, `render_desktop_menu_bar` | `core`, `platform`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/mod.rs` | UI reusable panels, controls, and components. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
-| `app/src/ui/components/preview.rs` | Live document page canvas, zoom controls, and compiler diagnostics banner. | `PreviewPaneParams`, `render_preview_pane` | `compiler`, `ui` | *(covered via integration/UI)* | — |
+| `app/src/ui/components/preview.rs` | Live document page canvas, zoom controls, interactive text selection, and compiler diagnostics banner. | `PreviewPaneOutput`, `PreviewPaneParams`, `render_preview_pane` | `compiler`, `core`, `ui` | *(covered via integration/UI)* | — |
+| `app/src/ui/components/preview_selection.rs` | Preview page coordinate mapping, glyph hit-testing, drag selection, and clipboard text extraction. | `CLICK_HIT_THRESHOLD_PT`, `DRAG_START_THRESHOLD_PT`, `PreviewSelectionEndpoint`, `PreviewSelectionState`, `is_empty`, `clear` | `compiler`, `core` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/sidebar.rs` | Collapsible sidebar displaying the disk project tree and the document outline. | `SidebarOutput`, `SidebarParams`, `render_sidebar` | `collab`, `core`, `project`, `ui` | *(covered via integration/UI)* | — |
+| `app/src/ui/components/split_divider.rs` | Resizable vertical split divider between the code editor and live preview panes. | `render_vertical_split_divider` | `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/status_bar.rs` | Bottom status bar indicating compilation status, error counts, P2P peers, and active buffer stats. | `StatusBarBufferInfo`, `StatusBarParams`, `render_status_bar` | `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/dialogs/export_pdf.rs` | Export PDF sub-window dialog for selecting PDF versions and PDF/A standards. | `render_export_pdf_dialog` | `core`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/dialogs/file_modals.rs` | Modal dialogs for creating new files and renaming existing files on disk. | `render_new_file_modal`, `render_rename_file_modal` | `ui` | *(covered via integration/UI)* | — |
@@ -76,6 +78,7 @@
 | `app/src/core/pdf/tests.rs` | Unit tests for PDF export version choices and archival standard validation. |
 | `app/src/core/settings/tests.rs` | Unit tests for default IDE user preferences and settings initialization. |
 | `app/src/platform/icon/tests.rs` | Unit tests for application icon decoding, caching, and viewport builder configuration. |
+| `app/src/ui/components/preview_selection/tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
 
 ## 4. Integration & Characterization Suites (`app/tests/`)
 

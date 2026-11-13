@@ -5,8 +5,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
 use egui::{
-    Align, Context, CornerRadius, CursorIcon, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect,
-    Sense, Stroke, Ui, Vec2,
+    Align, Context, CornerRadius, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, Ui, Vec2,
 };
 
 use crate::collab::awareness::PeerPresence;
@@ -19,6 +18,7 @@ use crate::compiler::{
 };
 use crate::highlight::ThemePalette;
 use crate::project::{DiskProject, FileKind};
+use crate::ui::components::PreviewSelectionState;
 use crate::ui::theme::apply_theme;
 use crate::world::SharedWorldResources;
 
@@ -71,6 +71,7 @@ pub struct AzoTypeApp {
     pub rename_file_input: String,
     pub inspect_asset_mode: bool,
     pub last_editor_selection: Option<CharSelection>,
+    pub preview_selection: PreviewSelectionState,
     pub clipboard_fallback: String,
     pub pending_editor_context_action: Option<EditorContextAction>,
     pub status_notice: String,
@@ -170,6 +171,7 @@ impl AzoTypeApp {
             rename_file_input: String::new(),
             inspect_asset_mode: false,
             last_editor_selection: None,
+            preview_selection: PreviewSelectionState::default(),
             clipboard_fallback: String::new(),
             pending_editor_context_action: None,
             status_notice,
@@ -311,6 +313,7 @@ impl AzoTypeApp {
         if !snapshot.pages.is_empty() {
             self.page_textures = upload_page_textures(ctx, &snapshot.pages);
             self.page_data = snapshot.pages;
+            self.preview_selection.clear();
         }
         if snapshot.document.is_some() {
             self.compiled_outline = snapshot.outline;
@@ -340,6 +343,7 @@ impl AzoTypeApp {
                             let name = proj.project_name.clone();
                             let root_str = proj.root_dir.display().to_string();
                             self.project = proj;
+                            self.preview_selection.clear();
                             self.status_notice = rust_i18n::t!(
                                 "app.status_opened_folder",
                                 name = name.as_str(),
@@ -762,17 +766,9 @@ impl AzoTypeApp {
             self.show_new_file_input = true;
         }
         if let Some(target_item) = output.navigate_to_item {
-            if target_item.file != self.project.active_file {
-                let _ = self.project.open_file(&target_item.file);
-            }
-            let sel = CharSelection {
-                primary_char: target_item.char_offset,
-                secondary_char: target_item.char_offset,
-            };
-            self.pending_cursor_restore = Some(sel);
-            self.pending_scroll_to_char = Some(target_item.char_offset);
-            self.last_editor_selection = Some(sel);
-            self.inspect_asset_mode = false;
+            self.preview_selection.clear();
+            let sel = CharSelection::caret(target_item.char_offset);
+            self.navigate_editor_to_source(ctx, &target_item.file, sel, target_item.char_offset);
             self.status_notice = format!(
                 "Navigated to '{} {}' ({}:{})",
                 target_item.number_label,
@@ -856,16 +852,21 @@ impl AzoTypeApp {
         );
 
         if let Some(tab) = output.select_tab {
+            self.preview_selection.clear();
             let _ = self.project.open_file(&tab);
             if self.settings.auto_compile {
                 self.trigger_compile_now(ctx);
             }
         }
         if let Some(tab) = output.close_tab {
+            self.preview_selection.clear();
             self.project.close_tab(&tab);
             if self.settings.auto_compile {
                 self.trigger_compile_now(ctx);
             }
+        }
+        if output.user_interacted {
+            self.preview_selection.clear();
         }
 
         if let Some(sel) = output.observed_cursor {
@@ -909,17 +910,60 @@ impl AzoTypeApp {
         }
     }
 
-    fn render_preview_pane(&mut self, _ctx: &Context, ui: &mut Ui) {
-        if let Some(file_to_open) = crate::ui::components::render_preview_pane(
+    fn navigate_editor_to_source(
+        &mut self,
+        ctx: &Context,
+        file: &std::path::Path,
+        selection: CharSelection,
+        scroll_to_char: usize,
+    ) {
+        let norm = crate::core::diff::normalize_rel_path(&file.to_string_lossy());
+        let target_path = PathBuf::from(norm);
+        if (target_path != self.project.active_file
+            || !self.project.open_tabs.iter().any(|p| p == &target_path))
+            && self.project.open_file(&target_path).is_err()
+        {
+            return;
+        }
+        let max_chars = self
+            .project
+            .active_buffer()
+            .and_then(|b| b.text.as_deref())
+            .map(|t| t.chars().count());
+        let clamped_sel = max_chars.map_or(selection, |n| CharSelection {
+            primary_char: selection.primary_char.min(n),
+            secondary_char: selection.secondary_char.min(n),
+        });
+        let clamped_scroll = max_chars.map_or(scroll_to_char, |n| scroll_to_char.min(n));
+        self.inspect_asset_mode = false;
+        self.pending_cursor_restore = Some(clamped_sel);
+        self.pending_scroll_to_char = Some(clamped_scroll);
+        self.last_editor_selection = Some(clamped_sel);
+        ctx.request_repaint();
+    }
+
+    fn render_preview_pane(&mut self, ctx: &Context, ui: &mut Ui) {
+        let output = crate::ui::components::render_preview_pane(
             ui,
             crate::ui::components::PreviewPaneParams {
                 dark_mode: self.settings.dark_mode,
                 zoom: &mut self.zoom,
                 page_textures: &self.page_textures,
                 diagnostics: &self.diagnostics,
+                selection: &mut self.preview_selection,
             },
-        ) {
-            let _ = self.project.open_file(&file_to_open);
+        );
+        if let Some(file_to_open) = output.open_diagnostic_file {
+            self.navigate_editor_to_source(ctx, &file_to_open, CharSelection::caret(0), 0);
+        }
+        if let Some(jump) = output.source_jump {
+            self.navigate_editor_to_source(ctx, &jump.file, jump.selection, jump.scroll_to_char);
+        }
+        if let Some(copied) = output.copied_text {
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                let _ = cb.set_text(copied.clone());
+            }
+            self.clipboard_fallback = copied;
         }
     }
 }
@@ -994,67 +1038,15 @@ impl eframe::App for AzoTypeApp {
                 self.render_preview_pane(ctx, &mut right_ui);
 
                 // Interactive Resizable Vertical Split Divider between Editor and Live Preview
-                let divider_hit_rect = Rect::from_center_size(
-                    Pos2::new(div_x, total_rect.center().y),
-                    Vec2::new(10.0, full_h),
+                crate::ui::components::render_vertical_split_divider(
+                    ctx,
+                    ui,
+                    &palette,
+                    total_rect,
+                    avail_w,
+                    div_x,
+                    &mut self.editor_split_ratio,
                 );
-                let div_resp = ui
-                    .interact(
-                        divider_hit_rect,
-                        ui.id().with("editor_preview_split_divider"),
-                        Sense::click_and_drag(),
-                    )
-                    .on_hover_text(
-                        "Drag to resize Code Editor and Live Preview panels (double-click to reset 50/50)",
-                    );
-
-                if div_resp.dragged() {
-                    if let Some(pointer_pos) = ctx.pointer_interact_pos() {
-                        let new_ratio = (pointer_pos.x - total_rect.min.x) / avail_w.max(1.0);
-                        self.editor_split_ratio = new_ratio.clamp(0.15, 0.85);
-                        ctx.request_repaint();
-                    }
-                }
-                if div_resp.double_clicked() {
-                    self.editor_split_ratio = 0.5;
-                }
-
-                let div_active = div_resp.hovered() || div_resp.dragged();
-                if div_active {
-                    ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
-                }
-
-                let line_col = if div_active {
-                    palette.selection_stroke
-                } else {
-                    palette.panel_border
-                };
-                let line_width = if div_active { 2.0_f32 } else { 1.0_f32 };
-
-                ui.painter().line_segment(
-                    [
-                        Pos2::new(div_x, total_rect.min.y),
-                        Pos2::new(div_x, total_rect.max.y),
-                    ],
-                    Stroke::new(line_width, line_col),
-                );
-
-                // Subtle center resize handle pill on the divider seam
-                let handle_rect = Rect::from_center_size(
-                    Pos2::new(div_x, total_rect.center().y),
-                    Vec2::new(4.0, 28.0),
-                );
-                ui.painter().rect_filled(
-                    handle_rect,
-                    CornerRadius::same(2),
-                    if div_active {
-                        palette.selection_stroke
-                    } else {
-                        palette.text_muted.gamma_multiply(0.45)
-                    },
-                );
-
-                ui.advance_cursor_after_rect(total_rect);
             });
 
         // Native OS Sub-Windows (Settings, Export PDF, New/Rename File, P2P Collaboration)
