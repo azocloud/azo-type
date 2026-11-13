@@ -8,6 +8,7 @@ pub mod app;
 pub mod collab;
 pub mod compiler;
 pub mod core;
+pub mod engine;
 pub mod highlight;
 pub mod platform;
 pub mod project;

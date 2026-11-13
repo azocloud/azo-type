@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{Datelike, Local, Timelike};
-use egui::{ColorImage, Context, TextureHandle, TextureOptions};
+use egui::ColorImage;
 use typst::diag::{Severity, SourceDiagnostic};
 use typst::foundations::{Datetime, NativeElement, StyleChain};
 use typst::introspection::Introspector;
@@ -21,58 +21,50 @@ use typst_pdf::{PdfOptions, Timestamp};
 use typst_render::RenderOptions;
 
 use crate::core::diff::normalize_rel_path;
+use crate::core::engine::BUILTIN_TYPST_VERSION;
+use crate::engine::types::{EngineMetadata, TypstEngine};
 use crate::project::DiskProject;
 use crate::world::{EditorWorld, SharedWorldResources};
 
 pub use crate::core::outline::CompiledOutlineItem;
 pub use crate::core::pdf::{PdfArchivalStandard, PdfExportConfig, PdfVersionChoice};
+pub use crate::engine::types::{
+    upload_page_textures, CompileSnapshot, DiagnosticItem, PreviewCharBox, RenderedPageData,
+    RenderedPageTexture,
+};
 
-#[derive(Debug, Clone)]
-pub struct DiagnosticItem {
-    pub is_error: bool,
-    pub file: PathBuf,
-    pub line: Option<usize>,
-    pub column: Option<usize>,
-    pub message: String,
-    pub hints: Vec<String>,
+/// Built-in Typst engine backed by the statically linked `typst` 0.15.1 compiler crates.
+pub struct NativeTypstEngine {
+    resources: Arc<SharedWorldResources>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct PreviewCharBox {
-    pub x_min_pt: f32,
-    pub y_min_pt: f32,
-    pub x_max_pt: f32,
-    pub y_max_pt: f32,
-    pub file: PathBuf,
-    pub char_idx: usize,
-    pub text: String,
+impl NativeTypstEngine {
+    /// Creates a new built-in Typst 0.15.1 engine sharing font/package resources.
+    pub fn new(resources: Arc<SharedWorldResources>) -> Self {
+        Self { resources }
+    }
 }
 
-#[derive(Clone)]
-pub struct RenderedPageData {
-    pub page_number: usize,
-    pub width_pt: f32,
-    pub height_pt: f32,
-    pub image: Arc<ColorImage>,
-    pub char_boxes: Arc<Vec<PreviewCharBox>>,
-}
+impl TypstEngine for NativeTypstEngine {
+    fn metadata(&self) -> EngineMetadata {
+        EngineMetadata {
+            version: BUILTIN_TYPST_VERSION.to_string(),
+            is_builtin: true,
+            display_label: format!("{BUILTIN_TYPST_VERSION} (Built-in)"),
+        }
+    }
 
-pub struct RenderedPageTexture {
-    pub page_number: usize,
-    pub width_pt: f32,
-    pub height_pt: f32,
-    pub texture: TextureHandle,
-    pub char_boxes: Arc<Vec<PreviewCharBox>>,
-}
+    fn compile_project(&self, project: &DiskProject, pixel_per_pt: f32) -> CompileSnapshot {
+        compile_project(Arc::clone(&self.resources), project, pixel_per_pt)
+    }
 
-pub struct CompileSnapshot {
-    pub revision: u64,
-    pub pixel_per_pt: f32,
-    pub document: Option<Arc<PagedDocument>>,
-    pub pages: Vec<RenderedPageData>,
-    pub outline: Vec<CompiledOutlineItem>,
-    pub diagnostics: Vec<DiagnosticItem>,
-    pub duration_ms: f64,
+    fn export_pdf_bytes(
+        &self,
+        project: &DiskProject,
+        config: &PdfExportConfig,
+    ) -> Result<Vec<u8>, Vec<DiagnosticItem>> {
+        export_pdf_bytes_with_config(Arc::clone(&self.resources), project, config)
+    }
 }
 
 pub fn compile_project(
@@ -90,7 +82,7 @@ pub fn compile_project(
         diagnostics.push(extract_diagnostic(&world, warning));
     }
 
-    let (document, pages, outline) = match warned.output {
+    let (compiled_ok, pages, outline) = match warned.output {
         Ok(doc) => {
             let doc_pages = doc.pages();
             let mut rendered_pages = Vec::with_capacity(doc_pages.len());
@@ -119,13 +111,13 @@ pub fn compile_project(
                 });
             }
             let compiled_outline = extract_compiled_outline(&world, &doc);
-            (Some(Arc::new(doc)), rendered_pages, compiled_outline)
+            (true, rendered_pages, compiled_outline)
         }
         Err(errors) => {
             for err in &errors {
                 diagnostics.push(extract_diagnostic(&world, err));
             }
-            (None, Vec::new(), Vec::new())
+            (false, Vec::new(), Vec::new())
         }
     };
 
@@ -134,7 +126,7 @@ pub fn compile_project(
     CompileSnapshot {
         revision: project.revision,
         pixel_per_pt,
-        document,
+        compiled_ok,
         pages,
         outline,
         diagnostics,
@@ -291,26 +283,6 @@ fn extract_diagnostic(world: &EditorWorld, diag: &SourceDiagnostic) -> Diagnosti
         message: diag.message.to_string(),
         hints,
     }
-}
-
-pub fn upload_page_textures(ctx: &Context, pages: &[RenderedPageData]) -> Vec<RenderedPageTexture> {
-    pages
-        .iter()
-        .map(|p| {
-            let texture = ctx.load_texture(
-                format!("typst_page_{}", p.page_number),
-                Arc::clone(&p.image),
-                TextureOptions::LINEAR,
-            );
-            RenderedPageTexture {
-                page_number: p.page_number,
-                width_pt: p.width_pt,
-                height_pt: p.height_pt,
-                texture,
-                char_boxes: Arc::clone(&p.char_boxes),
-            }
-        })
-        .collect()
 }
 
 /// Builds an O(1) UTF-8 byte-offset to `char` index lookup table of length `text.len() + 1`.
