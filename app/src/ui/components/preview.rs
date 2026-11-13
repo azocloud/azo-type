@@ -335,12 +335,12 @@ fn render_preview_header(
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let selected_label = if zoom.fit_width {
-                        t!("preview.fit_width").to_string()
+                        t!("preview.fit_width_label", percent = zoom.display_percent()).to_string()
                     } else {
                         t!("preview.zoom_percent", percent = zoom.display_percent()).to_string()
                     };
                     egui::ComboBox::from_id_salt("preview_zoom_selector")
-                        .width(105.0)
+                        .width(120.0)
                         .selected_text(selected_label)
                         .show_ui(ui, |ui| {
                             for &preset in PREVIEW_ZOOM_PRESETS {
@@ -365,14 +365,6 @@ fn render_preview_header(
                         })
                         .response
                         .on_hover_text(t!("preview.zoom_tooltip"));
-
-                    let scale_str = t!("preview.zoom_percent", percent = zoom.display_percent());
-                    ui.label(
-                        RichText::new(scale_str)
-                            .size(11.5)
-                            .monospace()
-                            .color(palette.text_muted),
-                    );
 
                     ui.separator();
                     ui.toggle_value(
