@@ -16,5 +16,8 @@ pub use preview::{
     PreviewSourceJump,
 };
 pub use sidebar::{render_sidebar, SidebarOutput, SidebarParams};
-pub use split_divider::render_vertical_split_divider;
+pub use split_divider::{
+    compute_horizontal_split, compute_vertical_split, render_horizontal_split_divider,
+    render_vertical_split_divider,
+};
 pub use status_bar::{render_status_bar, StatusBarBufferInfo, StatusBarParams};

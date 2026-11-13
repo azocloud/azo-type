@@ -62,7 +62,7 @@
 | `app/src/ui/components/preview.rs` | Live document page canvas, zoom controls, interactive text selection, and compiler diagnostics banner. | `PreviewPaneOutput`, `PreviewPaneParams`, `render_preview_pane` | `compiler`, `core`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/preview_selection.rs` | Preview page coordinate mapping, glyph hit-testing, drag selection, and clipboard text extraction. | `CLICK_HIT_THRESHOLD_PT`, `DRAG_START_THRESHOLD_PT`, `PreviewSelectionEndpoint`, `PreviewSelectionState`, `is_empty`, `clear` | `compiler`, `core` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/sidebar.rs` | Collapsible sidebar displaying the disk project tree and the document outline. | `SidebarOutput`, `SidebarParams`, `render_sidebar` | `collab`, `core`, `project`, `ui` | *(covered via integration/UI)* | — |
-| `app/src/ui/components/split_divider.rs` | Resizable vertical split divider between the code editor and live preview panes. | `render_vertical_split_divider` | `ui` | *(covered via integration/UI)* | — |
+| `app/src/ui/components/split_divider.rs` | Resizable split dividers between the editor/preview panes and sidebar panels. | `SplitGeometry`, `compute_vertical_split`, `compute_horizontal_split`, `render_vertical_split_divider`, `render_horizontal_split_divider` | `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/status_bar.rs` | Bottom status bar indicating compilation status, error counts, P2P peers, and active buffer stats. | `StatusBarBufferInfo`, `StatusBarParams`, `StatusBarOutput`, `render_status_bar` | `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/dialogs/export_pdf.rs` | Export PDF sub-window dialog for selecting PDF versions and PDF/A standards. | `render_export_pdf_dialog` | `core`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/dialogs/file_modals.rs` | Modal dialogs for creating new files and renaming existing files on disk. | `render_new_file_modal`, `render_rename_file_modal` | `ui` | *(covered via integration/UI)* | — |
@@ -95,6 +95,7 @@
 | `app/src/platform/theme/tests.rs` | Unit tests for OS theme detection parsers and System-Default fallback behavior. |
 | `app/src/services/persistence/tests.rs` | Unit tests for `eframe::Storage` settings persistence and reload behavior. |
 | `app/src/ui/components/preview_selection/tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
+| `app/src/ui/components/split_divider/tests.rs` | Unit tests for split divider pane geometry calculations. |
 
 ## 4. Integration & Characterization Suites (`app/tests/`)
 

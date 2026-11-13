@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use egui::{
     Align, CollapsingHeader, Color32, Context, CornerRadius, Frame, Layout, Margin, Pos2, RichText,
-    ScrollArea, Sense, SidePanel, Stroke, Ui, Vec2,
+    ScrollArea, Sense, SidePanel, Stroke, Ui, UiBuilder, Vec2,
 };
 use rust_i18n::t;
 
@@ -34,6 +34,7 @@ pub struct SidebarOutput {
 pub struct SidebarParams<'a> {
     pub dark_mode: bool,
     pub show_sidebar: bool,
+    pub sidebar_split_ratio: &'a mut f32,
     pub project: &'a DiskProject,
     pub remote_presences: &'a [PeerPresence],
     pub compiled_outline: &'a [CompiledOutlineItem],
@@ -64,7 +65,21 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                 .stroke(Stroke::new(1.0_f32, border_col)),
         )
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
+            let total_rect = ui.available_rect_before_wrap();
+            let split = crate::ui::components::compute_horizontal_split(
+                total_rect,
+                8.0,
+                110.0,
+                *params.sidebar_split_ratio,
+            );
+
+            // Top Panel: Project Files Tree
+            let mut top_ui = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(split.first_rect)
+                    .layout(Layout::top_down(Align::Min)),
+            );
+            top_ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(t!("sidebar.disk_tree_title"))
                         .size(11.5)
@@ -89,21 +104,18 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                 });
             });
 
-            ui.add_space(6.0);
+            top_ui.add_space(6.0);
 
             let active_path = params.project.active_file.clone();
             let main_path = params.project.main_file.clone();
             let project_title = t!("sidebar.folder_prefix", name = &params.project.project_name);
             let tree_snapshot = params.project.tree.clone();
 
-            let total_sidebar_h = ui.available_height();
-            let tree_max_h = (total_sidebar_h * 0.42).max(125.0);
-
             ScrollArea::vertical()
                 .id_salt("file_tree_scroll")
-                .max_height(tree_max_h)
+                .max_height(top_ui.available_height())
                 .auto_shrink([false, false])
-                .show(ui, |ui| {
+                .show(&mut top_ui, |ui| {
                     CollapsingHeader::new(
                         RichText::new(project_title)
                             .strong()
@@ -129,11 +141,14 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                     });
                 });
 
-            ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(6.0);
+            // Bottom Panel: Document Outline Hierarchy for the active editor file
+            let mut bottom_ui = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(split.second_rect)
+                    .layout(Layout::top_down(Align::Min)),
+            );
+            bottom_ui.add_space(2.0);
 
-            // Document Outline Hierarchy Panel for the currently open text editor file
             let outline_items = params
                 .project
                 .active_buffer()
@@ -150,7 +165,7 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                 })
                 .unwrap_or_default();
 
-            ui.horizontal(|ui| {
+            bottom_ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(t!("sidebar.outline_title"))
                         .size(11.5)
@@ -168,7 +183,7 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                 });
             });
 
-            ui.add_space(4.0);
+            bottom_ui.add_space(4.0);
 
             let current_cursor_char = params
                 .last_editor_selection
@@ -190,7 +205,7 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                 .corner_radius(CornerRadius::same(5))
                 .inner_margin(Margin::symmetric(8, 8))
                 .stroke(Stroke::new(1.0_f32, border_col))
-                .show(ui, |ui| {
+                .show(&mut bottom_ui, |ui| {
                     ScrollArea::vertical()
                         .id_salt("document_outline_scroll")
                         .auto_shrink([false, false])
@@ -217,6 +232,16 @@ pub fn render_sidebar(ctx: &Context, params: SidebarParams<'_>) -> SidebarOutput
                             }
                         });
                 });
+
+            crate::ui::components::render_horizontal_split_divider(
+                ctx,
+                ui,
+                &palette,
+                total_rect,
+                split.avail_span,
+                split.divider_center,
+                params.sidebar_split_ratio,
+            );
         });
 
     output

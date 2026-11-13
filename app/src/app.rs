@@ -4,9 +4,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 
-use egui::{
-    Align, Context, CornerRadius, Frame, Key, Layout, Margin, Modifiers, Pos2, Rect, Ui, Vec2,
-};
+use egui::{Align, Context, CornerRadius, Frame, Key, Layout, Margin, Modifiers, Ui};
 
 use crate::collab::awareness::PeerPresence;
 use crate::collab::doc::CharSelection;
@@ -44,6 +42,7 @@ pub struct AzoTypeApp {
     pub project: DiskProject,
     pub settings: IdeSettings,
     pub show_sidebar: bool,
+    pub sidebar_split_ratio: f32,
     pub editor_split_ratio: f32,
     pub zoom: PreviewZoom,
     pub show_settings_window: bool,
@@ -162,6 +161,7 @@ impl AzoTypeApp {
             project,
             settings,
             show_sidebar: true,
+            sidebar_split_ratio: 0.42,
             editor_split_ratio: 0.5,
             zoom,
             show_settings_window: false,
@@ -756,6 +756,7 @@ impl AzoTypeApp {
             crate::ui::components::SidebarParams {
                 dark_mode: self.settings.dark_mode,
                 show_sidebar: self.show_sidebar,
+                sidebar_split_ratio: &mut self.sidebar_split_ratio,
                 project: &self.project,
                 remote_presences: &self.collab_ui.remote_presences,
                 compiled_outline: &self.compiled_outline,
@@ -1021,24 +1022,17 @@ impl eframe::App for AzoTypeApp {
             )
             .show(ctx, |ui| {
                 let total_rect = ui.available_rect_before_wrap();
-                let spacing = 4.0;
-                let full_h = total_rect.height();
-                let avail_w = (total_rect.width() - spacing).max(200.0);
-                let min_pane_w = 180.0_f32.min(avail_w * 0.4);
-                let max_pane_w = (avail_w - min_pane_w).max(min_pane_w);
-                let left_w = (avail_w * self.editor_split_ratio).clamp(min_pane_w, max_pane_w);
-
-                let left_rect = Rect::from_min_size(total_rect.min, Vec2::new(left_w, full_h));
-                let div_x = total_rect.min.x + left_w + spacing * 0.5;
-                let right_rect = Rect::from_min_size(
-                    Pos2::new(total_rect.min.x + left_w + spacing, total_rect.min.y),
-                    Vec2::new((avail_w - left_w).max(min_pane_w), full_h),
+                let split = crate::ui::components::compute_vertical_split(
+                    total_rect,
+                    4.0,
+                    180.0,
+                    self.editor_split_ratio,
                 );
 
                 // Left Pane: Code Editor
                 let mut left_ui = ui.new_child(
                     egui::UiBuilder::new()
-                        .max_rect(left_rect)
+                        .max_rect(split.first_rect)
                         .layout(Layout::top_down(Align::Min)),
                 );
                 self.render_editor_pane(ctx, &mut left_ui);
@@ -1046,7 +1040,7 @@ impl eframe::App for AzoTypeApp {
                 // Right Pane: Live Document Preview
                 let mut right_ui = ui.new_child(
                     egui::UiBuilder::new()
-                        .max_rect(right_rect)
+                        .max_rect(split.second_rect)
                         .layout(Layout::top_down(Align::Min)),
                 );
                 self.render_preview_pane(ctx, &mut right_ui);
@@ -1057,8 +1051,8 @@ impl eframe::App for AzoTypeApp {
                     ui,
                     &palette,
                     total_rect,
-                    avail_w,
-                    div_x,
+                    split.avail_span,
+                    split.divider_center,
                     &mut self.editor_split_ratio,
                 );
             });
