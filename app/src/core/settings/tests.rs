@@ -14,6 +14,7 @@ fn test_word_wrap_enabled_by_default() {
 #[test]
 fn test_default_settings_values() {
     let settings = IdeSettings::default();
+    assert_eq!(settings.theme_preference, ThemePreference::SystemDefault);
     assert!(settings.dark_mode);
     assert!(settings.show_line_numbers);
     assert!(settings.syntax_highlighting);
@@ -78,4 +79,20 @@ fn test_preview_zoom_step_and_reset() {
     zoom.reset_100();
     assert!(!zoom.fit_width);
     assert_eq!(zoom.scale, 1.0);
+}
+
+#[test]
+fn test_theme_preference_resolution_and_dark_fallback() {
+    assert!(!ThemePreference::Light.resolve_dark_mode(Some(true)));
+    assert!(!ThemePreference::Light.resolve_dark_mode(None));
+
+    assert!(ThemePreference::Dark.resolve_dark_mode(Some(false)));
+    assert!(ThemePreference::Dark.resolve_dark_mode(None));
+
+    assert!(ThemePreference::SystemDefault.resolve_dark_mode(Some(true)));
+    assert!(!ThemePreference::SystemDefault.resolve_dark_mode(Some(false)));
+    assert!(
+        ThemePreference::SystemDefault.resolve_dark_mode(None),
+        "Unsupported or failed OS detection must default to Dark"
+    );
 }

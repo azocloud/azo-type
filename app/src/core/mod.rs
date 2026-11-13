@@ -32,5 +32,6 @@ pub use outline::{
 };
 pub use pdf::{PdfArchivalStandard, PdfExportConfig, PdfVersionChoice};
 pub use settings::{
-    IdeSettings, PreviewZoom, SettingsTab, MAX_PREVIEW_ZOOM, MIN_PREVIEW_ZOOM, PREVIEW_ZOOM_PRESETS,
+    IdeSettings, PreviewZoom, SettingsTab, ThemePreference, MAX_PREVIEW_ZOOM, MIN_PREVIEW_ZOOM,
+    PREVIEW_ZOOM_PRESETS,
 };

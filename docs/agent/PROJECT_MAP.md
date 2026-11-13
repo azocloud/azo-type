@@ -33,7 +33,7 @@
 | `app/src/core/mod.rs` | Core domain models, algorithms, and data types. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/core/outline.rs` | Pure document outline extraction, AST traversal, and hierarchical numbering. | `SourceResolver`, `CompiledOutlineItem`, `DocumentOutlineItem`, `OutlineTreeNode`, `extract_typst_markup_plain_text`, `extract_typst_ast_outline` | `core` | `app/src/core/outline/tests.rs`, `app/tests/outline_tests.rs` | Uses `SourceResolver` trait to stay independent of filesystem I/O. |
 | `app/src/core/pdf.rs` | PDF export configuration, PDF versions, and PDF/A archival standards. | `PdfVersionChoice`, `ALL`, `label`, `short_label`, `to_standard`, `PdfArchivalStandard` | *(none)* | `app/src/core/pdf/tests.rs`, `app/tests/pdf_config_tests.rs` | — |
-| `app/src/core/settings.rs` | IDE user preferences, configuration defaults, and settings dialog state. | `SettingsTab`, `IdeSettings`, `PREVIEW_ZOOM_PRESETS`, `MIN_PREVIEW_ZOOM`, `MAX_PREVIEW_ZOOM`, `PreviewZoom` | *(none)* | `app/src/core/settings/tests.rs` | — |
+| `app/src/core/settings.rs` | IDE user preferences, configuration defaults, and settings dialog state. | `SettingsTab`, `ThemePreference`, `ALL`, `resolve_dark_mode`, `IdeSettings`, `PREVIEW_ZOOM_PRESETS` | *(none)* | `app/src/core/settings/tests.rs` | — |
 | `app/src/highlight.rs` | Syntax highlighting engine mapping Typst AST tokens to styled `egui::text::LayoutJob` spans. | `highlight_typst_code` | `ui` | *(covered via integration/UI)* | — |
 | `app/src/lib.rs` | Library root for `azo-type`, exposing domain, platform, collaboration, compiler, and UI modules. | `parse_cli_args_from` | *(none)* | `app/tests/cli_tests.rs` | — |
 | `app/src/main.rs` | Binary entrypoint launching the native `eframe` desktop window and parsing CLI arguments. | *(re-exports / entry)* | *(none)* | `app/tests/cli_tests.rs` | — |
@@ -41,6 +41,7 @@
 | `app/src/platform/icon.rs` | Application icon loader, PNG image decoding, and desktop viewport icon configuration. | `APP_ID`, `app_window_icon`, `configure_viewport_builder`, `load_icon_from_png_bytes`, `LINUX_ICONS`, `ensure_linux_desktop_integration_to_dir` | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/platform/menu.rs` | Platform-specific native OS application menu integration. | `MenuAction`, `MacOsMenuBar`, `init`, `poll_action` | *(none)* | *(covered via integration/UI)* | Native `muda` menu bar active only under `#[cfg(target_os = "macos")]`. |
 | `app/src/platform/mod.rs` | Platform-specific integrations and OS services. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
+| `app/src/platform/theme.rs` | Cross-platform OS dark/light theme detection (`System-Default`) with safe Dark fallback. | `resolve_effective_dark_mode`, `detect_system_dark_mode`, `parse_portal_color_scheme`, `parse_gsettings_color_scheme`, `parse_gtk_theme_name_is_dark`, `parse_gtk_settings_ini` | `core` | *(covered via integration/UI)* | — |
 | `app/src/project/buffer.rs` | Open buffer and file tree node types for workspace and in-memory documents. | `FsTreeNode`, `OpenBuffer`, `load_from_disk`, `save_to_disk`, `line_count` | `core` | *(covered via integration/UI)* | — |
 | `app/src/project.rs` | Workspace management (`DiskProject`), on-disk and in-memory projects, file tree scanning, and buffer caching. | `DiskProject`, `blank`, `has_disk_backing`, `open_folder`, `rescan_tree`, `collect_typ_files` | `core` | `app/tests/project_tests.rs` | — |
 | `app/src/services/mod.rs` | Application background services and runners. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
@@ -78,6 +79,7 @@
 | `app/src/core/pdf/tests.rs` | Unit tests for PDF export version choices and archival standard validation. |
 | `app/src/core/settings/tests.rs` | Unit tests for default IDE user preferences and settings initialization. |
 | `app/src/platform/icon/tests.rs` | Unit tests for application icon decoding, caching, and viewport builder configuration. |
+| `app/src/platform/theme/tests.rs` | Unit tests for OS theme detection parsers and System-Default fallback behavior. |
 | `app/src/ui/components/preview_selection/tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
 
 ## 4. Integration & Characterization Suites (`app/tests/`)

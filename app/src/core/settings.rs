@@ -14,10 +14,40 @@ pub enum SettingsTab {
     CompilerAndPreview,
 }
 
+/// User color theme selection supporting explicit modes and OS tracking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemePreference {
+    /// Follow the operating system's light/dark appearance (defaults to Dark if unavailable).
+    #[default]
+    SystemDefault,
+    /// Light theme palette.
+    Light,
+    /// Dark theme palette.
+    Dark,
+}
+
+impl ThemePreference {
+    /// Ordered options displayed in the Settings theme selector dropdown.
+    pub const ALL: [Self; 3] = [Self::Light, Self::Dark, Self::SystemDefault];
+
+    /// Resolves whether dark mode should be active given an optional OS dark-mode probe.
+    ///
+    /// When `Self::SystemDefault` is active and OS detection returns `None`, defaults to `true` (Dark).
+    pub fn resolve_dark_mode(self, system_is_dark: Option<bool>) -> bool {
+        match self {
+            Self::Light => false,
+            Self::Dark => true,
+            Self::SystemDefault => system_is_dark.unwrap_or(true),
+        }
+    }
+}
+
 /// Global settings model persisted for user preferences.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IdeSettings {
-    /// Whether dark theme mode is active.
+    /// User-selected theme mode (`Light`, `Dark`, or `SystemDefault`).
+    pub theme_preference: ThemePreference,
+    /// Resolved dark theme flag used by rendering (`true` for dark, `false` for light).
     pub dark_mode: bool,
     /// Font size (in points) used in the code editor.
     pub editor_font_size: f32,
@@ -53,6 +83,7 @@ impl Default for IdeSettings {
             .or_else(|_| std::env::var("USERNAME"))
             .unwrap_or_else(|_| "Author".to_string());
         Self {
+            theme_preference: ThemePreference::SystemDefault,
             dark_mode: true,
             editor_font_size: 13.5,
             word_wrap: true,
