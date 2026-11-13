@@ -528,20 +528,23 @@ impl AzoTypeApp {
         }
     }
 
-    /// Renders the Export PDF Dialog as a real OS sub-window allowing the user to select the PDF version
-    /// (1.4, 1.5, 1.6, 1.7, 2.0) and PDF standard(s) (PDF/A-1b, PDF/A-1a, PDF/A-2b, PDF/A-2u,
-    /// PDF/A-2a, PDF/A-3b, PDF/A-3u, PDF/A-3a, PDF/A-4, PDF/UA-1).
+    /// Renders the Export PDF dialog window for selecting PDF version and ISO archival standards.
     fn render_export_pdf_dialog(&mut self, ctx: &Context) {
         let entry_file = self.project.effective_compile_entrypoint();
-        let trigger_export = crate::ui::dialogs::export_pdf::render_export_pdf_dialog(
+        let (active_engine_label, fallback_notice) = self
+            .engine_host
+            .manager
+            .active_engine_label_and_fallback(&self.settings.typst_version);
+        if crate::ui::dialogs::export_pdf::render_export_pdf_dialog(
             ctx,
             &mut self.show_export_pdf_dialog,
             &mut self.pdf_export_config,
             &mut self.export_pdf_error,
             &entry_file,
+            &active_engine_label,
+            fallback_notice.as_deref(),
             self.settings.dark_mode,
-        );
-        if trigger_export {
+        ) {
             self.export_pdf_action(ctx);
         }
     }

@@ -241,6 +241,21 @@ impl EngineManager {
         (engine.metadata().version, notice)
     }
 
+    /// Returns a localized display label for the resolved compiler (e.g. `"0.15.1 (Built-in)"`)
+    /// along with any fallback notice when a requested version is not installed.
+    pub fn active_engine_label_and_fallback(
+        &self,
+        requested_version: &str,
+    ) -> (String, Option<String>) {
+        let (active_ver, notice) = self.active_version_and_fallback(requested_version);
+        let label = if active_ver == BUILTIN_TYPST_VERSION {
+            rust_i18n::t!("settings.typst_version_builtin", version = active_ver).to_string()
+        } else {
+            rust_i18n::t!("settings.typst_version_installed", version = active_ver).to_string()
+        };
+        (label, notice)
+    }
+
     /// Spawns a background compilation thread using the resolved engine for `requested_version`.
     pub fn spawn_compile(
         self: &Arc<Self>,

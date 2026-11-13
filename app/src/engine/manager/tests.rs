@@ -220,3 +220,83 @@ fn test_live_download_and_compile_0_14_2() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_pdf_export_uses_managed_builtin_and_fallback_only() {
+    let dir = std::env::temp_dir().join(format!("azo-pdf-managed-{}", uuid::Uuid::new_v4()));
+    let resources = Arc::new(SharedWorldResources::new());
+    let mgr = EngineManager::with_paths(resources, dir.clone(), None);
+
+    let mut project = crate::project::DiskProject::blank();
+    if let Some(buf) = project
+        .buffers
+        .get_mut(&std::path::PathBuf::from("main.typ"))
+    {
+        buf.text = Some("= Managed Export\nUsing bundled compiler.".to_string());
+        buf.dirty = true;
+    }
+
+    // Default built-in version uses integrated 0.15.1 compiler.
+    let (builtin_engine, builtin_notice) = mgr.resolve_engine(BUILTIN_TYPST_VERSION);
+    assert!(builtin_notice.is_none());
+    assert!(builtin_engine.metadata().is_builtin);
+    let builtin_pdf = builtin_engine
+        .export_pdf_bytes(&project, &crate::core::pdf::PdfExportConfig::default())
+        .expect("builtin pdf export should succeed");
+    assert!(builtin_pdf.starts_with(b"%PDF-"));
+
+    // Uninstalled legacy version must never invoke a system-level `typst`; falls back to built-in.
+    let (fallback_engine, fallback_notice) = mgr.resolve_engine("0.14.2");
+    assert!(fallback_notice.is_some());
+    assert!(fallback_engine.metadata().is_builtin);
+    let fallback_pdf = fallback_engine
+        .export_pdf_bytes(&project, &crate::core::pdf::PdfExportConfig::default())
+        .expect("fallback builtin pdf export should succeed");
+    assert!(fallback_pdf.starts_with(b"%PDF-"));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_pdf_export_prefers_managed_downloaded_engine_binary() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!("azo-pdf-ext-{}", uuid::Uuid::new_v4()));
+    if let Some(asset) = find_host_asset("0.14.2") {
+        let ver_dir = dir.join("0.14.2");
+        fs::create_dir_all(&ver_dir).expect("create managed version dir");
+        let bin_path = ver_dir.join(asset.binary_name);
+        let script = r#"#!/bin/sh
+cmd="$1"
+shift
+if [ "$cmd" = "compile" ]; then
+  out=""
+  for a in "$@"; do
+    out="$a"
+  done
+  printf '%%PDF-1.7\n%%managed-0.14.2\n' > "$out"
+  exit 0
+fi
+exit 1
+"#;
+        fs::write(&bin_path, script).expect("write managed mock binary");
+        fs::set_permissions(&bin_path, fs::Permissions::from_mode(0o755)).expect("chmod +x");
+
+        let resources = Arc::new(SharedWorldResources::new());
+        let mgr = EngineManager::with_paths(resources, dir.clone(), None);
+        let (engine, notice) = mgr.resolve_engine("0.14.2");
+        assert!(notice.is_none());
+        assert!(!engine.metadata().is_builtin);
+        assert_eq!(engine.metadata().version, "0.14.2");
+
+        let project = crate::project::DiskProject::blank();
+        let pdf = engine
+            .export_pdf_bytes(&project, &crate::core::pdf::PdfExportConfig::default())
+            .expect("managed external binary should export pdf");
+        let pdf_str = String::from_utf8_lossy(&pdf);
+        assert!(pdf_str.contains("%managed-0.14.2"));
+    }
+
+    let _ = fs::remove_dir_all(&dir);
+}

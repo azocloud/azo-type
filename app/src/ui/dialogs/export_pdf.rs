@@ -14,12 +14,15 @@ use crate::ui::theme::{apply_theme, ThemePalette};
 /// Renders the Export PDF dialog either as an immediate-mode embedded window or a native OS sub-window.
 ///
 /// Returns `true` if the user confirmed the export action.
+#[allow(clippy::too_many_arguments)]
 pub fn render_export_pdf_dialog(
     ctx: &Context,
     open: &mut bool,
     config: &mut PdfExportConfig,
     export_error: &mut Option<String>,
     entry_file: &Path,
+    active_engine_label: &str,
+    fallback_notice: Option<&str>,
     dark_mode: bool,
 ) -> bool {
     if !*open {
@@ -204,22 +207,9 @@ pub fn render_export_pdf_dialog(
 
                     ui.add_space(8.0);
 
-                    // Validation status & CLI preview
+                    // Validation status & managed compiler indicator
                     match config.build_standards() {
                         Ok(_) => {
-                            let mut std_flags = vec![config.version.short_label().to_string()];
-                            if config.archival_standard != PdfArchivalStandard::None {
-                                std_flags.push(
-                                    config
-                                        .archival_standard
-                                        .code_label()
-                                        .trim_start_matches("PDF/")
-                                        .to_ascii_lowercase(),
-                                );
-                            }
-                            if config.pdf_ua1 {
-                                std_flags.push("ua-1".to_string());
-                            }
                             ui.horizontal_wrapped(|ui| {
                                 ui.label(
                                     RichText::new(t!("export_pdf.valid_config"))
@@ -228,12 +218,19 @@ pub fn render_export_pdf_dialog(
                                         .small(),
                                 );
                                 ui.separator();
-                                ui.code(format!(
-                                    "typst compile --pdf-standard {} {}",
-                                    std_flags.join(","),
-                                    entry_file.display()
-                                ));
+                                ui.label(
+                                    RichText::new(format!("Typst {active_engine_label}"))
+                                        .weak()
+                                        .small(),
+                                );
                             });
+                            if let Some(notice) = fallback_notice {
+                                ui.label(
+                                    RichText::new(notice)
+                                        .color(Color32::from_rgb(245, 158, 11))
+                                        .small(),
+                                );
+                            }
                         }
                         Err(validation_err) => {
                             Frame::new()
