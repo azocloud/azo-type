@@ -10,6 +10,7 @@ pub mod compiler;
 pub mod core;
 pub mod engine;
 pub mod highlight;
+pub mod language_check;
 pub mod platform;
 pub mod project;
 pub mod services;
