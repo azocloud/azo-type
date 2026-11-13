@@ -1,12 +1,212 @@
-//! SHA-256 verification, release archive extraction, and cross-platform engine/package cache paths.
+//! SHA-256 verification, release archive extraction, TLS provider setup, streaming HTTPS downloads,
+//! and cross-platform engine/package cache paths.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex, Once};
+use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
 use crate::core::engine::{verify_sha256_hex, EngineArchiveKind};
+use crate::engine::manager::EngineDownloadEvent;
+
+static TLS_PROVIDER_INIT: Once = Once::new();
+
+/// Ensures a process-wide `rustls` crypto provider (`ring`, reused from `iroh`) is installed
+/// before any `reqwest::Client` initiates an HTTPS connection.
+pub fn ensure_tls_crypto_provider() {
+    TLS_PROVIDER_INIT.call_once(|| {
+        if let Ok(provider) = Arc::try_unwrap(iroh::tls::default_provider()) {
+            let _ = provider.install_default();
+        }
+    });
+}
+
+/// Active phase of an asynchronous engine download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadStage {
+    Connecting,
+    Downloading,
+    VerifyingAndExtracting,
+}
+
+/// Live progress snapshot for an in-flight Typst engine download.
+#[derive(Debug, Clone)]
+pub struct DownloadProgress {
+    pub version: String,
+    pub stage: DownloadStage,
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub started_at: Instant,
+}
+
+impl DownloadProgress {
+    /// Elapsed wall-clock seconds since the download started.
+    pub fn elapsed_secs(&self) -> f64 {
+        self.started_at.elapsed().as_secs_f64()
+    }
+
+    /// Completion fraction in `0.0..=1.0` when `total_bytes` is known.
+    pub fn fraction(&self) -> Option<f32> {
+        let total = self.total_bytes.filter(|&t| t > 0)?;
+        Some((self.downloaded_bytes as f64 / total as f64).clamp(0.0, 1.0) as f32)
+    }
+
+    /// Average download speed in bytes/sec during transfer.
+    pub fn speed_bytes_per_sec(&self) -> f64 {
+        let elapsed = self.elapsed_secs();
+        if elapsed < 0.05 {
+            0.0
+        } else {
+            self.downloaded_bytes as f64 / elapsed
+        }
+    }
+
+    /// Estimated seconds remaining when byte length and initial transfer rate are available.
+    pub fn eta_secs(&self) -> Option<f64> {
+        if self.stage != DownloadStage::Downloading {
+            return None;
+        }
+        let total = self.total_bytes?;
+        if total <= self.downloaded_bytes {
+            return Some(0.0);
+        }
+        let elapsed = self.elapsed_secs();
+        if elapsed < 0.25 || self.downloaded_bytes == 0 {
+            return None;
+        }
+        let speed = self.downloaded_bytes as f64 / elapsed;
+        if speed <= 1.0 {
+            return None;
+        }
+        Some((total - self.downloaded_bytes) as f64 / speed)
+    }
+}
+
+/// RAII guard guaranteeing the download map is cleared and an error is reported even on panic.
+pub(crate) struct DownloadingCleanupGuard {
+    pub(crate) progress_map: Arc<Mutex<HashMap<String, DownloadProgress>>>,
+    pub(crate) version: String,
+    pub(crate) tx: Sender<EngineDownloadEvent>,
+    pub(crate) ctx: egui::Context,
+    pub(crate) completed: bool,
+}
+
+impl Drop for DownloadingCleanupGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = self.progress_map.lock() {
+            map.remove(&self.version);
+        }
+        if !self.completed {
+            let _ = self.tx.send(EngineDownloadEvent {
+                version: self.version.clone(),
+                result: Err(format!(
+                    "Download worker for Typst {} terminated unexpectedly.",
+                    self.version
+                )),
+            });
+            self.ctx.request_repaint();
+        }
+    }
+}
+
+/// Streams a Typst release archive over HTTPS with live progress updates, then verifies and extracts it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn download_and_install_blocking(
+    version: &str,
+    url: &str,
+    expected_sha256: &str,
+    archive_kind: EngineArchiveKind,
+    binary_name: &str,
+    dest_version_dir: &Path,
+    progress_map: &Arc<Mutex<HashMap<String, DownloadProgress>>>,
+    ctx: &egui::Context,
+) -> Result<PathBuf, String> {
+    ensure_tls_crypto_provider();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("Failed initializing async download runtime: {e}"))?;
+
+    let bytes = rt.block_on(async {
+        let client = reqwest::Client::builder()
+            .user_agent("azo-type/0.3.0")
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(180))
+            .build()
+            .map_err(|e| format!("Failed building HTTPS client: {e}"))?;
+
+        let mut response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed downloading Typst {version}: {e}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!(
+                "Download failed for Typst {version} with HTTP {}",
+                response.status()
+            ));
+        }
+
+        let total_bytes = response.content_length();
+        update_progress(progress_map, version, |p| {
+            p.stage = DownloadStage::Downloading;
+            p.total_bytes = total_bytes;
+        });
+        ctx.request_repaint();
+
+        let mut buf = Vec::with_capacity(total_bytes.unwrap_or(0).min(64 * 1024 * 1024) as usize);
+        let mut last_repaint = Instant::now();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| format!("Failed reading Typst {version} download stream: {e}"))?
+        {
+            buf.extend_from_slice(&chunk);
+            let downloaded = buf.len() as u64;
+            update_progress(progress_map, version, |p| {
+                p.downloaded_bytes = downloaded;
+            });
+            if last_repaint.elapsed() >= Duration::from_millis(80) {
+                ctx.request_repaint();
+                last_repaint = Instant::now();
+            }
+        }
+        Ok::<Vec<u8>, String>(buf)
+    })?;
+
+    update_progress(progress_map, version, |p| {
+        p.stage = DownloadStage::VerifyingAndExtracting;
+    });
+    ctx.request_repaint();
+
+    verify_and_extract_archive(
+        version,
+        &bytes,
+        expected_sha256,
+        archive_kind,
+        binary_name,
+        dest_version_dir,
+    )
+}
+
+fn update_progress(
+    progress_map: &Arc<Mutex<HashMap<String, DownloadProgress>>>,
+    version: &str,
+    f: impl FnOnce(&mut DownloadProgress),
+) {
+    if let Ok(mut map) = progress_map.lock() {
+        if let Some(entry) = map.get_mut(version) {
+            f(entry);
+        }
+    }
+}
 
 /// Verifies the downloaded archive's SHA-256 digest before extracting `binary_name` into `dest_version_dir`.
 pub(crate) fn verify_and_extract_archive(
@@ -85,7 +285,6 @@ fn extract_archive(
         _ => {}
     }
 
-    // Windows PowerShell fallback for ZIP archives if `tar` is unavailable or fails.
     #[cfg(target_os = "windows")]
     {
         let script = format!(

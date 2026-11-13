@@ -25,6 +25,7 @@ pub struct ReqwestDownloader;
 
 impl Downloader for ReqwestDownloader {
     fn stream(&self, _key: &dyn Any, url: &str) -> io::Result<(Option<usize>, Box<dyn Read>)> {
+        crate::engine::ensure_tls_crypto_provider();
         let url_owned = url.to_string();
         let join_res = std::thread::spawn(move || -> Result<Vec<u8>, io::Error> {
             let rt = tokio::runtime::Builder::new_current_thread()

@@ -4,8 +4,11 @@ pub mod manager;
 pub mod types;
 pub mod worker;
 
-pub use manager::{EngineDownloadEvent, EngineHost, EngineInstallState, EngineManager};
+pub use manager::{
+    ensure_tls_crypto_provider, DownloadProgress, DownloadStage, EngineDownloadEvent, EngineHost,
+    EngineInstallState, EngineManager,
+};
 pub use types::{
-    CompileSnapshot, DiagnosticItem, EngineMetadata, PreviewCharBox, RenderedPageData,
-    RenderedPageTexture, TypstEngine, upload_page_textures,
+    upload_page_textures, CompileSnapshot, DiagnosticItem, EngineMetadata, PreviewCharBox,
+    RenderedPageData, RenderedPageTexture, TypstEngine,
 };

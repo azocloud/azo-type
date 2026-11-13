@@ -4,24 +4,27 @@ mod archive;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use crate::compiler::NativeTypstEngine;
 use crate::core::engine::{
-    find_host_asset, find_release_for_version, host_target_triple, EngineArchiveKind,
-    BUILTIN_TYPST_VERSION,
+    find_host_asset, find_release_for_version, host_target_triple, BUILTIN_TYPST_VERSION,
 };
 use crate::engine::types::{CompileSnapshot, TypstEngine};
 use crate::engine::worker::ExternalWorkerEngine;
 use crate::project::DiskProject;
 use crate::world::SharedWorldResources;
 
-pub use archive::{default_engines_cache_dir, default_typst_package_cache_dir};
-use archive::verify_and_extract_archive;
+pub use archive::{
+    default_engines_cache_dir, default_typst_package_cache_dir, ensure_tls_crypto_provider,
+    DownloadProgress, DownloadStage,
+};
+use archive::{download_and_install_blocking, DownloadingCleanupGuard};
 
 /// Local installation status of a cataloged Typst engine version.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +53,7 @@ pub struct EngineManager {
     builtin_resources: Arc<SharedWorldResources>,
     engines_dir: PathBuf,
     package_cache_dir: Option<PathBuf>,
-    downloading: Arc<Mutex<HashSet<String>>>,
+    downloads: Arc<Mutex<HashMap<String, DownloadProgress>>>,
     last_error: Arc<Mutex<Option<String>>>,
 }
 
@@ -74,7 +77,7 @@ impl EngineManager {
             builtin_resources,
             engines_dir,
             package_cache_dir,
-            downloading: Arc::new(Mutex::new(HashSet::new())),
+            downloads: Arc::new(Mutex::new(HashMap::new())),
             last_error: Arc::new(Mutex::new(None)),
         }
     }
@@ -109,18 +112,34 @@ impl EngineManager {
 
     /// Returns true if a download for `version` is currently active.
     pub fn is_downloading(&self, version: &str) -> bool {
-        self.downloading
+        self.downloads
             .lock()
-            .map(|set| set.contains(version))
+            .map(|map| map.contains_key(version))
             .unwrap_or(false)
     }
 
     /// Returns the version currently being downloaded, if any.
     pub fn downloading_version(&self) -> Option<String> {
-        self.downloading
+        self.downloads
             .lock()
             .ok()
-            .and_then(|set| set.iter().next().cloned())
+            .and_then(|map| map.keys().next().cloned())
+    }
+
+    /// Returns live transfer progress for `version` if a download is currently running.
+    pub fn download_progress(&self, version: &str) -> Option<DownloadProgress> {
+        self.downloads
+            .lock()
+            .ok()
+            .and_then(|map| map.get(version).cloned())
+    }
+
+    /// Returns progress for any active download (if one is running).
+    pub fn any_download_progress(&self) -> Option<DownloadProgress> {
+        self.downloads
+            .lock()
+            .ok()
+            .and_then(|map| map.values().next().cloned())
     }
 
     /// Returns the most recent engine download/verification error, if any.
@@ -163,7 +182,10 @@ impl EngineManager {
 
     /// Resolves `requested_version` to a concrete [`TypstEngine`], falling back cleanly to the
     /// bundled `0.15.1` compiler with a user-facing notice when a cached binary is unavailable.
-    pub fn resolve_engine(&self, requested_version: &str) -> (Arc<dyn TypstEngine>, Option<String>) {
+    pub fn resolve_engine(
+        &self,
+        requested_version: &str,
+    ) -> (Arc<dyn TypstEngine>, Option<String>) {
         if requested_version == BUILTIN_TYPST_VERSION {
             return (
                 Arc::new(NativeTypstEngine::new(Arc::clone(&self.builtin_resources))),
@@ -358,20 +380,38 @@ impl EngineManager {
         };
 
         {
-            let Ok(mut set) = self.downloading.lock() else {
+            let Ok(mut map) = self.downloads.lock() else {
                 return;
             };
-            if !set.insert(version.to_string()) {
+            if map.contains_key(version) {
                 return;
             }
+            map.insert(
+                version.to_string(),
+                DownloadProgress {
+                    version: version.to_string(),
+                    stage: DownloadStage::Connecting,
+                    downloaded_bytes: 0,
+                    total_bytes: None,
+                    started_at: Instant::now(),
+                },
+            );
         }
         self.clear_error();
 
         let version_owned = version.to_string();
         let dest_version_dir = self.engines_dir.join(version);
-        let downloading_flag = Arc::clone(&self.downloading);
+        let progress_map = Arc::clone(&self.downloads);
 
         std::thread::spawn(move || {
+            let mut guard = DownloadingCleanupGuard {
+                progress_map: Arc::clone(&progress_map),
+                version: version_owned.clone(),
+                tx: tx.clone(),
+                ctx: ctx.clone(),
+                completed: false,
+            };
+
             let result = download_and_install_blocking(
                 &version_owned,
                 asset.download_url,
@@ -379,11 +419,12 @@ impl EngineManager {
                 asset.archive_kind,
                 asset.binary_name,
                 &dest_version_dir,
+                &progress_map,
+                &ctx,
             );
 
-            if let Ok(mut set) = downloading_flag.lock() {
-                set.remove(&version_owned);
-            }
+            guard.completed = true;
+            drop(guard);
 
             let _ = tx.send(EngineDownloadEvent {
                 version: version_owned,
@@ -392,55 +433,6 @@ impl EngineManager {
             ctx.request_repaint();
         });
     }
-}
-
-fn download_and_install_blocking(
-    version: &str,
-    url: &str,
-    expected_sha256: &str,
-    archive_kind: EngineArchiveKind,
-    binary_name: &str,
-    dest_version_dir: &Path,
-) -> Result<PathBuf, String> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("Failed initializing async download runtime: {e}"))?;
-
-    let bytes = rt.block_on(async {
-        let client = reqwest::Client::builder()
-            .user_agent("azo-type/0.1.0")
-            .build()
-            .map_err(|e| format!("Failed building HTTPS client: {e}"))?;
-
-        let response = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| format!("Failed downloading Typst {version}: {e}"))?;
-
-        if !response.status().is_success() {
-            return Err(format!(
-                "Download failed for Typst {version} with HTTP {}",
-                response.status()
-            ));
-        }
-
-        response
-            .bytes()
-            .await
-            .map(|b| b.to_vec())
-            .map_err(|e| format!("Failed reading Typst {version} download stream: {e}"))
-    })?;
-
-    verify_and_extract_archive(
-        version,
-        &bytes,
-        expected_sha256,
-        archive_kind,
-        binary_name,
-        dest_version_dir,
-    )
 }
 
 fn default_exe_filename() -> &'static str {
@@ -502,11 +494,9 @@ impl EngineHost {
         let mut latest_notice = None;
         let mut should_recompile = false;
         while let Ok(ev) = self.rx.try_recv() {
-            let (msg, recompile) = self.manager.apply_download_event(
-                ev,
-                selected_version,
-                &mut self.fallback_notice,
-            );
+            let (msg, recompile) =
+                self.manager
+                    .apply_download_event(ev, selected_version, &mut self.fallback_notice);
             latest_notice = Some(msg);
             should_recompile |= recompile;
         }
