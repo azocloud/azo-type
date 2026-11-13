@@ -13,9 +13,10 @@ use crate::collab::doc::CharSelection;
 use crate::collab::session::{CollabSessionHandle, SessionToUiEvent, UiToSessionCmd};
 use crate::collab::ui::{render_collaboration_window, CollabUiState};
 use crate::compiler::{
-    compile_project, export_pdf_bytes_with_config, upload_page_textures, CompileSnapshot,
-    CompiledOutlineItem, DiagnosticItem, PdfExportConfig, RenderedPageData, RenderedPageTexture,
+    upload_page_textures, CompileSnapshot, CompiledOutlineItem, DiagnosticItem, PdfExportConfig,
+    RenderedPageData, RenderedPageTexture,
 };
+use crate::engine::EngineHost;
 use crate::highlight::ThemePalette;
 use crate::project::{DiskProject, FileKind};
 use crate::ui::components::PreviewSelectionState;
@@ -39,7 +40,7 @@ pub type TypstIdeApp = AzoTypeApp;
 
 pub struct AzoTypeApp {
     pub language: String,
-    pub resources: Arc<SharedWorldResources>,
+    pub engine_host: EngineHost,
     pub project: DiskProject,
     pub settings: IdeSettings,
     pub show_sidebar: bool,
@@ -117,31 +118,37 @@ impl AzoTypeApp {
 
         apply_theme(&cc.egui_ctx, settings.dark_mode);
 
-        let initial_snapshot =
-            compile_project(Arc::clone(&resources), &project, settings.render_dpi_scale);
+        let (engine_host, initial_snapshot) = EngineHost::init(
+            resources,
+            &project,
+            &settings.typst_version,
+            settings.render_dpi_scale,
+        );
         let page_textures = upload_page_textures(&cc.egui_ctx, &initial_snapshot.pages);
 
         let (io_tx, io_rx) = mpsc::channel();
         let (compile_tx, compile_rx) = mpsc::channel();
         let collab_session = CollabSessionHandle::spawn(Some(cc.egui_ctx.clone()));
 
-        let status_notice = if project.has_disk_backing() {
-            rust_i18n::t!(
-                "app.status_opened_folder",
-                name = project.project_name.as_str(),
-                path = project.root_dir.display().to_string()
-            )
-            .to_string()
-        } else {
-            rust_i18n::t!("app.status_blank_ready").to_string()
-        };
+        let status_notice = engine_host.fallback_notice.clone().unwrap_or_else(|| {
+            if project.has_disk_backing() {
+                rust_i18n::t!(
+                    "app.status_opened_folder",
+                    name = project.project_name.as_str(),
+                    path = project.root_dir.display().to_string()
+                )
+                .to_string()
+            } else {
+                rust_i18n::t!("app.status_blank_ready").to_string()
+            }
+        });
 
         #[cfg(target_os = "macos")]
         let macos_menu = MacOsMenuBar::init();
 
         Self {
             language,
-            resources,
+            engine_host,
             last_compiled_revision: initial_snapshot.revision,
             last_compiled_dpi: settings.render_dpi_scale,
             pending_compile: false,
@@ -296,17 +303,13 @@ impl AzoTypeApp {
         self.pending_compile = false;
         if !self.compile_in_progress {
             self.compile_in_progress = true;
-            let resources = Arc::clone(&self.resources);
-            let project_clone = self.project.clone();
-            let dpi = self.settings.render_dpi_scale;
-            let tx = self.compile_tx.clone();
-            let ctx_clone = ctx.clone();
-
-            std::thread::spawn(move || {
-                let snapshot = compile_project(resources, &project_clone, dpi);
-                let _ = tx.send(snapshot);
-                ctx_clone.request_repaint();
-            });
+            self.engine_host.trigger_compile(
+                &self.settings.typst_version,
+                self.project.clone(),
+                self.settings.render_dpi_scale,
+                self.compile_tx.clone(),
+                ctx.clone(),
+            );
         } else {
             self.pending_compile = true;
         }
@@ -324,7 +327,7 @@ impl AzoTypeApp {
             self.page_data = snapshot.pages;
             self.preview_selection.clear();
         }
-        if snapshot.document.is_some() {
+        if snapshot.compiled_ok {
             self.compiled_outline = snapshot.outline;
         }
     }
@@ -339,6 +342,16 @@ impl AzoTypeApp {
 
         while let Ok(snapshot) = self.compile_rx.try_recv() {
             self.apply_compile_snapshot(ctx, snapshot);
+        }
+
+        let (dl_notice, dl_recompile) = self
+            .engine_host
+            .poll_downloads(&mut self.settings.typst_version);
+        if let Some(notice) = dl_notice {
+            self.status_notice = notice;
+        }
+        if dl_recompile {
+            self.trigger_compile_now(ctx);
         }
 
         while let Ok(event) = self.io_rx.try_recv() {
@@ -494,70 +507,24 @@ impl AzoTypeApp {
 
     fn export_pdf_action(&mut self, ctx: &Context) {
         let _ = self.project.save_all_files();
-        let resources = Arc::clone(&self.resources);
-        let project_snapshot = self.project.clone();
-        let config = self.pdf_export_config.clone();
-        let entry_file = self.project.effective_compile_entrypoint();
-        let stem = entry_file
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("document");
-        let default_pdf_name = format!("{stem}.pdf");
-        let start_dir = if self.project.has_disk_backing() {
-            self.project.root_dir.clone()
-        } else {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        };
-        let badge = config.summary_badge();
-
-        match export_pdf_bytes_with_config(resources, &project_snapshot, &config) {
-            Ok(pdf_bytes) => {
-                self.export_pdf_error = None;
-                self.show_export_pdf_dialog = false;
-                let size_kb = pdf_bytes.len() as f64 / 1024.0;
-                let size_str = format!("{size_kb:.1}");
-                self.status_notice = rust_i18n::t!(
-                    "app.status_pdf_exporting",
-                    badge = badge.as_str(),
-                    size = size_str.as_str()
-                )
-                .to_string();
-                let tx = self.io_tx.clone();
-                let ctx_clone = ctx.clone();
-
-                crate::platform::dialogs::spawn_save_file_dialog(
-                    &start_dir,
-                    &default_pdf_name,
-                    "PDF Document",
-                    "pdf",
-                    pdf_bytes,
-                    move |res| {
-                        let msg = match res {
-                            Ok(p) => rust_i18n::t!(
-                                "app.status_pdf_exported",
-                                badge = badge.as_str(),
-                                path = p.display().to_string(),
-                                size = size_str.as_str()
-                            )
-                            .to_string(),
-                            Err(e) => format!("PDF write failed: {e}"),
-                        };
-                        let _ = tx.send(IoEvent::StatusMessage(msg));
-                    },
-                    move || ctx_clone.request_repaint(),
-                );
-            }
-            Err(diags) => {
-                let first_err = diags
-                    .first()
-                    .map(|d| d.message.clone())
-                    .unwrap_or_else(|| rust_i18n::t!("app.status_pdf_export_failed").to_string());
-                self.export_pdf_error = Some(first_err.clone());
-                self.diagnostics = diags;
-                self.status_notice =
-                    rust_i18n::t!("app.status_cannot_export_pdf", error = first_err.as_str())
-                        .to_string();
-            }
+        let snapshot = self.project.clone();
+        let outcome = crate::services::run_pdf_export_flow(
+            ctx,
+            &self.engine_host.manager,
+            &self.settings.typst_version,
+            &snapshot,
+            &self.pdf_export_config,
+            self.io_tx.clone(),
+            IoEvent::StatusMessage,
+        );
+        self.export_pdf_error = outcome.export_pdf_error;
+        self.status_notice = outcome.status_notice;
+        self.engine_host.fallback_notice = outcome.fallback_notice;
+        if outcome.exported {
+            self.show_export_pdf_dialog = false;
+        }
+        if let Some(diags) = outcome.diagnostics {
+            self.diagnostics = diags;
         }
     }
 
@@ -697,6 +664,7 @@ impl AzoTypeApp {
             &self.language,
             &mut self.settings_tab,
             &self.project.root_dir,
+            &self.engine_host.manager,
         );
 
         if let Some(l) = output.language_changed {
@@ -711,7 +679,19 @@ impl AzoTypeApp {
         if output.rescan_needed {
             let _ = self.project.rescan_tree();
         }
-        if output.dpi_changed {
+        let (eng_notice, eng_recompile) = self.engine_host.manager.handle_settings_actions(
+            output.download_typst_version,
+            output.remove_typst_version,
+            output.engine_changed,
+            &self.settings.typst_version,
+            &mut self.engine_host.fallback_notice,
+            &self.engine_host.tx,
+            ctx,
+        );
+        if let Some(msg) = eng_notice {
+            self.status_notice = msg;
+        }
+        if output.dpi_changed || eng_recompile {
             self.trigger_compile_now(ctx);
         }
     }
@@ -729,8 +709,18 @@ impl AzoTypeApp {
 
         let error_count = self.diagnostics.iter().filter(|d| d.is_error).count();
         let warn_count = self.diagnostics.iter().filter(|d| !d.is_error).count();
+        let (active_ver, fallback) = self
+            .engine_host
+            .manager
+            .active_version_and_fallback(&self.settings.typst_version);
+        let downloading_ver = self.engine_host.manager.downloading_version();
+        let notice = self
+            .engine_host
+            .fallback_notice
+            .as_deref()
+            .unwrap_or(&self.status_notice);
 
-        crate::ui::components::render_status_bar(
+        let status_out = crate::ui::components::render_status_bar(
             ctx,
             crate::ui::components::StatusBarParams {
                 dark_mode: self.settings.dark_mode,
@@ -741,13 +731,20 @@ impl AzoTypeApp {
                 compile_duration_ms: self.compile_duration_ms,
                 main_file: &self.project.main_file,
                 page_count: self.page_textures.len(),
+                active_typst_version: &active_ver,
+                downloading_typst_version: downloading_ver.as_deref(),
+                typst_fallback_active: fallback.is_some(),
                 collab_active: self.collab_ui.is_active,
                 collab_is_host: self.collab_ui.is_host,
                 collab_peer_count: self.collab_ui.connected_peer_count(),
-                status_notice: &self.status_notice,
+                status_notice: notice,
                 active_buffer: active_buf_info,
             },
         );
+        if status_out.open_compiler_settings {
+            self.show_settings_window = true;
+            self.settings_tab = SettingsTab::CompilerAndPreview;
+        }
     }
 
     fn render_left_file_panel(&mut self, ctx: &Context) {

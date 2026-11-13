@@ -8,7 +8,9 @@ use egui::{
 };
 use rust_i18n::t;
 
+use crate::core::engine::all_selectable_versions;
 use crate::core::settings::{IdeSettings, SettingsTab, ThemePreference};
+use crate::engine::{EngineInstallState, EngineManager};
 use crate::ui::theme::{apply_theme, ThemePalette};
 
 /// Actions and side effects requested by user interaction within the Settings dialog.
@@ -19,6 +21,9 @@ pub struct SettingsModalOutput {
     pub rescan_needed: bool,
     pub dpi_changed: bool,
     pub language_changed: Option<String>,
+    pub engine_changed: bool,
+    pub download_typst_version: Option<String>,
+    pub remove_typst_version: Option<String>,
 }
 
 /// Renders the Settings sub-window (embedded or native OS viewport).
@@ -29,6 +34,7 @@ pub fn render_settings_dialog(
     language: &str,
     active_tab: &mut SettingsTab,
     project_root: &Path,
+    engine_manager: &EngineManager,
 ) -> SettingsModalOutput {
     if !*open {
         return SettingsModalOutput::default();
@@ -175,6 +181,66 @@ pub fn render_settings_dialog(
                 SettingsTab::CompilerAndPreview => {
                     ui.heading(t!("settings.heading_compiler"));
                     ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label(t!("settings.typst_version_label"));
+                        let selected_state = engine_manager.install_state(&settings.typst_version);
+                        let selected_label =
+                            format_version_label(&settings.typst_version, &selected_state);
+                        egui::ComboBox::from_id_salt("typst_version_selector")
+                            .selected_text(selected_label)
+                            .show_ui(ui, |ui| {
+                                for ver in all_selectable_versions() {
+                                    let st = engine_manager.install_state(ver);
+                                    let label = format_version_label(ver, &st);
+                                    if ui
+                                        .selectable_value(
+                                            &mut settings.typst_version,
+                                            ver.to_string(),
+                                            label,
+                                        )
+                                        .changed()
+                                    {
+                                        output.engine_changed = true;
+                                    }
+                                }
+                            });
+
+                        match selected_state {
+                            EngineInstallState::BuiltIn => {
+                                ui.label(
+                                    RichText::new(t!("settings.typst_builtin_badge"))
+                                        .small()
+                                        .color(palette.text_muted),
+                                );
+                            }
+                            EngineInstallState::NotInstalled => {
+                                if ui.button(t!("settings.typst_download_btn")).clicked() {
+                                    output.download_typst_version =
+                                        Some(settings.typst_version.clone());
+                                }
+                            }
+                            EngineInstallState::Downloading => {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Button::new(t!("settings.typst_downloading_btn")),
+                                );
+                            }
+                            EngineInstallState::Installed => {
+                                if ui.button(t!("settings.typst_remove_btn")).clicked() {
+                                    output.remove_typst_version =
+                                        Some(settings.typst_version.clone());
+                                }
+                            }
+                            EngineInstallState::UnsupportedPlatform => {}
+                        }
+                    });
+                    if let Some(err_msg) = engine_manager.last_error() {
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(err_msg).small().color(palette.syn_number));
+                    }
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(6.0);
                     ui.checkbox(
                         &mut settings.auto_compile,
                         t!("settings.auto_compile_label"),
@@ -251,6 +317,7 @@ pub fn render_settings_dialog(
                         output.theme_changed = true;
                     }
                     output.dpi_changed = true;
+                    output.engine_changed = true;
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui.button(t!("settings.close_btn")).clicked() {
@@ -293,4 +360,21 @@ fn theme_preference_label(pref: ThemePreference) -> String {
         ThemePreference::Dark => t!("settings.theme_dark").to_string(),
         ThemePreference::SystemDefault => t!("settings.theme_system").to_string(),
     }
+}
+
+fn format_version_label(version: &str, state: &EngineInstallState) -> String {
+    match state {
+        EngineInstallState::BuiltIn => t!("settings.typst_version_builtin", version = version),
+        EngineInstallState::Installed => t!("settings.typst_version_installed", version = version),
+        EngineInstallState::NotInstalled => {
+            t!("settings.typst_version_not_installed", version = version)
+        }
+        EngineInstallState::Downloading => {
+            t!("settings.typst_version_downloading", version = version)
+        }
+        EngineInstallState::UnsupportedPlatform => {
+            t!("settings.typst_version_unsupported", version = version)
+        }
+    }
+    .to_string()
 }

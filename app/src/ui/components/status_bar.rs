@@ -27,6 +27,9 @@ pub struct StatusBarParams<'a> {
     pub compile_duration_ms: f64,
     pub main_file: &'a Path,
     pub page_count: usize,
+    pub active_typst_version: &'a str,
+    pub downloading_typst_version: Option<&'a str>,
+    pub typst_fallback_active: bool,
     pub collab_active: bool,
     pub collab_is_host: bool,
     pub collab_peer_count: usize,
@@ -34,8 +37,15 @@ pub struct StatusBarParams<'a> {
     pub active_buffer: Option<StatusBarBufferInfo<'a>>,
 }
 
+/// User actions emitted by interactive items in the status bar.
+#[derive(Debug, Default)]
+pub struct StatusBarOutput {
+    pub open_compiler_settings: bool,
+}
+
 /// Renders the bottom status bar panel across the application window.
-pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) {
+pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) -> StatusBarOutput {
+    let mut output = StatusBarOutput::default();
     let palette = ThemePalette::for_mode(params.dark_mode);
     let bar_bg = palette.chrome_sidebar;
     let border_col = palette.panel_border;
@@ -102,6 +112,30 @@ pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) {
                         .small(),
                 );
 
+                ui.separator();
+                let engine_text = if let Some(dl_ver) = params.downloading_typst_version {
+                    t!("status.typst_downloading", version = dl_ver).to_string()
+                } else {
+                    t!(
+                        "status.typst_version",
+                        version = params.active_typst_version
+                    )
+                    .to_string()
+                };
+                let engine_color =
+                    if params.downloading_typst_version.is_some() || params.typst_fallback_active {
+                        palette.syn_operator
+                    } else {
+                        palette.text_primary
+                    };
+                if ui
+                    .button(RichText::new(engine_text).small().color(engine_color))
+                    .on_hover_text(t!("status.typst_version_tooltip"))
+                    .clicked()
+                {
+                    output.open_compiler_settings = true;
+                }
+
                 if params.collab_active {
                     ui.separator();
                     let role = if params.collab_is_host {
@@ -157,4 +191,5 @@ pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) {
                 });
             });
         });
+    output
 }
