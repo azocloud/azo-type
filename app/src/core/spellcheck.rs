@@ -134,9 +134,9 @@ pub struct LanguageCheckDiagnostic {
     pub start_byte: usize,
     /// UTF-8 byte end offset in the source document.
     pub end_byte: usize,
-    /// Unicode scalar (`char`) start offset for `egui::Galley` cursor mapping.
+    /// Unicode scalar (`char`) start offset for editor cursor mapping.
     pub start_char: usize,
-    /// Unicode scalar (`char`) end offset for `egui::Galley` cursor mapping.
+    /// Unicode scalar (`char`) end offset for editor cursor mapping.
     pub end_char: usize,
     /// 1-based source line number.
     pub line: usize,

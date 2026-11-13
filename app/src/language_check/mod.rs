@@ -4,6 +4,7 @@
 pub mod downloader;
 pub mod engine;
 pub mod host;
+pub mod tokenize;
 
 pub use downloader::{
     default_dictionaries_cache_dir, DictionaryDownloadOutcome, DictionaryDownloadProgress,
@@ -11,3 +12,4 @@ pub use downloader::{
 };
 pub use engine::{DocumentCheckResult, LanguageCheckEngine, LanguageSource};
 pub use host::LanguageCheckHost;
+pub use tokenize::tokenize_prose_words;
