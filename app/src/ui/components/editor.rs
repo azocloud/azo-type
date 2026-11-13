@@ -13,8 +13,10 @@ use crate::collab::awareness::PeerPresence;
 use crate::collab::ui::paint_remote_cursors_in_editor;
 use crate::core::diff::CharSelection;
 use crate::core::file_kind::FileKind;
+use crate::core::spellcheck::LanguageCheckDiagnostic;
 use crate::highlight::highlight_typst_code;
 use crate::project::DiskProject;
+use crate::ui::components::editor_diagnostics::paint_language_diagnostics;
 use crate::ui::components::menu_bar::EditorContextAction;
 use crate::ui::theme::ThemePalette;
 
@@ -46,6 +48,7 @@ pub struct EditorPaneParams<'a> {
     pub last_editor_selection: Option<CharSelection>,
     pub pending_editor_context_action: Option<EditorContextAction>,
     pub peers_in_active_file: &'a [PeerPresence],
+    pub language_diagnostics: &'a [LanguageCheckDiagnostic],
 }
 
 /// Renders the code editor or asset inspection pane.
@@ -547,6 +550,17 @@ pub fn render_editor_pane(
                                     let peer_refs: Vec<&PeerPresence> =
                                         params.peers_in_active_file.iter().collect();
                                     paint_remote_cursors_in_editor(ui, &edit_output, &peer_refs);
+                                }
+                                if file_kind == FileKind::Typst
+                                    && !params.language_diagnostics.is_empty()
+                                {
+                                    paint_language_diagnostics(
+                                        ui,
+                                        &edit_output,
+                                        params.language_diagnostics,
+                                        params.dark_mode,
+                                        text_ref.chars().count(),
+                                    );
                                 }
 
                                 let ime_in_progress = ctx.input(|i| {

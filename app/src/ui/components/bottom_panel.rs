@@ -11,7 +11,9 @@ use rust_i18n::t;
 
 use crate::core::diff::normalize_rel_path;
 use crate::engine::DiagnosticItem;
+use crate::language_check::LanguageCheckHost;
 use crate::project::DiskProject;
+use crate::ui::components::bottom_panel_autocorrect::render_autocorrect_tab;
 use crate::ui::theme::ThemePalette;
 
 const MAX_CONSOLE_LOG_LINES: usize = 200;
@@ -119,7 +121,11 @@ pub struct BottomPanelParams<'a> {
     pub state: &'a mut BottomPanelState,
     pub diagnostics: &'a [DiagnosticItem],
     pub active_file: &'a Path,
+    pub is_active_typst: bool,
     pub language: &'a str,
+    pub spell_check_enabled: &'a mut bool,
+    pub auto_spell_check: &'a mut bool,
+    pub language_check: &'a LanguageCheckHost,
 }
 
 /// User actions emitted by interactions inside the bottom panel.
@@ -127,6 +133,12 @@ pub struct BottomPanelParams<'a> {
 pub struct BottomPanelOutput {
     pub close_requested: bool,
     pub open_diagnostic: Option<DiagnosticItem>,
+    pub check_language_now: bool,
+    pub download_dictionary_lang: Option<String>,
+    pub open_spell_settings: bool,
+    pub jump_to_char: Option<usize>,
+    pub apply_suggestion: Option<(usize, usize, String)>,
+    pub ignore_word: Option<String>,
 }
 
 /// Returns diagnostics ordered with all errors first, followed by all warnings.
@@ -245,9 +257,14 @@ pub fn render_bottom_panel(ui: &mut Ui, params: BottomPanelParams<'_>) -> Bottom
                             BottomPanelTab::AutoCorrection => {
                                 render_autocorrect_tab(
                                     ui,
+                                    params.dark_mode,
                                     &palette,
                                     params.active_file,
-                                    params.language,
+                                    params.is_active_typst,
+                                    params.spell_check_enabled,
+                                    params.auto_spell_check,
+                                    params.language_check,
+                                    &mut output,
                                 );
                             }
                         });
@@ -454,31 +471,6 @@ fn render_console_tab(ui: &mut Ui, dark_mode: bool, palette: &ThemePalette, logs
         };
         ui.label(RichText::new(line).monospace().small().color(color));
     }
-}
-
-fn render_autocorrect_tab(ui: &mut Ui, palette: &ThemePalette, active_file: &Path, language: &str) {
-    ui.label(
-        RichText::new(t!("bottom_panel.autocorrect_heading"))
-            .small()
-            .strong(),
-    );
-    ui.add_space(4.0);
-    ui.label(
-        RichText::new(t!(
-            "bottom_panel.autocorrect_active_doc",
-            file = active_file.display().to_string(),
-            locale = language
-        ))
-        .small()
-        .monospace()
-        .color(palette.text_muted),
-    );
-    ui.add_space(4.0);
-    ui.label(
-        RichText::new(t!("bottom_panel.autocorrect_placeholder"))
-            .small()
-            .color(palette.text_muted),
-    );
 }
 
 /// Computes the character offset (`CCursor` index) corresponding to a diagnostic's line and column.

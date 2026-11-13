@@ -1,8 +1,10 @@
 //! UI reusable panels, controls, and components.
 
 pub mod bottom_panel;
+pub mod bottom_panel_autocorrect;
 pub mod editor;
 pub mod editor_actions;
+pub mod editor_diagnostics;
 pub mod menu_bar;
 pub mod preview;
 pub mod preview_selection;

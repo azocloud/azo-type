@@ -11,6 +11,8 @@ use rust_i18n::t;
 use crate::core::engine::all_selectable_versions;
 use crate::core::settings::{IdeSettings, SettingsTab, ThemePreference};
 use crate::engine::{DownloadProgress, DownloadStage, EngineInstallState, EngineManager};
+use crate::language_check::DictionaryManager;
+use crate::ui::dialogs::settings_spell::render_spell_and_grammar_tab;
 use crate::ui::theme::{apply_theme, ThemePalette};
 
 /// Actions and side effects requested by user interaction within the Settings dialog.
@@ -24,9 +26,16 @@ pub struct SettingsModalOutput {
     pub engine_changed: bool,
     pub download_typst_version: Option<String>,
     pub remove_typst_version: Option<String>,
+    pub check_language_now: bool,
+    pub download_dictionary_lang: Option<String>,
+    pub remove_dictionary_lang: Option<String>,
+    pub add_user_dictionary_requested: bool,
+    pub remove_user_dictionary_idx: Option<usize>,
+    pub clear_ignored_words: bool,
 }
 
 /// Renders the Settings sub-window (embedded or native OS viewport).
+#[allow(clippy::too_many_arguments)]
 pub fn render_settings_dialog(
     ctx: &Context,
     open: &mut bool,
@@ -35,6 +44,7 @@ pub fn render_settings_dialog(
     active_tab: &mut SettingsTab,
     project_root: &Path,
     engine_manager: &EngineManager,
+    dict_manager: &DictionaryManager,
 ) -> SettingsModalOutput {
     if !*open {
         return SettingsModalOutput::default();
@@ -72,6 +82,11 @@ pub fn render_settings_dialog(
                     active_tab,
                     SettingsTab::CompilerAndPreview,
                     RichText::new(t!("settings.tab_compiler")).strong(),
+                );
+                ui.selectable_value(
+                    active_tab,
+                    SettingsTab::SpellAndGrammar,
+                    RichText::new(t!("settings.tab_spell_grammar")).strong(),
                 );
             });
             ui.separator();
@@ -309,7 +324,9 @@ pub fn render_settings_dialog(
                         t!("settings.preview_pan_mode_label"),
                     );
                 }
-                SettingsTab::SpellAndGrammar => {}
+                SettingsTab::SpellAndGrammar => {
+                    render_spell_and_grammar_tab(ui, settings, dict_manager, &palette, &mut output);
+                }
             }
 
             ui.add_space(14.0);
