@@ -31,6 +31,7 @@ pub enum IoEvent {
     FolderPicked(PathBuf),
     FileSavedAs(PathBuf),
     StatusMessage(String),
+    PdfExportFinished { status: String, console: String },
 }
 
 /// Backward-compatibility alias for [`AzoTypeApp`].
@@ -369,6 +370,10 @@ impl AzoTypeApp {
                     self.trigger_compile_now(ctx);
                 }
                 IoEvent::StatusMessage(msg) => self.status_notice = msg,
+                IoEvent::PdfExportFinished { status, console } => {
+                    self.status_notice = status;
+                    self.bottom_panel.push_console_log(console);
+                }
             }
         }
 
@@ -469,8 +474,11 @@ impl AzoTypeApp {
             &snapshot,
             &self.pdf_export_config,
             self.io_tx.clone(),
-            IoEvent::StatusMessage,
+            |status, console| IoEvent::PdfExportFinished { status, console },
         );
+        for line in outcome.console_logs {
+            self.bottom_panel.push_console_log(line);
+        }
         self.export_pdf_error = outcome.export_pdf_error;
         self.status_notice = outcome.status_notice;
         self.engine_host.fallback_notice = outcome.fallback_notice;
