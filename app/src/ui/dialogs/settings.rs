@@ -10,7 +10,7 @@ use rust_i18n::t;
 
 use crate::core::engine::all_selectable_versions;
 use crate::core::settings::{IdeSettings, SettingsTab, ThemePreference};
-use crate::engine::{EngineInstallState, EngineManager};
+use crate::engine::{DownloadProgress, DownloadStage, EngineInstallState, EngineManager};
 use crate::ui::theme::{apply_theme, ThemePalette};
 
 /// Actions and side effects requested by user interaction within the Settings dialog.
@@ -234,6 +234,15 @@ pub fn render_settings_dialog(
                             EngineInstallState::UnsupportedPlatform => {}
                         }
                     });
+                    if let Some(prog) = engine_manager
+                        .download_progress(&settings.typst_version)
+                        .or_else(|| engine_manager.any_download_progress())
+                    {
+                        ui.add_space(6.0);
+                        render_download_progress(ui, &prog);
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(100));
+                    }
                     if let Some(err_msg) = engine_manager.last_error() {
                         ui.add_space(4.0);
                         ui.label(RichText::new(err_msg).small().color(palette.syn_number));
@@ -377,4 +386,69 @@ fn format_version_label(version: &str, state: &EngineInstallState) -> String {
         }
     }
     .to_string()
+}
+
+fn render_download_progress(ui: &mut Ui, prog: &DownloadProgress) {
+    let elapsed = format!("{:.1}", prog.elapsed_secs());
+    let dl_mb = format!("{:.1}", prog.downloaded_bytes as f64 / (1024.0 * 1024.0));
+    let speed_mb = format!("{:.1}", prog.speed_bytes_per_sec() / (1024.0 * 1024.0));
+
+    let (fraction, status_text) = match prog.stage {
+        DownloadStage::Connecting => (
+            0.05,
+            t!(
+                "settings.typst_progress_connecting",
+                version = prog.version.as_str(),
+                elapsed = elapsed.as_str()
+            )
+            .to_string(),
+        ),
+        DownloadStage::Downloading => {
+            let frac = prog.fraction().unwrap_or(0.25);
+            let msg = match (prog.total_bytes, prog.eta_secs()) {
+                (Some(total), Some(eta)) => t!(
+                    "settings.typst_progress_downloading_eta",
+                    version = prog.version.as_str(),
+                    downloaded = dl_mb.as_str(),
+                    total = format!("{:.1}", total as f64 / (1024.0 * 1024.0)),
+                    speed = speed_mb.as_str(),
+                    eta = format!("{:.0}", eta.ceil())
+                )
+                .to_string(),
+                (Some(total), None) => t!(
+                    "settings.typst_progress_downloading",
+                    version = prog.version.as_str(),
+                    downloaded = dl_mb.as_str(),
+                    total = format!("{:.1}", total as f64 / (1024.0 * 1024.0)),
+                    speed = speed_mb.as_str(),
+                    elapsed = elapsed.as_str()
+                )
+                .to_string(),
+                (None, _) => t!(
+                    "settings.typst_progress_downloading_unknown",
+                    version = prog.version.as_str(),
+                    downloaded = dl_mb.as_str(),
+                    speed = speed_mb.as_str(),
+                    elapsed = elapsed.as_str()
+                )
+                .to_string(),
+            };
+            (frac, msg)
+        }
+        DownloadStage::VerifyingAndExtracting => (
+            1.0,
+            t!(
+                "settings.typst_progress_verifying",
+                version = prog.version.as_str(),
+                elapsed = elapsed.as_str()
+            )
+            .to_string(),
+        ),
+    };
+
+    ui.add(
+        egui::ProgressBar::new(fraction)
+            .animate(true)
+            .text(status_text),
+    );
 }
