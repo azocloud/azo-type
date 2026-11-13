@@ -57,7 +57,7 @@
 | `app/src/services/persistence.rs` | Persistent application preferences, language, and preview zoom backed by `eframe::Storage`. | `SETTINGS_STORAGE_KEY`, `PREVIEW_ZOOM_STORAGE_KEY`, `PersistedAppState`, `load_persisted_state`, `save_persisted_state`, `save_persisted_parts` | `core` | *(covered via integration/UI)* | — |
 | `app/src/services/project_actions.rs` | Project file creation, renaming, and deletion workflows synchronized with collaboration state. | `create_project_file`, `rename_project_file`, `delete_project_file`, `save_active_or_prompt`, `save_all_project_files` | `collab`, `platform`, `project` | *(covered via integration/UI)* | — |
 | `app/src/services/screenshot.rs` | Headless screenshot capture automation for tests and CI documentation. | `handle_screenshot_lifecycle` | *(none)* | *(covered via integration/UI)* | — |
-| `app/src/ui/components/bottom_panel.rs` | Collapsible multi-tab bottom workspace panel rendered beneath the editor and preview panes. | `BottomPanelTab`, `ALL`, `label`, `BottomPanelState`, `toggle_visible`, `push_console_log` | `core`, `engine`, `project`, `ui` | *(covered via integration/UI)* | — |
+| `app/src/ui/components/bottom_panel.rs` | Collapsible multi-tab bottom workspace panel rendered beneath the editor and preview panes. | `BottomPanelTab`, `ALL`, `label`, `BottomPanelState`, `toggle_visible`, `toggle_diagnostic_expanded` | `core`, `engine`, `project`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/editor.rs` | Multiline text editor pane featuring syntax highlighting, gutter line numbers, wrap glyphs, and remote peer cursors. | `EditorPaneOutput`, `EditorPaneParams`, `render_editor_pane` | `collab`, `core`, `highlight`, `project`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/editor_actions.rs` | Context menu and edit action handlers (Undo, Redo, Cut, Copy, Paste, Format Snippets) for the text editor. | `render_editor_context_menu`, `apply_editor_context_action` | `core`, `platform`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/menu_bar.rs` | Desktop menu bar rendered inside the application window on Linux and Windows. | `EditorContextAction`, `MenuBarOutput`, `MenuBarParams`, `render_desktop_menu_bar` | `core`, `platform`, `ui` | *(covered via integration/UI)* | — |
@@ -97,7 +97,7 @@
 | `app/src/platform/icon/tests.rs` | Unit tests for application icon decoding, caching, and viewport builder configuration. |
 | `app/src/platform/theme/tests.rs` | Unit tests for OS theme detection parsers and System-Default fallback behavior. |
 | `app/src/services/persistence/tests.rs` | Unit tests for `eframe::Storage` settings persistence and reload behavior. |
-| `app/src/ui/components/bottom_panel/tests.rs` | Unit tests for the collapsible multi-tab bottom workspace panel state. |
+| `app/src/ui/components/bottom_panel/tests.rs` | Unit tests for the collapsible multi-tab bottom workspace panel state and diagnostics sorting. |
 | `app/src/ui/components/preview_selection/tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
 | `app/src/ui/components/split_divider/tests.rs` | Unit tests for split divider pane geometry calculations. |
 
