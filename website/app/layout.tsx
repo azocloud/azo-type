@@ -9,7 +9,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'azo-type — Native Editor for Typst with P2P Collaboration',
+    default: 'Azo Type',
     template: '%s | azo-type',
   },
   description:
