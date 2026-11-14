@@ -1,21 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - '**'
-      - '!release-plz-*'
-    paths:
-      - 'app/**'
-      - 'locales/**'
-      - '.cargo/**'
-      - 'rustfmt.toml'
-      - 'clippy.toml'
-      - 'scripts/check.sh'
-      - 'scripts/verify_structural_rules.py'
-      - 'docs/agent/PROJECT_MAP.md'
-      - '.github/workflows/ci.yml'
-
   pull_request:
     branches:
       - main
