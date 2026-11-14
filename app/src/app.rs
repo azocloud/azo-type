@@ -1063,14 +1063,19 @@ impl eframe::App for AzoTypeApp {
         self.render_export_pdf_dialog(ctx);
         self.render_file_dialogs_subwindows(ctx);
 
-        render_collaboration_window(
+        let collab_actions = render_collaboration_window(
             ctx,
             self.settings.dark_mode,
             &self.project.root_dir,
             &mut self.settings.user_name,
             &mut self.settings.user_color,
             &mut self.collab_ui,
+        );
+        crate::services::dispatch_collab_window_actions(
+            ctx,
+            &self.project.root_dir,
             &self.collab_session,
+            collab_actions,
         );
 
         crate::services::handle_screenshot_lifecycle(

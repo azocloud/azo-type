@@ -1,6 +1,7 @@
 //! Peer-to-peer real-time collaborative editing subsystem (Yrs CRDT + Iroh QUIC transport).
 
 pub mod awareness;
+pub mod cursor_overlay;
 pub mod doc;
 pub mod persistence;
 pub mod protocol;

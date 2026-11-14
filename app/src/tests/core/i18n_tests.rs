@@ -30,11 +30,14 @@ fn test_locale_native_names() {
 
 #[test]
 fn test_translation_switching() {
-    rust_i18n::set_locale("en");
-    assert_eq!(rust_i18n::t!("settings.language_label"), "Language:");
-    rust_i18n::set_locale("de");
-    assert_eq!(rust_i18n::t!("settings.language_label"), "Sprache:");
-    rust_i18n::set_locale("en");
+    assert_eq!(
+        rust_i18n::t!("settings.language_label", locale = "en"),
+        "Language:"
+    );
+    assert_eq!(
+        rust_i18n::t!("settings.language_label", locale = "de"),
+        "Sprache:"
+    );
 }
 
 #[test]

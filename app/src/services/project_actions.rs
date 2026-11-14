@@ -7,7 +7,7 @@ use egui::Context;
 
 use crate::collab::doc::CharSelection;
 use crate::collab::session::{CollabSessionHandle, SessionToUiEvent, UiToSessionCmd};
-use crate::collab::ui::CollabUiState;
+use crate::collab::ui::{CollabUiState, CollabWindowAction};
 use crate::platform::dialogs::{spawn_open_folder_dialog, spawn_save_file_dialog};
 use crate::project::DiskProject;
 
@@ -284,4 +284,50 @@ pub fn spawn_project_folder_picker<E: Send + 'static>(
         },
         move || ctx_clone.request_repaint(),
     );
+}
+
+/// Dispatches user actions emitted by the P2P Collaboration window to `collab_session` or clipboard.
+pub fn dispatch_collab_window_actions(
+    ctx: &Context,
+    project_root: &Path,
+    collab_session: &CollabSessionHandle,
+    actions: Vec<CollabWindowAction>,
+) {
+    for action in actions {
+        match action {
+            CollabWindowAction::StartHosting {
+                local_name,
+                local_color,
+                local_only,
+            } => collab_session.send(UiToSessionCmd::StartHosting {
+                project_root: project_root.to_path_buf(),
+                local_name,
+                local_color,
+                local_only,
+            }),
+            CollabWindowAction::JoinWithTicket {
+                ticket_str,
+                local_name,
+                local_color,
+                local_only,
+            } => collab_session.send(UiToSessionCmd::JoinWithTicket {
+                project_root: project_root.to_path_buf(),
+                ticket_str,
+                local_name,
+                local_color,
+                local_only,
+            }),
+            CollabWindowAction::UpdateIdentity {
+                local_name,
+                local_color,
+            } => collab_session.send(UiToSessionCmd::UpdateIdentity {
+                local_name,
+                local_color,
+            }),
+            CollabWindowAction::LeaveSession => {
+                collab_session.send(UiToSessionCmd::LeaveSession);
+            }
+            CollabWindowAction::CopyTicket(ticket) => ctx.copy_text(ticket),
+        }
+    }
 }
