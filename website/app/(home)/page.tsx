@@ -48,7 +48,7 @@ const features = [
   },
   {
     icon: Sparkles,
-    title: 'Native Cross-Platform IDE',
+    title: 'Native Cross-Platform Editor',
     description:
       'Built in Rust with egui/eframe 0.31 for Linux (Wayland & X11), macOS (native screen-top menu bar), and Windows—complete with light/dark themes and English/German localization.',
   },
@@ -78,7 +78,7 @@ export default function HomePage() {
         </h1>
 
         <p className="mt-5 max-w-2xl text-base leading-relaxed text-fd-muted-foreground sm:text-lg">
-          <strong>azo-type</strong> is a cross-platform Rust desktop IDE for{' '}
+          <strong>azo-type</strong> is a cross-platform Rust desktop editor for{' '}
           <a
             href="https://typst.app/"
             target="_blank"
@@ -141,7 +141,7 @@ export default function HomePage() {
           </div>
           <Image
             src={screenshotImg}
-            alt="Screenshot of the Azo Type desktop IDE showing the project file tree, document outline, syntax-highlighted Typst editor, and live compiled document preview."
+            alt="Screenshot of the Azo Type desktop editor showing the project file tree, document outline, syntax-highlighted Typst editor, and live compiled document preview."
             className="h-auto w-full object-cover"
             priority
           />
@@ -224,7 +224,7 @@ export default function HomePage() {
               <code>{`git clone https://github.com/azocloud/azo-type.git
 cd azo-type
 
-# Run the desktop IDE (opens an in-memory blank project)
+# Run the desktop editor (opens an in-memory blank project)
 cargo run --manifest-path app/Cargo.toml
 
 # Or open an existing Typst project folder directly

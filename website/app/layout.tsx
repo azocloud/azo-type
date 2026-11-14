@@ -9,11 +9,11 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'azo-type — Native Typst IDE with P2P Collaboration',
+    default: 'azo-type — Native Editor for Typst with P2P Collaboration',
     template: '%s | azo-type',
   },
   description:
-    'A cross-platform native Rust desktop IDE for Typst with live incremental preview, AST outline navigation, standards-compliant PDF export, and zero-server P2P collaboration.',
+    'A cross-platform native Rust desktop editor for Typst with live incremental preview, AST outline navigation, standards-compliant PDF export, and zero-server P2P collaboration.',
 };
 
 export default function Layout({ children }: LayoutProps<'/'>) {
