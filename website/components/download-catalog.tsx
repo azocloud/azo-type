@@ -101,7 +101,7 @@ function RecommendedSpotlight({
               Detected {detectedHost.osLabel}
             </h2>
             <p className="mt-0.5 text-xs leading-relaxed text-fd-muted-foreground">
-              azo-type is a native desktop application for Linux, macOS (Sonoma
+              Azo Type is a native desktop application for Linux, macOS (Sonoma
               14+), and Windows. Select your target desktop platform below.
             </p>
           </div>
@@ -329,7 +329,7 @@ export function DownloadCatalog({ initialRelease }: DownloadCatalogProps) {
                 )}
               </div>
               <p className="mt-1 leading-relaxed text-fd-muted-foreground">
-                <strong className="text-fd-foreground">azo-type</strong> is
+                <strong className="text-fd-foreground">Azo Type</strong> is
                 currently in{' '}
                 <strong className="text-fd-foreground">alpha</strong>{' '}
                 development. Pre-built desktop binaries are ready to download

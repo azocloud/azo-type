@@ -21,7 +21,7 @@ const features = [
     icon: Zap,
     title: 'Live Incremental Preview',
     description:
-      'Compiles Typst 0.15.1 in a non-blocking background thread with configurable debouncing, 1.5x–3.0x DPI rasterization, Fit Width zoom, and click-to-jump source synchronization.',
+      'Compiles Typst in a non-blocking background thread with configurable debouncing, 1.5x–3.0x DPI rasterization, Fit Width zoom, and click-to-jump source synchronization.',
   },
   {
     icon: Network,
@@ -49,18 +49,18 @@ const features = [
   },
   {
     icon: Sparkles,
-    title: 'Native Cross-Platform Editor',
+    title: 'Native Cross-Platform Desktop App',
     description:
-      'Built in Rust with egui/eframe 0.31 for Linux (Wayland & X11), macOS (native screen-top menu bar), and Windows—complete with light/dark themes and English/German localization.',
+      'Built in Rust with egui/eframe for Linux (Wayland & X11), macOS (native screen-top menu bar), and Windows—complete with light/dark themes and English/German localization.',
   },
 ];
 
 const techBadges = [
-  'Rust 2021',
-  'egui / eframe 0.31',
-  'Typst 0.15.1',
-  'Yrs 0.28 CRDT',
-  'Iroh 1.4 QUIC',
+  'Rust',
+  'egui / eframe',
+  'Typst',
+  'Yrs CRDT',
+  'Iroh QUIC',
   'GPL-3.0',
 ];
 
@@ -79,7 +79,7 @@ export default function HomePage() {
         </h1>
 
         <p className="mt-5 max-w-2xl text-base leading-relaxed text-fd-muted-foreground sm:text-lg">
-          <strong>azo-type</strong> is a cross-platform Rust desktop editor for{' '}
+          <strong>Azo Type</strong> is a cross-platform Rust desktop editor for{' '}
           <a
             href="https://typst.app/"
             target="_blank"
@@ -143,7 +143,7 @@ export default function HomePage() {
               Alpha Version Notice
             </p>
             <p className="mt-0.5">
-              <strong>azo-type</strong> is currently an{' '}
+              <strong>Azo Type</strong> is currently an{' '}
               <strong className="text-fd-foreground">alpha</strong> release.
               Pre-built binaries are available on the{' '}
               <Link
@@ -170,17 +170,17 @@ export default function HomePage() {
         {/* Desktop App Screenshot Preview */}
         <div className="mt-12 w-full overflow-hidden rounded-xl border border-fd-border bg-fd-card shadow-lg">
           <div className="flex items-center justify-between border-b border-fd-border bg-fd-secondary/50 px-4 py-2.5 text-xs text-fd-muted-foreground">
-            <div className="flex items-center gap-1.5" aria-hidden="true">
+            <div className="flex w-10 items-center gap-1.5" aria-hidden="true">
               <span className="size-2.5 rounded-full bg-fd-border" />
               <span className="size-2.5 rounded-full bg-fd-border" />
               <span className="size-2.5 rounded-full bg-fd-border" />
             </div>
-            <span className="font-mono">Azo Type — Desktop Workspace</span>
-            <span className="hidden sm:inline font-mono">Typst 0.15.1</span>
+            <span className="font-mono">Azo Type</span>
+            <span className="w-10" aria-hidden="true" />
           </div>
           <Image
             src={screenshotImg}
-            alt="Screenshot of the Azo Type desktop editor showing the project file tree, document outline, syntax-highlighted Typst editor, and live compiled document preview."
+            alt="Screenshot of Azo Type showing the project file tree, document outline, syntax-highlighted code pane, and live compiled document preview."
             className="h-auto w-full object-cover"
             priority
           />

@@ -16,9 +16,9 @@ import {
 } from '@/lib/releases';
 
 export const metadata: Metadata = {
-  title: 'Download',
+  title: 'Downloads',
   description:
-    'Download azo-type alpha builds for Linux, macOS (Sonoma 14+), and Windows, or build the native Rust Typst IDE directly from source.',
+    'Download Azo Type alpha builds for Linux, macOS (Sonoma 14+), and Windows, or build the native Rust editor for Typst directly from source.',
 };
 
 export default async function DownloadPage() {
@@ -36,7 +36,7 @@ export default async function DownloadPage() {
         </div>
 
         <h1 className="text-3xl font-bold tracking-tight text-fd-foreground sm:text-4xl">
-          Download azo-type
+          Download Azo Type
         </h1>
         <p className="mt-3 text-base leading-relaxed text-fd-muted-foreground">
           Pre-built desktop alpha binaries are published on GitHub Releases for{' '}
@@ -92,7 +92,7 @@ export default async function DownloadPage() {
               <strong className="text-fd-foreground">
                 Built-in Typst Compiler:
               </strong>{' '}
-              <code className="font-mono">azo-type</code> bundles Typst 0.15.1
+              <strong>Azo Type</strong> bundles Typst 0.15.1
               and 17 embedded fonts out of the box—no separate{' '}
               <code className="font-mono">typst</code> CLI installation is
               required.
