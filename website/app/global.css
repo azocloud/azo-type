@@ -10,3 +10,11 @@ html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
 }
+
+@media (forced-colors: active) {
+  .download-card-highlighted,
+  .download-target-highlighted {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
