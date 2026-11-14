@@ -25,6 +25,20 @@ impl eframe::Storage for MemoryStorage {
     fn flush(&mut self) {}
 }
 
+fn english_storage() -> MemoryStorage {
+    let mut storage = MemoryStorage::default();
+    // Pin locale to English so parallel `egui_kittest` unit tests in `--lib`
+    // never race with host OS locale detection mutating global `rust_i18n`.
+    eframe::set_value(
+        &mut storage,
+        eframe::APP_KEY,
+        &crate::core::i18n::AppSavedState {
+            language: "en".to_string(),
+        },
+    );
+    storage
+}
+
 #[test]
 fn new_headless_opens_disk_folder_and_saves_state_to_storage() {
     let dir =
@@ -34,7 +48,7 @@ fn new_headless_opens_disk_folder_and_saves_state_to_storage() {
     std::fs::write(dir.join("main.typ"), "= Title\nBody.\n").unwrap();
 
     let ctx = Context::default();
-    let mut storage = MemoryStorage::default();
+    let mut storage = english_storage();
     let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), Some(dir.clone()), None);
 
     assert!(app.project.has_disk_backing());
@@ -51,7 +65,8 @@ fn new_headless_opens_disk_folder_and_saves_state_to_storage() {
 #[test]
 fn dispatch_menu_action_updates_ui_toggles_and_zoom_and_theme() {
     let ctx = Context::default();
-    let mut app = AzoTypeApp::new_headless(&ctx, None, None, None);
+    let storage = english_storage();
+    let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
 
     assert!(app.show_sidebar);
     app.dispatch_menu_action(&ctx, MenuAction::ToggleSidebar);
@@ -93,7 +108,8 @@ fn dispatch_menu_action_updates_ui_toggles_and_zoom_and_theme() {
 #[test]
 fn apply_compile_snapshot_updates_pages_diagnostics_and_console() {
     let ctx = Context::default();
-    let mut app = AzoTypeApp::new_headless(&ctx, None, None, None);
+    let storage = english_storage();
+    let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
     app.compile_in_progress = true;
 
     let img = Arc::new(egui::ColorImage::new([4, 4], egui::Color32::WHITE));
@@ -149,7 +165,8 @@ fn poll_channels_processes_io_events_and_navigation_clamps_cursor() {
     std::fs::write(dir.join("main.typ"), "= Heading\nLine two.\n").unwrap();
 
     let ctx = Context::default();
-    let mut app = AzoTypeApp::new_headless(&ctx, None, None, None);
+    let storage = english_storage();
+    let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
 
     app.io_tx
         .send(IoEvent::StatusMessage("custom notice".to_string()))
@@ -203,7 +220,8 @@ fn poll_channels_processes_io_events_and_navigation_clamps_cursor() {
 #[test]
 fn handle_keyboard_shortcuts_toggles_sidebar_on_ctrl_b() {
     let ctx = Context::default();
-    let mut app = AzoTypeApp::new_headless(&ctx, None, None, None);
+    let storage = english_storage();
+    let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
     let was_visible = app.show_sidebar;
 
     let raw = RawInput {

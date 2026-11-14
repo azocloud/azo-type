@@ -1,12 +1,43 @@
 //! End-to-end headless `egui_kittest` cross-panel UI integration tests for `AzoTypeApp`.
 
+use std::collections::HashMap;
+
 use azo_type::app::{AzoTypeApp, MenuAction, SettingsTab};
+use azo_type::core::i18n::AppSavedState;
 use egui_kittest::{kittest::Queryable, Harness};
+
+#[derive(Default)]
+struct MemoryStorage(HashMap<String, String>);
+
+impl eframe::Storage for MemoryStorage {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+
+    fn set_string(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_string(), value);
+    }
+
+    fn flush(&mut self) {}
+}
+
+fn english_storage() -> MemoryStorage {
+    let mut storage = MemoryStorage::default();
+    eframe::set_value(
+        &mut storage,
+        eframe::APP_KEY,
+        &AppSavedState {
+            language: "en".to_string(),
+        },
+    );
+    storage
+}
 
 #[test]
 fn full_app_renders_workspace_and_toggles_panels_headlessly() {
     let mut harness = Harness::new(|ctx| {
-        let mut app = AzoTypeApp::new_headless(ctx, None, None, None);
+        let storage = english_storage();
+        let mut app = AzoTypeApp::new_headless(ctx, Some(&storage), None, None);
         app.render_ui(ctx);
     });
     harness.step();
@@ -23,9 +54,8 @@ fn full_app_opens_settings_and_new_file_and_export_dialogs_across_frames() {
     let mut harness = Harness::new_state(
         |ctx, holder: &mut AppHolder| {
             let app = holder.0.get_or_insert_with(|| {
-                let mut app = AzoTypeApp::new_headless(ctx, None, None, None);
-                app.set_language(ctx, "en".to_string());
-                app
+                let storage = english_storage();
+                AzoTypeApp::new_headless(ctx, Some(&storage), None, None)
             });
             app.render_ui(ctx);
         },
