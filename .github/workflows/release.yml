@@ -35,7 +35,7 @@ jobs:
       release_tag: ${{ steps.extract-tag.outputs.tag }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -96,7 +96,7 @@ jobs:
       TARGET_TAG: ${{ needs.release-plz.outputs.release_tag || github.ref_name }}
     steps:
       - name: Checkout full Git history at release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ env.TARGET_TAG }}
@@ -115,13 +115,13 @@ jobs:
           cat RELEASE_NOTES.md
 
       - name: Download all release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
 
       - name: Create GitHub Release & upload packages
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.TARGET_TAG }}
           name: Release ${{ env.TARGET_TAG }}
