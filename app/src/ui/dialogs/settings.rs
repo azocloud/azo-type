@@ -34,6 +34,38 @@ pub struct SettingsModalOutput {
     pub clear_ignored_words: bool,
 }
 
+/// Applies a `ThemePreference` to `settings`, updating `theme_changed` when effective dark mode changes.
+pub fn apply_theme_preference(
+    ctx: &Context,
+    settings: &mut IdeSettings,
+    pref: ThemePreference,
+    output: &mut SettingsModalOutput,
+) {
+    settings.theme_preference = pref;
+    let next_dark = crate::platform::resolve_effective_dark_mode(ctx, pref);
+    if next_dark != settings.dark_mode {
+        settings.dark_mode = next_dark;
+        output.theme_changed = true;
+    }
+}
+
+/// Resets `settings` to defaults while preserving OS-resolved effective dark mode tracking.
+pub fn reset_settings_to_defaults(
+    ctx: &Context,
+    settings: &mut IdeSettings,
+    output: &mut SettingsModalOutput,
+) {
+    let prev_dark = settings.dark_mode;
+    *settings = IdeSettings::default();
+    settings.dark_mode =
+        crate::platform::resolve_effective_dark_mode(ctx, settings.theme_preference);
+    if prev_dark != settings.dark_mode {
+        output.theme_changed = true;
+    }
+    output.dpi_changed = true;
+    output.engine_changed = true;
+}
+
 /// Renders the Settings sub-window (embedded or native OS viewport).
 #[allow(clippy::too_many_arguments)]
 pub fn render_settings_dialog(
@@ -54,8 +86,7 @@ pub fn render_settings_dialog(
     let mut output = SettingsModalOutput::default();
 
     let dark_mode = settings.dark_mode;
-    let palette = ThemePalette::for_mode(dark_mode);
-    let window_bg = palette.chrome_sidebar;
+    let window_bg = ThemePalette::for_mode(dark_mode).chrome_sidebar;
 
     let viewport_id = ViewportId::from_hash_of("azo_type_settings_os_window");
     let builder = crate::platform::configure_viewport_builder(
@@ -66,284 +97,6 @@ pub fn render_settings_dialog(
     );
 
     ctx.show_viewport_immediate(viewport_id, builder, |ctx, class| {
-        let mut render_body = |ui: &mut Ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(
-                    active_tab,
-                    SettingsTab::Appearance,
-                    RichText::new(t!("settings.tab_appearance")).strong(),
-                );
-                ui.selectable_value(
-                    active_tab,
-                    SettingsTab::EditorAndDisk,
-                    RichText::new(t!("settings.tab_editor")).strong(),
-                );
-                ui.selectable_value(
-                    active_tab,
-                    SettingsTab::CompilerAndPreview,
-                    RichText::new(t!("settings.tab_compiler")).strong(),
-                );
-                ui.selectable_value(
-                    active_tab,
-                    SettingsTab::SpellAndGrammar,
-                    RichText::new(t!("settings.tab_spell_grammar")).strong(),
-                );
-            });
-            ui.separator();
-            ui.add_space(6.0);
-
-            match active_tab {
-                SettingsTab::Appearance => {
-                    ui.heading(t!("settings.heading_appearance"));
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.label(t!("settings.language_label"));
-                        let current_name = crate::core::locale_native_name(language);
-                        egui::ComboBox::from_id_salt("settings_language_combo")
-                            .selected_text(current_name)
-                            .show_ui(ui, |ui| {
-                                for loc in rust_i18n::available_locales!() {
-                                    let name = crate::core::locale_native_name(loc);
-                                    if ui.selectable_label(loc == language, name).clicked() {
-                                        output.language_changed = Some(loc.to_string());
-                                    }
-                                }
-                            });
-                    });
-
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.label(t!("settings.theme_label"));
-                        let selected_theme_label =
-                            theme_preference_label(settings.theme_preference);
-                        egui::ComboBox::from_id_salt("settings_theme_combo")
-                            .selected_text(selected_theme_label)
-                            .show_ui(ui, |ui| {
-                                for pref in ThemePreference::ALL {
-                                    let label = theme_preference_label(pref);
-                                    if ui
-                                        .selectable_label(settings.theme_preference == pref, label)
-                                        .clicked()
-                                    {
-                                        settings.theme_preference = pref;
-                                        let next_dark =
-                                            crate::platform::resolve_effective_dark_mode(ctx, pref);
-                                        if next_dark != settings.dark_mode {
-                                            settings.dark_mode = next_dark;
-                                            output.theme_changed = true;
-                                        }
-                                    }
-                                }
-                            });
-                    });
-
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.label(t!("settings.font_size_label"));
-                        ui.add(
-                            DragValue::new(&mut settings.editor_font_size)
-                                .range(10.0..=22.0)
-                                .speed(0.5)
-                                .fixed_decimals(1)
-                                .suffix(" pt"),
-                        );
-                    });
-
-                    ui.add_space(8.0);
-                    ui.checkbox(&mut settings.word_wrap, t!("settings.word_wrap_label"));
-                    ui.checkbox(
-                        &mut settings.show_line_numbers,
-                        t!("settings.line_numbers_label"),
-                    );
-                    ui.checkbox(
-                        &mut settings.syntax_highlighting,
-                        t!("settings.syntax_highlighting_label"),
-                    );
-                }
-                SettingsTab::EditorAndDisk => {
-                    ui.heading(t!("settings.heading_editor"));
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(format!(
-                            "{}: {}",
-                            t!("settings.project_folder_label"),
-                            project_root.display()
-                        ))
-                        .monospace()
-                        .small(),
-                    );
-                    ui.add_space(6.0);
-                    ui.checkbox(&mut settings.word_wrap, t!("settings.word_wrap_label"));
-                    ui.checkbox(
-                        &mut settings.auto_save_on_edit,
-                        t!("settings.auto_save_label"),
-                    );
-                    if ui
-                        .checkbox(
-                            &mut settings.show_hidden_files,
-                            t!("settings.show_hidden_label"),
-                        )
-                        .changed()
-                    {
-                        output.rescan_needed = true;
-                    }
-                    ui.add_space(8.0);
-                    if ui.button(t!("settings.choose_folder_btn")).clicked() {
-                        output.open_folder_requested = true;
-                    }
-                }
-                SettingsTab::CompilerAndPreview => {
-                    ui.heading(t!("settings.heading_compiler"));
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.label(t!("settings.typst_version_label"));
-                        let selected_state = engine_manager.install_state(&settings.typst_version);
-                        let selected_label =
-                            format_version_label(&settings.typst_version, &selected_state);
-                        egui::ComboBox::from_id_salt("typst_version_selector")
-                            .selected_text(selected_label)
-                            .show_ui(ui, |ui| {
-                                for ver in all_selectable_versions() {
-                                    let st = engine_manager.install_state(ver);
-                                    let label = format_version_label(ver, &st);
-                                    if ui
-                                        .selectable_value(
-                                            &mut settings.typst_version,
-                                            ver.to_string(),
-                                            label,
-                                        )
-                                        .changed()
-                                    {
-                                        output.engine_changed = true;
-                                    }
-                                }
-                            });
-
-                        match selected_state {
-                            EngineInstallState::BuiltIn => {
-                                ui.label(
-                                    RichText::new(t!("settings.typst_builtin_badge"))
-                                        .small()
-                                        .color(palette.text_muted),
-                                );
-                            }
-                            EngineInstallState::NotInstalled => {
-                                if ui.button(t!("settings.typst_download_btn")).clicked() {
-                                    output.download_typst_version =
-                                        Some(settings.typst_version.clone());
-                                }
-                            }
-                            EngineInstallState::Downloading => {
-                                ui.add_enabled(
-                                    false,
-                                    egui::Button::new(t!("settings.typst_downloading_btn")),
-                                );
-                            }
-                            EngineInstallState::Installed => {
-                                if ui.button(t!("settings.typst_remove_btn")).clicked() {
-                                    output.remove_typst_version =
-                                        Some(settings.typst_version.clone());
-                                }
-                            }
-                            EngineInstallState::UnsupportedPlatform => {}
-                        }
-                    });
-                    if let Some(prog) = engine_manager
-                        .download_progress(&settings.typst_version)
-                        .or_else(|| engine_manager.any_download_progress())
-                    {
-                        ui.add_space(6.0);
-                        render_download_progress(ui, &prog);
-                        ui.ctx()
-                            .request_repaint_after(std::time::Duration::from_millis(100));
-                    }
-                    if let Some(err_msg) = engine_manager.last_error() {
-                        ui.add_space(4.0);
-                        ui.label(RichText::new(err_msg).small().color(palette.syn_number));
-                    }
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(6.0);
-                    ui.checkbox(
-                        &mut settings.auto_compile,
-                        t!("settings.auto_compile_label"),
-                    );
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        ui.label(t!("settings.debounce_label"));
-                        ui.add(
-                            DragValue::new(&mut settings.debounce_ms)
-                                .range(50..=800)
-                                .speed(5)
-                                .suffix(" ms"),
-                        );
-                    });
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.label(t!("settings.dpi_scale_label"));
-                        if ui
-                            .selectable_value(
-                                &mut settings.render_dpi_scale,
-                                1.5,
-                                t!("settings.dpi_fast"),
-                            )
-                            .changed()
-                        {
-                            output.dpi_changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut settings.render_dpi_scale,
-                                2.0,
-                                t!("settings.dpi_crisp"),
-                            )
-                            .changed()
-                        {
-                            output.dpi_changed = true;
-                        }
-                        if ui
-                            .selectable_value(
-                                &mut settings.render_dpi_scale,
-                                3.0,
-                                t!("settings.dpi_hidpi"),
-                            )
-                            .changed()
-                        {
-                            output.dpi_changed = true;
-                        }
-                    });
-                    ui.add_space(10.0);
-                    ui.separator();
-                    ui.add_space(6.0);
-                    ui.checkbox(
-                        &mut settings.preview_sync_selection,
-                        t!("settings.preview_sync_selection_label"),
-                    );
-                    ui.checkbox(
-                        &mut settings.preview_pan_mode,
-                        t!("settings.preview_pan_mode_label"),
-                    );
-                }
-                SettingsTab::SpellAndGrammar => {
-                    render_spell_and_grammar_tab(ui, settings, dict_manager, &palette, &mut output);
-                }
-            }
-
-            ui.add_space(14.0);
-            ui.separator();
-            if ui.button(t!("settings.reset_defaults")).clicked() {
-                let prev_dark = settings.dark_mode;
-                *settings = IdeSettings::default();
-                settings.dark_mode =
-                    crate::platform::resolve_effective_dark_mode(ctx, settings.theme_preference);
-                if prev_dark != settings.dark_mode {
-                    output.theme_changed = true;
-                }
-                output.dpi_changed = true;
-                output.engine_changed = true;
-            }
-        };
-
         if class == ViewportClass::Embedded {
             Window::new(t!("settings.window_title"))
                 .open(&mut is_open)
@@ -351,7 +104,18 @@ pub fn render_settings_dialog(
                 .collapsible(false)
                 .default_width(480.0)
                 .default_height(360.0)
-                .show(ctx, |ui| render_body(ui));
+                .show(ctx, |ui| {
+                    output = render_settings_body(
+                        ctx,
+                        ui,
+                        settings,
+                        language,
+                        active_tab,
+                        project_root,
+                        engine_manager,
+                        dict_manager,
+                    );
+                });
         } else {
             apply_theme(ctx, dark_mode);
             if ctx.input(|i| i.viewport().close_requested()) {
@@ -363,11 +127,294 @@ pub fn render_settings_dialog(
                         .fill(window_bg)
                         .inner_margin(Margin::symmetric(14, 12)),
                 )
-                .show(ctx, |ui| render_body(ui));
+                .show(ctx, |ui| {
+                    output = render_settings_body(
+                        ctx,
+                        ui,
+                        settings,
+                        language,
+                        active_tab,
+                        project_root,
+                        engine_manager,
+                        dict_manager,
+                    );
+                });
         }
     });
 
     *open = is_open;
+    output
+}
+
+/// Renders the inner Settings panel (tab strip, active tab contents, and Reset Defaults footer).
+#[allow(clippy::too_many_arguments)]
+pub fn render_settings_body(
+    ctx: &Context,
+    ui: &mut Ui,
+    settings: &mut IdeSettings,
+    language: &str,
+    active_tab: &mut SettingsTab,
+    project_root: &Path,
+    engine_manager: &EngineManager,
+    dict_manager: &DictionaryManager,
+) -> SettingsModalOutput {
+    let mut output = SettingsModalOutput::default();
+    let dark_mode = settings.dark_mode;
+    let palette = ThemePalette::for_mode(dark_mode);
+    ui.horizontal(|ui| {
+        ui.selectable_value(
+            active_tab,
+            SettingsTab::Appearance,
+            RichText::new(t!("settings.tab_appearance")).strong(),
+        );
+        ui.selectable_value(
+            active_tab,
+            SettingsTab::EditorAndDisk,
+            RichText::new(t!("settings.tab_editor")).strong(),
+        );
+        ui.selectable_value(
+            active_tab,
+            SettingsTab::CompilerAndPreview,
+            RichText::new(t!("settings.tab_compiler")).strong(),
+        );
+        ui.selectable_value(
+            active_tab,
+            SettingsTab::SpellAndGrammar,
+            RichText::new(t!("settings.tab_spell_grammar")).strong(),
+        );
+    });
+    ui.separator();
+    ui.add_space(6.0);
+
+    match active_tab {
+        SettingsTab::Appearance => {
+            ui.heading(t!("settings.heading_appearance"));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(t!("settings.language_label"));
+                let current_name = crate::core::locale_native_name(language);
+                egui::ComboBox::from_id_salt("settings_language_combo")
+                    .selected_text(current_name)
+                    .show_ui(ui, |ui| {
+                        for loc in rust_i18n::available_locales!() {
+                            let name = crate::core::locale_native_name(loc);
+                            if ui.selectable_label(loc == language, name).clicked() {
+                                output.language_changed = Some(loc.to_string());
+                            }
+                        }
+                    });
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(t!("settings.theme_label"));
+                let selected_theme_label = theme_preference_label(settings.theme_preference);
+                egui::ComboBox::from_id_salt("settings_theme_combo")
+                    .selected_text(selected_theme_label)
+                    .show_ui(ui, |ui| {
+                        for pref in ThemePreference::ALL {
+                            let label = theme_preference_label(pref);
+                            if ui
+                                .selectable_label(settings.theme_preference == pref, label)
+                                .clicked()
+                            {
+                                apply_theme_preference(ctx, settings, pref, &mut output);
+                            }
+                        }
+                    });
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(t!("settings.font_size_label"));
+                ui.add(
+                    DragValue::new(&mut settings.editor_font_size)
+                        .range(10.0..=22.0)
+                        .speed(0.5)
+                        .fixed_decimals(1)
+                        .suffix(" pt"),
+                );
+            });
+
+            ui.add_space(8.0);
+            ui.checkbox(&mut settings.word_wrap, t!("settings.word_wrap_label"));
+            ui.checkbox(
+                &mut settings.show_line_numbers,
+                t!("settings.line_numbers_label"),
+            );
+            ui.checkbox(
+                &mut settings.syntax_highlighting,
+                t!("settings.syntax_highlighting_label"),
+            );
+        }
+        SettingsTab::EditorAndDisk => {
+            ui.heading(t!("settings.heading_editor"));
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(format!(
+                    "{}: {}",
+                    t!("settings.project_folder_label"),
+                    project_root.display()
+                ))
+                .monospace()
+                .small(),
+            );
+            ui.add_space(6.0);
+            ui.checkbox(&mut settings.word_wrap, t!("settings.word_wrap_label"));
+            ui.checkbox(
+                &mut settings.auto_save_on_edit,
+                t!("settings.auto_save_label"),
+            );
+            if ui
+                .checkbox(
+                    &mut settings.show_hidden_files,
+                    t!("settings.show_hidden_label"),
+                )
+                .changed()
+            {
+                output.rescan_needed = true;
+            }
+            ui.add_space(8.0);
+            if ui.button(t!("settings.choose_folder_btn")).clicked() {
+                output.open_folder_requested = true;
+            }
+        }
+        SettingsTab::CompilerAndPreview => {
+            ui.heading(t!("settings.heading_compiler"));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(t!("settings.typst_version_label"));
+                let selected_state = engine_manager.install_state(&settings.typst_version);
+                let selected_label = format_version_label(&settings.typst_version, &selected_state);
+                egui::ComboBox::from_id_salt("typst_version_selector")
+                    .selected_text(selected_label)
+                    .show_ui(ui, |ui| {
+                        for ver in all_selectable_versions() {
+                            let st = engine_manager.install_state(ver);
+                            let label = format_version_label(ver, &st);
+                            if ui
+                                .selectable_value(
+                                    &mut settings.typst_version,
+                                    ver.to_string(),
+                                    label,
+                                )
+                                .changed()
+                            {
+                                output.engine_changed = true;
+                            }
+                        }
+                    });
+
+                match selected_state {
+                    EngineInstallState::BuiltIn => {
+                        ui.label(
+                            RichText::new(t!("settings.typst_builtin_badge"))
+                                .small()
+                                .color(palette.text_muted),
+                        );
+                    }
+                    EngineInstallState::NotInstalled => {
+                        if ui.button(t!("settings.typst_download_btn")).clicked() {
+                            output.download_typst_version = Some(settings.typst_version.clone());
+                        }
+                    }
+                    EngineInstallState::Downloading => {
+                        ui.add_enabled(
+                            false,
+                            egui::Button::new(t!("settings.typst_downloading_btn")),
+                        );
+                    }
+                    EngineInstallState::Installed => {
+                        if ui.button(t!("settings.typst_remove_btn")).clicked() {
+                            output.remove_typst_version = Some(settings.typst_version.clone());
+                        }
+                    }
+                    EngineInstallState::UnsupportedPlatform => {}
+                }
+            });
+            if let Some(prog) = engine_manager
+                .download_progress(&settings.typst_version)
+                .or_else(|| engine_manager.any_download_progress())
+            {
+                ui.add_space(6.0);
+                render_download_progress(ui, &prog);
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(100));
+            }
+            if let Some(err_msg) = engine_manager.last_error() {
+                ui.add_space(4.0);
+                ui.label(RichText::new(err_msg).small().color(palette.syn_number));
+            }
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.checkbox(
+                &mut settings.auto_compile,
+                t!("settings.auto_compile_label"),
+            );
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(t!("settings.debounce_label"));
+                ui.add(
+                    DragValue::new(&mut settings.debounce_ms)
+                        .range(50..=800)
+                        .speed(5)
+                        .suffix(" ms"),
+                );
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(t!("settings.dpi_scale_label"));
+                if ui
+                    .selectable_value(&mut settings.render_dpi_scale, 1.5, t!("settings.dpi_fast"))
+                    .changed()
+                {
+                    output.dpi_changed = true;
+                }
+                if ui
+                    .selectable_value(
+                        &mut settings.render_dpi_scale,
+                        2.0,
+                        t!("settings.dpi_crisp"),
+                    )
+                    .changed()
+                {
+                    output.dpi_changed = true;
+                }
+                if ui
+                    .selectable_value(
+                        &mut settings.render_dpi_scale,
+                        3.0,
+                        t!("settings.dpi_hidpi"),
+                    )
+                    .changed()
+                {
+                    output.dpi_changed = true;
+                }
+            });
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(6.0);
+            ui.checkbox(
+                &mut settings.preview_sync_selection,
+                t!("settings.preview_sync_selection_label"),
+            );
+            ui.checkbox(
+                &mut settings.preview_pan_mode,
+                t!("settings.preview_pan_mode_label"),
+            );
+        }
+        SettingsTab::SpellAndGrammar => {
+            render_spell_and_grammar_tab(ui, settings, dict_manager, &palette, &mut output);
+        }
+    }
+
+    ui.add_space(14.0);
+    ui.separator();
+    if ui.button(t!("settings.reset_defaults")).clicked() {
+        reset_settings_to_defaults(ctx, settings, &mut output);
+    }
+
     output
 }
 
@@ -460,3 +507,7 @@ fn render_download_progress(ui: &mut Ui, prog: &DownloadProgress) {
             .text(status_text),
     );
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/dialogs/settings_tests.rs"]
+mod tests;

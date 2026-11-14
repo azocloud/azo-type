@@ -282,3 +282,7 @@ pub fn render_spell_and_grammar_tab(
             });
         });
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/dialogs/settings_spell_tests.rs"]
+mod tests;

@@ -78,11 +78,11 @@
 | `app/src/ui/components/sidebar.rs` | Collapsible sidebar displaying the disk project tree and the document outline. | `SidebarOutput`, `SidebarParams`, `render_sidebar` | `collab`, `core`, `project`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/split_divider.rs` | Resizable split dividers between the editor/preview panes and sidebar panels. | `SplitGeometry`, `compute_vertical_split`, `compute_horizontal_split`, `render_vertical_split_divider`, `render_horizontal_split_divider` | `ui` | `app/src/tests/ui/components/split_divider_tests.rs` | — |
 | `app/src/ui/components/status_bar.rs` | Bottom status bar indicating compilation status, error counts, P2P peers, and active buffer stats. | `StatusBarBufferInfo`, `StatusBarParams`, `StatusBarOutput`, `render_status_bar` | `ui` | *(covered via integration/UI)* | — |
-| `app/src/ui/dialogs/export_pdf.rs` | Export PDF sub-window dialog for selecting PDF versions and PDF/A standards. | `render_export_pdf_dialog` | `core`, `ui` | *(covered via integration/UI)* | — |
-| `app/src/ui/dialogs/file_modals.rs` | Modal dialogs for creating new files and renaming existing files on disk. | `render_new_file_modal`, `render_rename_file_modal` | `ui` | *(covered via integration/UI)* | — |
+| `app/src/ui/dialogs/export_pdf.rs` | Export PDF sub-window dialog for selecting PDF versions and PDF/A standards. | `apply_pdf_version_choice`, `apply_archival_standard_choice`, `apply_pdf_ua1_toggle`, `standard_requires_tagged`, `render_export_pdf_dialog`, `render_export_pdf_body` | `core`, `ui` | `app/src/tests/ui/dialogs/export_pdf_tests.rs` | — |
+| `app/src/ui/dialogs/file_modals.rs` | Modal dialogs for creating new files and renaming existing files on disk. | `try_confirm_new_file`, `try_confirm_rename_file`, `render_new_file_body`, `render_rename_file_body`, `render_new_file_modal`, `render_rename_file_modal` | `ui` | `app/src/tests/ui/dialogs/file_modals_tests.rs` | — |
 | `app/src/ui/dialogs/mod.rs` | Secondary OS sub-windows and modal dialogs. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
-| `app/src/ui/dialogs/settings.rs` | Settings modal dialog (`File > Settings`) managing editor, appearance, and compilation preferences. | `SettingsModalOutput`, `render_settings_dialog` | `core`, `engine`, `language_check`, `ui` | *(covered via integration/UI)* | — |
-| `app/src/ui/dialogs/settings_spell.rs` | Settings dialog tab for offline spellchecking, grammar checking, and dictionary management. | `render_spell_and_grammar_tab` | `core`, `language_check`, `ui` | *(covered via integration/UI)* | — |
+| `app/src/ui/dialogs/settings.rs` | Settings modal dialog (`File > Settings`) managing editor, appearance, and compilation preferences. | `SettingsModalOutput`, `apply_theme_preference`, `reset_settings_to_defaults`, `render_settings_dialog`, `render_settings_body` | `core`, `engine`, `language_check`, `ui` | `app/src/tests/ui/dialogs/settings_tests.rs` | — |
+| `app/src/ui/dialogs/settings_spell.rs` | Settings dialog tab for offline spellchecking, grammar checking, and dictionary management. | `render_spell_and_grammar_tab` | `core`, `language_check`, `ui` | `app/src/tests/ui/dialogs/settings_spell_tests.rs` | — |
 | `app/src/ui/mod.rs` | UI presentation layer, components, dialogs, and styling. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/ui/theme.rs` | UI Design System tokens, ThemePalette, and egui Visuals styling. | `DESIGN_SYSTEM_CSS_TOKENS`, `ThemePalette`, `DARK`, `LIGHT`, `for_mode`, `apply_theme` | *(none)* | `app/src/tests/ui/theme_tests.rs` | — |
 | `app/src/world.rs` | Implementation of `typst::World` (`IdeWorld`) providing fonts, packages, and file sources to the compiler. | `ReqwestDownloader`, `SharedWorldResources`, `font_family_count`, `EditorWorld`, `display_path_for_id` | `project` | *(covered via integration/UI)* | — |
@@ -125,6 +125,10 @@
 | `app/src/tests/ui/components/editor_diagnostics_tests.rs` | Unit tests for editor language diagnostic underline geometry and color mapping. |
 | `app/src/tests/ui/components/preview_selection_tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
 | `app/src/tests/ui/components/split_divider_tests.rs` | Unit tests for split divider pane geometry calculations. |
+| `app/src/tests/ui/dialogs/export_pdf_tests.rs` | Pure unit and headless `egui_kittest` tests for the Export PDF dialog. |
+| `app/src/tests/ui/dialogs/file_modals_tests.rs` | Pure unit and headless `egui_kittest` tests for New File and Rename File modals. |
+| `app/src/tests/ui/dialogs/settings_spell_tests.rs` | Headless `egui_kittest` tests for the Spell & Grammar Settings tab. |
+| `app/src/tests/ui/dialogs/settings_tests.rs` | Pure unit and headless `egui_kittest` tests for the Settings dialog. |
 | `app/src/tests/ui/theme_tests.rs` | Unit tests for UI Design System palettes and `egui` theme application. |
 
 ## 4. Integration & Characterization Suites (`app/tests/`)
