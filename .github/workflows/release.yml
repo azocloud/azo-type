@@ -130,3 +130,10 @@ jobs:
           generate_release_notes: false
           draft: false
           prerelease: ${{ contains(env.TARGET_TAG, '-rc') || contains(env.TARGET_TAG, '-beta') || contains(env.TARGET_TAG, '-alpha') }}
+
+  # 4. Rebuild and redeploy the static website so /download embeds the new release links.
+  deploy-website:
+    name: Rebuild & Deploy Website
+    needs: [publish-release]
+    if: ${{ needs.publish-release.result == 'success' }}
+    uses: ./.github/workflows/deploy-website.yml

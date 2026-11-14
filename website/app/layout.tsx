@@ -10,7 +10,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: {
     default: 'Azo Type',
-    template: '%s | azo-type',
+    template: 'Azo Type %s',
   },
   description:
     'A cross-platform native Rust desktop editor for Typst with live incremental preview, AST outline navigation, standards-compliant PDF export, and zero-server P2P collaboration.',

@@ -1,6 +1,6 @@
 import { createGetUrl } from 'fumadocs-core/source';
 
-export const appName = 'azo-type';
+export const appName = 'Azo Type';
 export const docsRoute = '/docs';
 export const docsImageRoute = '/og/docs';
 
