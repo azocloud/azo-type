@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import {
+  AlertTriangle,
   ArrowRight,
   BookOpen,
   Download,
@@ -69,8 +70,8 @@ export default function HomePage() {
       {/* Hero Section */}
       <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-6 pt-16 pb-14 text-center md:pt-24 md:pb-20">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-card px-3.5 py-1 text-xs font-medium text-fd-muted-foreground">
-          <span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />
-          <span>Early Pre-Alpha · Open Source (GPL-3.0)</span>
+          <span className="size-2 rounded-full bg-amber-500" aria-hidden="true" />
+          <span>Alpha Release · Open Source (GPL-3.0)</span>
         </div>
 
         <h1 className="max-w-3xl text-4xl font-bold tracking-tight text-fd-foreground sm:text-5xl md:text-6xl">
@@ -127,6 +128,44 @@ export default function HomePage() {
             </span>
           ))}
         </div>
+
+        {/* Alpha Version Warning */}
+        <aside
+          aria-label="Alpha version warning"
+          className="mt-8 flex w-full max-w-2xl items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3.5 text-left text-sm"
+        >
+          <AlertTriangle
+            className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-400"
+            aria-hidden="true"
+          />
+          <div className="leading-relaxed text-fd-muted-foreground">
+            <p className="font-semibold text-fd-foreground">
+              Alpha Version Notice
+            </p>
+            <p className="mt-0.5">
+              <strong>azo-type</strong> is currently an{' '}
+              <strong className="text-fd-foreground">alpha</strong> release.
+              Pre-built binaries are available on the{' '}
+              <Link
+                href="/download"
+                className="font-medium text-fd-foreground underline decoration-fd-border underline-offset-4 hover:decoration-fd-primary"
+              >
+                Download page
+              </Link>
+              , while features, file formats, and UI workflows are actively
+              evolving and bugs may occur. Please report issues on{' '}
+              <a
+                href="https://github.com/azocloud/azo-type/issues"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-fd-foreground underline decoration-fd-border underline-offset-4 hover:decoration-fd-primary"
+              >
+                GitHub Issues
+              </a>
+              .
+            </p>
+          </div>
+        </aside>
 
         {/* Desktop App Screenshot Preview */}
         <div className="mt-12 w-full overflow-hidden rounded-xl border border-fd-border bg-fd-card shadow-lg">

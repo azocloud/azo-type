@@ -3,19 +3,25 @@ title: Installation
 description: Install azo-type on Linux, macOS, and Windows, or compile from source using Rust and Cargo.
 ---
 
-azo-type targets **Linux** (Wayland & X11), **macOS** (Apple Silicon `aarch64` & Intel `x86_64`), and **Windows** (`x86_64` & `aarch64`).
+azo-type targets **Linux** (Wayland & X11, `x86_64` & `aarch64`), **macOS** (Apple Silicon `arm64` & Intel `x86_64`, **macOS 14 Sonoma or newer**), and **Windows** (`x86_64` & `aarch64`).
+
+<Callout type="warn" title="Alpha Release">
+  azo-type is currently in **alpha** development. Pre-built desktop binaries are now available on the [Download page](/download) and [GitHub Releases](https://github.com/azocloud/azo-type/releases/latest), though bugs and breaking changes may still occur.
+</Callout>
 
 ## Release Binaries
 
-Pre-built release archives are published on [GitHub Releases](https://github.com/azocloud/azo-type/releases) (and directly on the [Download page](/download)).
+Pre-built release archives are automatically published on [GitHub Releases](https://github.com/azocloud/azo-type/releases/latest) and linked directly from the [Download page](/download):
 
-1. Download the archive or installer matching your operating system and CPU architecture.
-2. Extract or install the `azo-type` executable (`azo-type.exe` on Windows, `Azo Type.app` on macOS).
-3. Launch the binary directly—Typst `0.15.1` and 17 bundled fonts are embedded inside the application, so no external `typst` CLI installation is required.
+| Platform | Architectures | Archive | Minimum OS |
+| :--- | :--- | :--- | :--- |
+| **Linux** | `x86_64`, `aarch64` | `.tar.gz` (`azo-type` + `azo-type.desktop`) | Wayland or X11, `fontconfig`, OpenGL |
+| **macOS** | `arm64` (Apple Silicon), `x86_64` (Intel) | `.tar.gz` (`Azo Type.app`) | **macOS 14 (Sonoma) or newer** |
+| **Windows** | `x86_64`, `aarch64` | `.zip` (`azo-type.exe`) | Windows 10 / 11 (64-bit) |
 
-<Callout type="warn" title="Early Pre-Alpha — No Release Binary Ready Yet">
-  azo-type is currently in early pre-alpha development, and pre-built release binaries are not yet ready to download. Building from source with Cargo below is currently the recommended way to run the application.
-</Callout>
+1. Download the archive matching your operating system and CPU architecture on the [Download page](/download) (which detects your platform automatically when supported by your browser).
+2. Extract the archive and launch the `azo-type` executable (`azo-type.exe` on Windows, `Azo Type.app` on macOS). On macOS, if Gatekeeper prompts on an ad-hoc signed alpha build, Control-click `Azo Type.app` and choose **Open**.
+3. Typst `0.15.1` and 17 bundled fonts are embedded inside the application, so no external `typst` CLI installation is required.
 
 ## Building from Source
 
@@ -47,7 +53,7 @@ cargo run --manifest-path app/Cargo.toml
 cargo build --release --manifest-path app/Cargo.toml
 ```
 
-The release profile in `app/Cargo.toml` uses `opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, and `strip = true`. The resulting binary is written to `app/target/release/azo-type` (or `azo-type.exe` on Windows).
+The release profile in `Cargo.toml` uses `opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, and `strip = true`. The resulting binary is written to `target/release/azo-type` (or `target\release\azo-type.exe` on Windows).
 
 ## Command-Line Options
 
