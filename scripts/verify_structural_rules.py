@@ -64,20 +64,17 @@ PLATFORM_FORBIDDEN_IMPORTS = {
 
 # Integration test mapping for modules
 INTEGRATION_TEST_MAP = {
-    "app/src/lib.rs": "`app/tests/cli_tests.rs`",
-    "app/src/main.rs": "`app/tests/cli_tests.rs`",
-    "app/src/core/diff.rs": "`app/src/tests/core/diff_tests.rs`, `app/tests/diff_tests.rs`",
-    "app/src/core/file_kind.rs": "`app/src/tests/core/file_kind_tests.rs`, `app/tests/project_tests.rs`",
-    "app/src/core/outline.rs": "`app/src/tests/core/outline_tests.rs`, `app/tests/outline_tests.rs`",
-    "app/src/core/pdf.rs": "`app/src/tests/core/pdf_tests.rs`, `app/tests/pdf_config_tests.rs`",
-    "app/src/core/settings.rs": "`app/src/tests/core/settings_tests.rs`",
-    "app/src/project.rs": "`app/tests/project_tests.rs`",
-    "app/src/collab/persistence.rs": "`app/tests/persistence_tests.rs`",
-    "app/src/compiler.rs": "`app/src/tests/compiler_tests.rs`",
-    "app/src/collab/awareness.rs": "`app/src/tests/collab/awareness_tests.rs`",
-    "app/src/collab/doc.rs": "`app/src/tests/collab/doc_tests.rs`",
-    "app/src/collab/session.rs": "`app/src/tests/collab/session_tests.rs`",
-    "app/src/collab/transport.rs": "`app/src/tests/collab/transport_tests.rs`",
+    "app/src/lib.rs": ["app/tests/cli_tests.rs"],
+    "app/src/main.rs": ["app/tests/cli_tests.rs"],
+    "app/src/core/diff.rs": ["app/tests/diff_tests.rs"],
+    "app/src/core/file_kind.rs": ["app/tests/project_tests.rs"],
+    "app/src/core/outline.rs": ["app/tests/outline_tests.rs"],
+    "app/src/core/pdf.rs": ["app/tests/pdf_config_tests.rs"],
+    "app/src/project.rs": ["app/tests/project_tests.rs"],
+    "app/src/collab/persistence.rs": ["app/tests/persistence_tests.rs"],
+    "app/src/core/spellcheck.rs": ["app/tests/language_check_tests.rs"],
+    "app/src/core/typst_prose.rs": ["app/tests/language_check_tests.rs"],
+    "app/src/language_check/engine.rs": ["app/tests/language_check_tests.rs"],
 }
 
 MODULE_NOTES = {
@@ -116,6 +113,20 @@ def extract_pub_items(content: str) -> list[str]:
         if name not in items and name != "new":
             items.append(name)
     return items[:6]
+
+
+def extract_unit_test_paths(path: Path, content: str) -> list[str]:
+    paths: list[str] = []
+    pattern = re.compile(r'#\[path\s*=\s*"([^"]+_tests\.rs)"\]')
+    for match in pattern.finditer(content):
+        resolved = (path.parent / match.group(1)).resolve()
+        try:
+            rel = resolved.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            continue
+        if rel not in paths:
+            paths.append(rel)
+    return paths
 
 
 def extract_crate_deps(content: str) -> list[str]:
@@ -165,7 +176,11 @@ def generate_project_map() -> str:
         pub_str = ", ".join(f"`{i}`" for i in pub_items) if pub_items else "*(re-exports / entry)*"
         deps = extract_crate_deps(content)
         deps_str = ", ".join(f"`{d}`" for d in deps) if deps else "*(none)*"
-        test_loc = INTEGRATION_TEST_MAP.get(rel, "*(covered via integration/UI)*")
+        test_paths = extract_unit_test_paths(path, content)
+        for integ in INTEGRATION_TEST_MAP.get(rel, []):
+            if integ not in test_paths:
+                test_paths.append(integ)
+        test_loc = ", ".join(f"`{p}`" for p in test_paths) if test_paths else "*(covered via integration/UI)*"
         note = MODULE_NOTES.get(rel, "—")
         out.append(f"| `{rel}` | {doc} | {pub_str} | {deps_str} | {test_loc} | {note} |")
 
@@ -192,6 +207,8 @@ def generate_project_map() -> str:
         "| :--- | :--- | :--- |",
         "| `app/tests/cli_tests.rs` | CLI argument parsing (`--screenshot`, folder paths) | `cargo test --manifest-path app/Cargo.toml --test cli_tests` |",
         "| `app/tests/diff_tests.rs` | UTF-16 diffing, astral emoji offsets, path collisions | `cargo test --manifest-path app/Cargo.toml --test diff_tests` |",
+        "| `app/tests/i18n_tests.rs` | Locale normalization, switching, and translation keys | `cargo test --manifest-path app/Cargo.toml --test i18n_tests` |",
+        "| `app/tests/language_check_tests.rs` | Offline spellchecking, grammar, and suggestion application | `cargo test --manifest-path app/Cargo.toml --test language_check_tests` |",
         "| `app/tests/outline_tests.rs` | Typst AST, BibTeX, and Markdown outline extraction | `cargo test --manifest-path app/Cargo.toml --test outline_tests` |",
         "| `app/tests/pdf_config_tests.rs` | PDF versions (1.4–2.0) and PDF/A standard validation | `cargo test --manifest-path app/Cargo.toml --test pdf_config_tests` |",
         "| `app/tests/persistence_tests.rs` | CRDT snapshot saving, loading, and path traversal safety | `cargo test --manifest-path app/Cargo.toml --test persistence_tests` |",
