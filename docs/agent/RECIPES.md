@@ -196,12 +196,16 @@ Adding dependencies increases compile times, binary size, and supply-chain surfa
    - Use `default-features = false` where possible and enable only the required feature flags (see `chrono`, `image`, and `eframe` in `app/Cargo.toml`).
 4. **Layer Placement Check:**
    - Never expose UI or I/O crates inside `app/src/core/`.
-5. **Verify Full Build & Lockfile:**
+5. **Check License Compatibility (`GPL-3.0-or-later`):**
+   - Run `cargo deny --locked --all-features check licenses` locally against `deny.toml` (`cargo install --locked cargo-deny` if not installed).
+   - Ensure every newly added or upgraded crate uses a license compatible with `GPL-3.0-or-later`; do **not** weaken `deny.toml` with incompatible licenses or `GPL-3.0-only` without explicit user approval.
+6. **Verify Full Build & Lockfile:**
    - Run `./scripts/check.sh` and commit `app/Cargo.toml` and `Cargo.lock` together in a `build(deps): ...` or `chore(deps): ...` commit.
 
 ### Checklist
 - [ ] User explicitly approved the new dependency.
 - [ ] Minimal `features` enabled in `app/Cargo.toml`.
+- [ ] License compatibility verified locally (`cargo deny --locked --all-features check licenses`).
 - [ ] `./scripts/check.sh` passes with zero warnings.
 
 ---
