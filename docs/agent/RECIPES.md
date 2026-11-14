@@ -143,18 +143,21 @@ Use this recipe when introducing fallible operations in `core/`, `project.rs`, `
 
 ---
 
-## Recipe 6: Adding a New Test (Unit, Integration, or Fixture)
+## Recipe 6: Adding a New Test (Unit, Headless `egui_kittest`, or Integration)
 
-Use this recipe when adding test coverage for new features or bug fixes.
+Use this recipe when adding test coverage for new features, UI changes, or bug fixes.
 
 - **Reference Implementations:**
-  - Centralized unit test: `app/src/tests/core/diff_tests.rs` (declared via `#[cfg(test)] #[path = "../tests/core/diff_tests.rs"] mod tests;` in `app/src/core/diff.rs`)
-  - Integration test suite: `app/tests/outline_tests.rs` and `app/tests/project_tests.rs`
+  - Centralized pure unit test: `app/src/tests/core/diff_tests.rs` (declared via `#[cfg(test)] #[path = "../tests/core/diff_tests.rs"] mod tests;` in `app/src/core/diff.rs`)
+  - Centralized UI unit + `egui_kittest` tests: `app/src/tests/ui/dialogs/export_pdf_tests.rs`, `app/src/tests/ui/components/editor_tests.rs`, and `app/src/tests/collab/ui_tests.rs`
+  - End-to-end headless application UI suite: `app/tests/ui_tests.rs`
+  - Domain integration test suite: `app/tests/outline_tests.rs` and `app/tests/project_tests.rs`
 
 ### Step-by-Step Order
 1. **Choose the Right Test Tier:**
-   - **Centralized Unit Test (`app/src/tests/<path>/<module>_tests.rs`):** For testing internal functions, edge cases, and module-private invariants.
-   - **Integration Test (`app/tests/<topic>_tests.rs`):** For testing public library APIs across modules (`azo_type::...`).
+   - **Layer 1 — Pure Unit Test (`app/src/tests/<path>/<module>_tests.rs`):** Test pure domain algorithms, `*State` transitions, dialog validation, and buffer math without needing `egui`.
+   - **Layer 2 — Headless UI Smoke/Interaction Test (`egui_kittest`):** Inside `app/src/tests/ui/` or `app/src/tests/collab/ui_tests.rs`, use `Harness::new_ui_state` (for `Ui` panels/dialog bodies) or `Harness::new_state` (for `TopBottomPanel`/`SidePanel`) to verify rendering and click/toggle interactions via AccessKit queries (`get_by_label`). Call `harness.run()` after each click (or `harness.step()` for spinners/animated progress bars) and pass `locale = "en"` to `t!` in parallel `--lib` tests.
+   - **Integration Test (`app/tests/<topic>_tests.rs`):** Test public library APIs (`azo_type::...`) or multi-panel `AzoTypeApp::new_headless` + `render_ui` flows (`app/tests/ui_tests.rs`).
 2. **No Inline Tests Rule:**
    - In `app/src/<path>/<module>.rs`, add only:
      ```rust
@@ -166,11 +169,13 @@ Use this recipe when adding test coverage for new features or bug fixes.
    - Put the test functions in `app/src/tests/<path>/<module>_tests.rs` starting with a `//!` inner doc comment.
 3. **Isolated Temporary Directories for Disk Tests:**
    - When a test requires a filesystem directory (e.g., `DiskProject` or `CollabPersistence`), create a unique temp directory under `std::env::temp_dir()` using process ID / atomic counter and remove it at the end of the test (see `unique_temp_dir` in `app/tests/project_tests.rs`).
-4. **Descriptive Behavioral Naming:**
-   - Name tests after the behavior they verify (e.g., `prevents_path_traversal_when_flushing_files`, `extracts_typst_headings_at_various_depths`).
+4. **Descriptive Behavioral Naming & Coverage Check:**
+   - Name tests after the behavior they verify (e.g., `prevents_path_traversal_when_flushing_files`, `export_pdf_body_renders_valid_state_and_emits_export_action`).
+   - Run `./scripts/coverage.sh` to confirm modified UI/service files have measurable coverage and total coverage has not regressed by more than 2%.
 
 ### Checklist
 - [ ] No `mod tests { ... }` inline in any production `.rs` file.
+- [ ] Unlabeled `TextEdit` or icon widgets queried by tests have `.labelled_by(...)`.
 - [ ] New `*_tests.rs` file starts with a `//!` module doc comment.
 - [ ] `python3 scripts/verify_structural_rules.py --write-map` run if a new unit test file was created.
 

@@ -197,15 +197,18 @@ fn rejects_invalid_standard_and_version_combinations_with_descriptive_error() { 
 
 ---
 
-## 6. UI Rendering vs. State Mutation (Params + Output Pattern)
+## 6. UI Rendering vs. State Mutation & Testing (`egui`)
 
 ### Rule
-- UI component functions in `app/src/ui/components/` must be pure rendering functions:
-  ```rust
-  pub fn render_<name>(ui: &mut Ui, params: <Name>Params<'_>) -> <Name>Output
-  ```
-- Components take inputs via borrowed `<Name>Params` and return user intentions via `<Name>Output`.
-- Components must **never** mutate global variables, spawn threads, or perform blocking disk/network calls directly.
+- Keep `egui::Ui` rendering functions thin and declarative so business logic, validation, and string/buffer math live in pure Rust helper functions or methods on `*State` structs:
+  - Docked components/panels use `render_<name>(ui: &mut Ui, params: <Name>Params<'_>) -> <Name>Output`.
+  - Complex stateful views/dialogs (e.g. `app/src/collab/ui.rs`, `app/src/ui/dialogs/export_pdf.rs`, `app/src/ui/dialogs/file_modals.rs`) extract pure methods/helpers that return lightweight `*Action` / option values and separate inner body rendering (`render_*_body`) from OS viewport chrome (`ctx.show_viewport_immediate`).
+- Components must **never** mutate global variables, spawn threads, or perform blocking disk/network/file-dialog calls directly; return intent to `app/src/app.rs` (`AzoTypeApp`) or dispatch via `app/src/services/`.
+- **Accessibility & Headless Testing (`egui_kittest`):**
+  - Unlabeled `TextEdit` fields or icon-only controls interacted with in tests must attach AccessKit labels via `.labelled_by(label_response.id)` or `widget_info(...)`.
+  - Pair Layer 1 (pure Rust unit tests on state/helpers) with Layer 2 (headless `egui_kittest::Harness::new_ui_state` / `Harness::new_state` UI tests without GPU/screenshot features).
+  - Call `harness.run()` after every `.click()`, use `harness.step()` for widgets that request continuous repaints (spinners, animated `ProgressBar`), and pass explicit `locale = "en"` to `t!(...)` in `--lib` tests instead of mutating process-global locale.
+  - Test `AzoTypeApp` orchestration via `AzoTypeApp::new_headless` + `render_ui` in `app/tests/ui_tests.rs` (initializing `.set_language(ctx, "en".to_string())` before the first frame so host OS locale does not affect widget labels).
 
 ### Examples
 
@@ -267,4 +270,12 @@ pub fn decode(encoded: &str) -> Result<Self, String> {
     // ...
 }
 ```
+
+---
+
+## 8. Coverage Baseline & Regression Threshold
+
+### Rule
+- `./scripts/check.sh` stays fast by omitting `llvm-cov`, so verify coverage explicitly with `./scripts/coverage.sh` whenever modifying UI, service, or domain code.
+- New features and refactors must maintain or improve test coverage: **never allow total line coverage in `app/coverage/summary.json` to drop by more than 2%**, and confirm that modified files under `app/src/ui/` and `app/src/services/` show measurable line coverage.
 

@@ -55,19 +55,19 @@ Full details with Good/Bad examples: [`docs/agent/CONVENTIONS.md`](docs/agent/CO
 - **File Size & Naming:** Keep production files under ~400 lines (hard cap: 600 lines unless explicitly whitelisted in `scripts/verify_structural_rules.py`). Never create `utils.rs`, `helpers.rs`, `misc.rs`, or `common.rs`.
 - **Module Docs:** Every `.rs` file in `app/src/` must begin with an inner `//!` doc comment; public items in `core/` require `///` docs (`#![warn(missing_docs)]`).
 - **Tests:** Zero inline `mod tests { ... }` blocks in production files. Always use `#[cfg(test)] #[path = "..."] mod tests;` pointing into `app/src/tests/`, or integration tests in `app/tests/`.
-- **UI State vs. Rendering:** Use the `Params` + `Output` struct pattern (`render_*(ui, Params) -> Output`).
+- **UI State vs. Rendering:** Keep `egui::Ui` drawing functions thin (`render_*(ui, Params) -> Output` or `*State` + `*Action`); extract pure Rust state/validation helpers and test components headlessly via `egui_kittest` (`app/src/tests/ui/` and `app/tests/ui_tests.rs`). Attach AccessKit labels via `.labelled_by(...)` for unlabeled inputs.
 - **Error Handling & Threading:** Return `Result<T, String>` or typed errors; never `unwrap()` user input or network/disk I/O. Never block the `egui` thread with synchronous dialogs or network calls.
 
 ## 6. Always / Ask First / Never
-- **ALWAYS:** Work on a non-main branch; create atomic Conventional Commits after each logical unit of work; run `./scripts/check.sh` before finishing; update `docs/agent/PROJECT_MAP.md` when adding/moving modules.
+- **ALWAYS:** Work on a non-main branch; create atomic Conventional Commits after each logical unit of work; run `./scripts/check.sh` before finishing; run `./scripts/coverage.sh` after UI/service/coverage changes and keep total line coverage from dropping by more than 2%; update `docs/agent/PROJECT_MAP.md` when adding/moving modules.
 - **ASK FIRST:** Adding or upgrading Cargo dependencies in `app/Cargo.toml`; changing on-disk persistence formats (`.typst-collab/state.yrs`) or P2P wire protocol (`CollabWireMsg`); altering public CLI flags.
 - **NEVER:** Commit directly to `main`; batch multiple distinct changes into one commit at the end; place `mod tests { ... }` inline in production `.rs` files; import `egui` or `tokio` inside `app/src/core/`; silently fix unrelated bugs during a refactoring without documenting them.
 
 ## 7. Definition of Done (Every Change)
 1. Logical steps committed atomically with Conventional Commit messages on a dedicated branch.
-2. New behavior covered by unit (`app/src/tests/<path>/foo_tests.rs`) or integration (`app/tests/`) tests.
+2. New behavior covered by pure unit tests (`app/src/tests/<path>/foo_tests.rs`), headless `egui_kittest` component tests for UI changes, or integration suites (`app/tests/`).
 3. Documentation (`//!` module docs, `PROJECT_MAP.md`, and relevant `docs/agent/*.md`) updated in the same commit as structural changes.
-4. `./scripts/check.sh` exits with `0` (fmt, clippy `-D warnings`, 100% tests green, all structural checks passing).
+4. `./scripts/check.sh` exits with `0` (fmt, clippy `-D warnings`, 100% tests green, all structural checks passing) and `./scripts/coverage.sh` confirms no significant coverage drop (>2%) plus measurable coverage on modified UI/service files.
 
 ## 8. Token-Saving Reading Protocol & Maintenance Rule
 1. **Strict Reading Order:** Read `AGENTS.md` → [`docs/agent/PROJECT_MAP.md`](docs/agent/PROJECT_MAP.md) → only the target module.
