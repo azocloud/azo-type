@@ -1,0 +1,44 @@
+# cargo-deny configuration for Azo Type (GPL-3.0-or-later).
+# Verify locally after adding or upgrading dependencies:
+#   cargo deny --locked --all-features check licenses
+
+[licenses]
+# Warn when an allowed license in this list is not currently matched by any crate.
+unused-allowed-license = "warn"
+confidence-threshold = 0.8
+
+# Licenses compatible with redistributing Azo Type under GPL-3.0-or-later.
+# Note: `GPL-3.0-only` is intentionally omitted because the project is licensed
+# `GPL-3.0-or-later`.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "GPL-2.0-or-later",
+    "GPL-3.0-or-later",
+    "ISC",
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-or-later",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+# `epaint_default_fonts` (pulled in via eframe's `default_fonts`) bundles UI font
+# files under OFL-1.1 and Ubuntu-font-1.0; scope them strictly to that crate so
+# code dependencies cannot silently introduce font-only licenses.
+[[licenses.exceptions]]
+crate = "epaint_default_fonts"
+allow = [
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
