@@ -7,6 +7,7 @@ on:
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'deny.toml'
       - 'app/**'
       - 'locales/**'
       - '.cargo/**'
@@ -51,6 +52,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install cargo-deny (prebuilt binary)
+        uses: taiki-e/install-action@cargo-deny
+
+      - name: Check dependency licenses (cargo-deny)
+        run: cargo deny --locked --all-features check licenses
+
       - name: Install Linux build and GUI dependencies
         run: |
           sudo apt-get update
@@ -59,11 +71,6 @@ jobs:
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxkbcommon-dev libfontconfig1-dev libssl-dev \
             libgtk-3-dev libwayland-dev libx11-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Cache Cargo registry and target build
         uses: Swatinem/rust-cache@v2
@@ -84,16 +91,12 @@ jobs:
     name: Build Linux (${{ matrix.arch }})
     needs: [check]
     if: ${{ github.event_name == 'pull_request' || inputs.is_release == true }}
+    # On PRs, `check` already compiles and tests Linux x86_64; only run aarch64 here
+    # to avoid a duplicate ~1 GB x86_64 cache and redundant runner minutes.
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x86_64
-            target: x86_64-unknown-linux-gnu
-            runner: ubuntu-24.04
-          - arch: aarch64
-            target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
+        include: ${{ fromJSON(inputs.is_release == true && '[{"arch":"x86_64","target":"x86_64-unknown-linux-gnu","runner":"ubuntu-24.04"},{"arch":"aarch64","target":"aarch64-unknown-linux-gnu","runner":"ubuntu-24.04-arm"}]' || '[{"arch":"aarch64","target":"aarch64-unknown-linux-gnu","runner":"ubuntu-24.04-arm"}]') }}
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout repository
@@ -119,10 +122,6 @@ jobs:
       - name: Run ARM64 tests (CI)
         if: ${{ !inputs.is_release && matrix.arch == 'aarch64' }}
         run: cargo test --locked --manifest-path app/Cargo.toml --target ${{ matrix.target }}
-
-      - name: Build debug binary (CI)
-        if: ${{ !inputs.is_release && matrix.arch == 'x86_64' }}
-        run: cargo build --locked --manifest-path app/Cargo.toml --target ${{ matrix.target }}
 
       - name: Build release binary
         if: ${{ inputs.is_release }}

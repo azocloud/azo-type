@@ -1,0 +1,52 @@
+name: Cleanup PR Caches
+
+on:
+  pull_request:
+    types:
+      - closed
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'deny.toml'
+      - 'app/**'
+      - 'locales/**'
+      - '.cargo/**'
+      - 'rustfmt.toml'
+      - 'clippy.toml'
+      - 'scripts/check.sh'
+      - 'scripts/coverage.sh'
+      - 'scripts/verify_structural_rules.py'
+      - 'docs/agent/PROJECT_MAP.md'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/coverage.yml'
+      - '.github/workflows/cleanup-pr-cache.yml'
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup-cache:
+    name: Cleanup PR Caches
+    # Only same-repository PRs grant write access via GITHUB_TOKEN on `pull_request`.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete caches scoped to closed PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |
+          echo "Listing caches for ${PR_REF}..."
+          cache_ids=$(gh cache list --ref "${PR_REF}" --limit 100 --json id --jq '.[].id')
+          if [ -z "${cache_ids}" ]; then
+            echo "No caches found for ${PR_REF}."
+            exit 0
+          fi
+
+          set +e
+          for cache_id in ${cache_ids}; do
+            echo "Deleting cache ID ${cache_id}..."
+            gh cache delete "${cache_id}"
+          done
+          echo "Done cleaning caches for ${PR_REF}."

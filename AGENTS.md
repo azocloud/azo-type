@@ -4,7 +4,8 @@
 
 ## 1. Essential Commands (Run from Repo Root)
 - **Full Check (Mandatory Gate):** `./scripts/check.sh` (runs fmt, clippy `-D warnings`, all tests, and structural/map checks)
-- **Build (Debug):** `cargo build --manifest-path app/Cargo.toml`
+- **Build (Compact Debug):** `cargo build --manifest-path app/Cargo.toml` (uses `[profile.dev]`: line tables for workspace, `debug = 0` for dependencies)
+- **Build (Full Debugger Symbols):** `./scripts/build-full-debug.sh` (builds `target/dev-full/azo-type` with full DWARF/PDB symbols for `gdb`/`lldb`)
 - **Run Application:** `cargo run --manifest-path app/Cargo.toml`
 - **Run Single Integration Test:** `cargo test --manifest-path app/Cargo.toml --test outline_tests`
 - **Run Single Unit Test:** `cargo test --manifest-path app/Cargo.toml --lib core::diff::tests::test_compute_diff_deletions`
@@ -12,6 +13,7 @@
 - **Run Coverage Report:** `./scripts/coverage.sh` (generates HTML, LCOV, and JSON summary in `app/coverage/`)
 - **Format Check:** `cargo fmt --check --manifest-path app/Cargo.toml`
 - **Linter (Strict):** `cargo clippy --all-targets --manifest-path app/Cargo.toml -- -D warnings`
+- **License Compatibility Check:** `cargo deny --locked --all-features check licenses` (checks all crate licenses against `deny.toml` for `GPL-3.0-or-later` compatibility)
 - **Regenerate Project Map:** `python3 scripts/verify_structural_rules.py --write-map`
 - *Platform Notes:* Linux requires `fontconfig` dev headers (`libfontconfig1-dev`) and X11/Wayland libs; macOS uses `muda` for native menus (`#[cfg(target_os = "macos")]`); headless screenshot mode runs via `cargo run --manifest-path app/Cargo.toml -- --screenshot /tmp/out.png`.
 
@@ -59,8 +61,8 @@ Full details with Good/Bad examples: [`docs/agent/CONVENTIONS.md`](docs/agent/CO
 - **Error Handling & Threading:** Return `Result<T, String>` or typed errors; never `unwrap()` user input or network/disk I/O. Never block the `egui` thread with synchronous dialogs or network calls.
 
 ## 6. Always / Ask First / Never
-- **ALWAYS:** Work on a non-main branch; create atomic Conventional Commits after each logical unit of work; run `./scripts/check.sh` before finishing; run `./scripts/coverage.sh` after UI/service/coverage changes and keep total line coverage from dropping by more than 2%; update `docs/agent/PROJECT_MAP.md` when adding/moving modules.
-- **ASK FIRST:** Adding or upgrading Cargo dependencies in `app/Cargo.toml`; changing on-disk persistence formats (`.typst-collab/state.yrs`) or P2P wire protocol (`CollabWireMsg`); altering public CLI flags.
+- **ALWAYS:** Work on a non-main branch; create atomic Conventional Commits after each logical unit of work; run `./scripts/check.sh` before finishing; run `cargo deny --locked --all-features check licenses` locally after adding or upgrading dependencies; run `./scripts/coverage.sh` after UI/service/coverage changes and keep total line coverage from dropping by more than 2%; update `docs/agent/PROJECT_MAP.md` when adding/moving modules.
+- **ASK FIRST:** Adding or upgrading Cargo dependencies in `app/Cargo.toml` (or weakening `deny.toml` license rules); changing on-disk persistence formats (`.typst-collab/state.yrs`) or P2P wire protocol (`CollabWireMsg`); altering public CLI flags.
 - **NEVER:** Commit directly to `main`; batch multiple distinct changes into one commit at the end; place `mod tests { ... }` inline in production `.rs` files; import `egui` or `tokio` inside `app/src/core/`; silently fix unrelated bugs during a refactoring without documenting them.
 
 ## 7. Definition of Done (Every Change)

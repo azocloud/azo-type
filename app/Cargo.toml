@@ -3,7 +3,8 @@ name = "azo-type"
 version = "0.0.0"
 edition = "2021"
 description = "Native Cross-Platform Typst Editor with P2P Real-Time Collaborative Editing"
-authors = ["Azo Type Architect"]
+authors = ["AzoCloud"]
+license = "GPL-3.0-or-later"
 
 [dependencies]
 egui = "0.31.1"
