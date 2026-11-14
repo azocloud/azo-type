@@ -68,8 +68,8 @@
 | `app/src/services/screenshot.rs` | Headless screenshot capture automation for tests and CI documentation. | `handle_screenshot_lifecycle` | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/ui/components/bottom_panel.rs` | Collapsible multi-tab bottom workspace panel rendered beneath the editor and preview panes. | `BottomPanelTab`, `ALL`, `label`, `BottomPanelState`, `toggle_visible`, `toggle_diagnostic_expanded` | `core`, `engine`, `language_check`, `project`, `ui` | `app/src/tests/ui/components/bottom_panel_tests.rs` | — |
 | `app/src/ui/components/bottom_panel_autocorrect.rs` | Auto-Correction & Language Analysis tab inside the collapsible bottom workspace panel. | `render_autocorrect_tab` | `core`, `language_check`, `ui` | *(covered via integration/UI)* | — |
-| `app/src/ui/components/editor.rs` | Multiline text editor pane featuring syntax highlighting, gutter line numbers, wrap glyphs, and remote peer cursors. | `EditorPaneOutput`, `EditorPaneParams`, `render_editor_pane` | `collab`, `core`, `highlight`, `project`, `ui` | *(covered via integration/UI)* | — |
-| `app/src/ui/components/editor_actions.rs` | Context menu and edit action handlers (Undo, Redo, Cut, Copy, Paste, Format Snippets) for the text editor. | `render_editor_context_menu`, `apply_editor_context_action` | `core`, `platform`, `ui` | *(covered via integration/UI)* | — |
+| `app/src/ui/components/editor.rs` | Multiline text editor pane featuring syntax highlighting, gutter line numbers, wrap glyphs, and remote peer cursors. | `EditorPaneOutput`, `EditorPaneParams`, `adjust_editor_font_size`, `compute_gutter_width`, `render_editor_pane` | `collab`, `core`, `highlight`, `project`, `ui` | `app/src/tests/ui/components/editor_tests.rs` | — |
+| `app/src/ui/components/editor_actions.rs` | Context menu and edit action handlers (Undo, Redo, Cut, Copy, Paste, Format Snippets) for the text editor. | `render_editor_context_menu`, `char_to_byte_index`, `normalize_char_selection`, `apply_cut_text`, `apply_paste_text`, `apply_wrap_or_insert_text` | `core`, `platform`, `ui` | `app/src/tests/ui/components/editor_actions_tests.rs` | — |
 | `app/src/ui/components/editor_diagnostics.rs` | Editor overlay rendering spell, grammar, and typography underlines plus hover tooltips. | `diagnostic_color`, `compute_wavy_points`, `paint_language_diagnostics` | `core`, `ui` | `app/src/tests/ui/components/editor_diagnostics_tests.rs` | — |
 | `app/src/ui/components/menu_bar.rs` | Desktop menu bar rendered inside the application window on Linux and Windows. | `EditorContextAction`, `MenuBarOutput`, `MenuBarParams`, `render_desktop_menu_bar` | `core`, `platform`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/components/mod.rs` | UI reusable panels, controls, and components. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
@@ -122,7 +122,9 @@
 | `app/src/tests/services/language_actions_tests.rs` | Unit tests for spell/grammar suggestion application and Tier-2 dictionary registration. |
 | `app/src/tests/services/persistence_tests.rs` | Unit tests for `eframe::Storage` settings persistence and reload behavior. |
 | `app/src/tests/ui/components/bottom_panel_tests.rs` | Unit tests for the collapsible multi-tab bottom workspace panel state and diagnostics sorting. |
+| `app/src/tests/ui/components/editor_actions_tests.rs` | Pure unit and headless `egui_kittest` tests for editor buffer actions and shortcuts. |
 | `app/src/tests/ui/components/editor_diagnostics_tests.rs` | Unit tests for editor language diagnostic underline geometry and color mapping. |
+| `app/src/tests/ui/components/editor_tests.rs` | Pure unit and headless `egui_kittest` tests for the editor pane component. |
 | `app/src/tests/ui/components/preview_selection_tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
 | `app/src/tests/ui/components/split_divider_tests.rs` | Unit tests for split divider pane geometry calculations. |
 | `app/src/tests/ui/dialogs/export_pdf_tests.rs` | Pure unit and headless `egui_kittest` tests for the Export PDF dialog. |

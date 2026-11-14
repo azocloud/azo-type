@@ -51,6 +51,42 @@ pub struct EditorPaneParams<'a> {
     pub language_diagnostics: &'a [LanguageCheckDiagnostic],
 }
 
+/// Quick Typst snippet definitions: `(label_key, tooltip_key, snippet_text)`.
+const TYPST_TOOLBAR_SNIPPETS: &[(&str, &str, &str)] = &[
+    ("editor.heading_btn", "editor.heading_tooltip", "\n\n== New Section\n"),
+    ("editor.bold_btn", "editor.bold_tooltip", " *bold text* "),
+    ("editor.italic_btn", "editor.italic_tooltip", " _emphasized_ "),
+    (
+        "editor.math_btn",
+        "editor.math_tooltip",
+        "\n$ f(x) = integral_0^x e^(-t^2) dif t $\n",
+    ),
+    (
+        "editor.table_btn",
+        "editor.table_tooltip",
+        "\n#table(\n  columns: (1fr, 1fr),\n  [*Metric*], [*Value*],\n  [Throughput], [60 FPS],\n)\n",
+    ),
+    (
+        "editor.figure_btn",
+        "editor.figure_tooltip",
+        "\n#figure(\n  image(\"assets/diagram.svg\", width: 85%),\n  caption: [Architecture diagram.],\n)\n",
+    ),
+];
+
+/// Adjusts the editor font size by `delta` and clamps to `[10.0, 22.0]`.
+pub fn adjust_editor_font_size(current: f32, delta: f32) -> f32 {
+    (current + delta).clamp(10.0, 22.0)
+}
+
+/// Computes the editor line-number gutter width in points (`0.0` when disabled).
+pub fn compute_gutter_width(line_count: usize, font_size: f32, show_line_numbers: bool) -> f32 {
+    if !show_line_numbers {
+        return 0.0;
+    }
+    let digits = line_count.max(1).to_string().len().max(3);
+    (digits as f32 * (font_size * 0.62) + 18.0).max(40.0)
+}
+
 /// Renders the code editor or asset inspection pane.
 pub fn render_editor_pane(
     ctx: &Context,
@@ -124,51 +160,14 @@ pub fn render_editor_pane(
                 let mut snippet_to_insert: Option<&'static str> = None;
 
                 if active_kind == FileKind::Typst {
-                    if ui
-                        .small_button(t!("editor.heading_btn"))
-                        .on_hover_text(t!("editor.heading_tooltip"))
-                        .clicked()
-                    {
-                        snippet_to_insert = Some("\n\n== New Section\n");
-                    }
-                    if ui
-                        .small_button(t!("editor.bold_btn"))
-                        .on_hover_text(t!("editor.bold_tooltip"))
-                        .clicked()
-                    {
-                        snippet_to_insert = Some(" *bold text* ");
-                    }
-                    if ui
-                        .small_button(t!("editor.italic_btn"))
-                        .on_hover_text(t!("editor.italic_tooltip"))
-                        .clicked()
-                    {
-                        snippet_to_insert = Some(" _emphasized_ ");
-                    }
-                    if ui
-                        .small_button(t!("editor.math_btn"))
-                        .on_hover_text(t!("editor.math_tooltip"))
-                        .clicked()
-                    {
-                        snippet_to_insert = Some("\n$ f(x) = integral_0^x e^(-t^2) dif t $\n");
-                    }
-                    if ui
-                        .small_button(t!("editor.table_btn"))
-                        .on_hover_text(t!("editor.table_tooltip"))
-                        .clicked()
-                    {
-                        snippet_to_insert = Some(
-                            "\n#table(\n  columns: (1fr, 1fr),\n  [*Metric*], [*Value*],\n  [Throughput], [60 FPS],\n)\n",
-                        );
-                    }
-                    if ui
-                        .small_button(t!("editor.figure_btn"))
-                        .on_hover_text(t!("editor.figure_tooltip"))
-                        .clicked()
-                    {
-                        snippet_to_insert = Some(
-                            "\n#figure(\n  image(\"assets/diagram.svg\", width: 85%),\n  caption: [Architecture diagram.],\n)\n",
-                        );
+                    for &(label_key, tooltip_key, snippet) in TYPST_TOOLBAR_SNIPPETS {
+                        if ui
+                            .small_button(t!(label_key))
+                            .on_hover_text(t!(tooltip_key))
+                            .clicked()
+                        {
+                            snippet_to_insert = Some(snippet);
+                        }
                     }
                 } else if active_kind == FileKind::Svg {
                     let mode_text = if *params.inspect_asset_mode {
@@ -198,7 +197,7 @@ pub fn render_editor_pane(
                         .clicked()
                     {
                         *params.editor_font_size =
-                            (*params.editor_font_size + 1.0).clamp(10.0, 22.0);
+                            adjust_editor_font_size(*params.editor_font_size, 1.0);
                     }
                     if ui
                         .small_button("A-")
@@ -206,7 +205,7 @@ pub fn render_editor_pane(
                         .clicked()
                     {
                         *params.editor_font_size =
-                            (*params.editor_font_size - 1.0).clamp(10.0, 22.0);
+                            adjust_editor_font_size(*params.editor_font_size, -1.0);
                     }
                     if ui
                         .selectable_label(*params.word_wrap, t!("editor.wrap_toggle"))
@@ -288,13 +287,11 @@ pub fn render_editor_pane(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     let text_ref = file.text.as_mut().unwrap();
-                    let line_count = text_ref.lines().count().max(1);
-                    let digits = line_count.to_string().len().max(3);
-                    let gutter_w = if show_line_numbers {
-                        (digits as f32 * (font_size * 0.62) + 18.0).max(40.0)
-                    } else {
-                        0.0
-                    };
+                    let gutter_w = compute_gutter_width(
+                        text_ref.lines().count(),
+                        font_size,
+                        show_line_numbers,
+                    );
 
                     ui.horizontal_top(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
@@ -590,3 +587,7 @@ pub fn render_editor_pane(
     output.context_action = context_action;
     output
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/components/editor_tests.rs"]
+mod tests;
