@@ -4,7 +4,8 @@
 
 ## 1. Essential Commands (Run from Repo Root)
 - **Full Check (Mandatory Gate):** `./scripts/check.sh` (runs fmt, clippy `-D warnings`, all tests, and structural/map checks)
-- **Build (Debug):** `cargo build --manifest-path app/Cargo.toml`
+- **Build (Compact Debug):** `cargo build --manifest-path app/Cargo.toml` (uses `[profile.dev]`: line tables for workspace, `debug = 0` for dependencies)
+- **Build (Full Debugger Symbols):** `./scripts/build-full-debug.sh` (builds `target/dev-full/azo-type` with full DWARF/PDB symbols for `gdb`/`lldb`)
 - **Run Application:** `cargo run --manifest-path app/Cargo.toml`
 - **Run Single Integration Test:** `cargo test --manifest-path app/Cargo.toml --test outline_tests`
 - **Run Single Unit Test:** `cargo test --manifest-path app/Cargo.toml --lib core::diff::tests::test_compute_diff_deletions`

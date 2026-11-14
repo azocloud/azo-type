@@ -94,8 +94,11 @@ Inner domain layers have zero dependencies on immediate-mode GUI frameworks or a
 From the workspace root or the `app/` directory:
 
 ```bash
-# Build binary (debug)
+# Build binary (compact debug: line tables for app, no dependency debuginfo)
 cargo build --manifest-path app/Cargo.toml
+
+# Build binary with full debug symbols across app and dependencies (for gdb/lldb)
+./scripts/build-full-debug.sh
 
 # Build optimized release binary
 cargo build --release --manifest-path app/Cargo.toml

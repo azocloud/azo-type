@@ -5,6 +5,23 @@
 resolver = "2"
 members = ["app"]
 
+# Keep default local and CI debug/test builds fast and compact by emitting only
+# line tables for workspace crates and disabling debuginfo for dependencies.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = 0
+
+# Full DWARF/PDB debug symbols across workspace crates and dependencies for
+# interactive debugger sessions (invoked by scripts/build-full-debug.sh).
+[profile.dev-full]
+inherits = "dev"
+debug = 2
+
+[profile.dev-full.package."*"]
+debug = 2
+
 [profile.release]
 opt-level = 3
 lto = "fat"
