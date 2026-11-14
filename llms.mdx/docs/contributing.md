@@ -1,0 +1,61 @@
+# Contributing (/docs/contributing)
+
+Contributions to **azo-type** are welcome across both the Rust desktop IDE (`/app`) and this documentation site (`/website`). All code in this repository is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+
+## Repository Structure [#repository-structure]
+
+```text
+azo-type/
+├── app/        # Cross-platform Rust desktop IDE (egui, typst, yrs, iroh)
+├── website/    # Marketing & documentation static site (Next.js + Fumadocs)
+├── locales/    # Weblate-compatible UI translations (en.yml, de.yml)
+├── docs/       # Engineering specs, architecture notes, and agent docs
+└── scripts/    # Unified quality gate (check.sh) and coverage scripts
+```
+
+## Working on the Desktop App (`/app`) [#working-on-the-desktop-app-app]
+
+Before submitting any pull request touching Rust code, run the unified quality gate from the repository root:
+
+```bash
+./scripts/check.sh
+```
+
+`./scripts/check.sh` enforces four checks:
+
+1. `cargo fmt --check --manifest-path app/Cargo.toml`
+2. `cargo clippy --all-targets --manifest-path app/Cargo.toml -- -D warnings`
+3. `python3 scripts/verify_structural_rules.py` (enforces inward layer boundaries, `//!` module docs, file size limits, externalized tests in `app/src/tests/`, and `docs/agent/PROJECT_MAP.md` synchronization)
+4. `cargo test --manifest-path app/Cargo.toml` (unit tests, integration tests, and headless `egui_kittest` UI tests)
+
+To inspect line coverage with `cargo-llvm-cov`:
+
+```bash
+./scripts/coverage.sh
+```
+
+### Key Architectural Rules [#key-architectural-rules]
+
+- `app/src/core/` must remain pure Rust with **zero** GUI (`egui`/`eframe`), OS dialog (`rfd`/`muda`), or async/P2P (`tokio`/`iroh`) imports.
+- Do not place inline `mod tests { ... }` blocks inside production `.rs` files—wire unit tests via `#[cfg(test)] #[path = "..."] mod tests;` into `app/src/tests/`.
+- Create commits on a dedicated branch using [Conventional Commits](https://www.conventionalcommits.org/) (`feat(...)`, `fix(...)`, `docs(...)`, `refactor(...)`, `test(...)`).
+
+## Working on the Website (`/website`) [#working-on-the-website-website]
+
+The marketing pages and documentation are built with Next.js static export (`output: 'export'`) and Fumadocs.
+
+```bash
+cd website
+npm install
+
+# Start local development server
+npm run dev
+
+# Typecheck routes and MDX
+npm run types:check
+
+# Build static output into website/out/
+npm run build
+```
+
+Documentation pages live in `website/content/docs/*.mdx`, ordered by `website/content/docs/meta.json`.

@@ -1,0 +1,12 @@
+# Documentation
+
+- [Introduction](/llms.mdx/docs.md): Overview of azo-type, a native cross-platform Rust desktop IDE for Typst with live preview and P2P collaboration.
+- [Installation](/llms.mdx/docs/installation.md): Install azo-type on Linux, macOS, and Windows, or compile from source using Rust and Cargo.
+- [Getting Started](/llms.mdx/docs/getting-started.md): First-time launch, workspace panes, file management, and compiling your first Typst document.
+- [Features](/llms.mdx/docs/features.md): Deep dive into azo-type capabilities—live preview, Typst version switching, AST outline, P2P collaboration, PDF/A export, and offline proofreading.
+- [Configuration & Shortcuts](/llms.mdx/docs/configuration.md): Reference for azo-type Settings tabs, keyboard shortcuts, design tokens, and UI localization.
+- [Contributing](/llms.mdx/docs/contributing.md): Build, test, lint, and contribute to the azo-type desktop app (/app) and documentation website (/website).
+
+## Sections
+
+- [/docs](/llms.mdx/docs/llms-full.txt)

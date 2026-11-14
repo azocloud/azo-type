@@ -1,0 +1,317 @@
+# Configuration & Shortcuts (/docs/configuration)
+
+Open the **Settings** sub-window via **File → Settings...** or `Ctrl+,` (`Cmd+,` on macOS). Preferences are persisted across restarts via `eframe` storage (`app/src/core/settings.rs`).
+
+## Settings Tabs [#settings-tabs]
+
+### 1. Appearance [#1-appearance]
+
+- **Language:** Switch UI language at runtime (`English` or `Deutsch`), or follow the OS locale detected at startup via `sys-locale`.
+- **Color Theme:** Choose **Dark** (`#1C1B22`), **Light** (`#FFFFFF`), or **System-Default** (tracks OS dark/light preference).
+- **Editor Font Size:** Adjustable from `10.0 pt` to `22.0 pt` (default `13.5 pt`).
+- **Word Wrap:** Automatically wrap long lines to the editor pane width with `↩` continuation markers.
+- **Line Numbers Gutter:** Show or hide line numbers beside the editor.
+- **Syntax Highlighting:** Toggle real-time Typst syntax highlighting powered by `typst-syntax`.
+
+### 2. Editor & Filesystem [#2-editor--filesystem]
+
+- **Auto-Save on Edit:** Automatically write modified disk buffers as you type (enabled by default).
+- **Show Hidden Files:** Display dotfiles and hidden directories (such as `.git` or `.vscode`) in the sidebar file tree.
+- **Active Project Folder:** Inspect the active workspace root, switch folders, or trigger a disk rescan.
+
+### 3. Compiler & Preview [#3-compiler--preview]
+
+- **Typst Compiler Version:** Use built-in `0.15.1` or download/activate legacy `0.14.2`, `0.13.1`, or `0.12.0` releases.
+- **Auto-Compile on Type:** Incrementally recompile while editing (enabled by default).
+- **Typing Debounce Interval:** Configurable from `50 ms` to `800 ms` (default `120 ms`).
+- **Preview Rasterization Scale:** `1.5x Fast`, `2.0x Crisp` (default), or `3.0x Ultra HiDPI`.
+- **Preview Interaction:** Toggle **Auto-Jump** source selection sync and **Hand Pan** mode.
+
+### 4. Spell & Grammar [#4-spell--grammar]
+
+- **Enable Spell & Grammar Checking:** Master toggle (disabled by default).
+- **Auto-Check While Typing:** Debounced background checking (`150 ms`–`2000 ms`, default `450 ms`).
+- **Grammar & Typography Rules:** Toggle `nlprule` and pure-Rust typography/repetition checks.
+- **Document Language Override:** `Auto` (reads `#set text(lang: ...)` or runs Lingua detection) or explicit `en` / `de` / `fr` / `es`.
+- **Dictionaries:** Download/remove Tier-1 language packs, import Tier-2 `.dic`/`.aff` files, and manage ignored words.
+
+## Keyboard Shortcuts [#keyboard-shortcuts]
+
+On macOS, `Ctrl` corresponds to `Cmd` (`Modifiers::COMMAND` in `app/src/platform/shortcuts.rs`):
+
+| Action | Windows / Linux | macOS |
+| :--- | :--- | :--- |
+| New File in Project | `Ctrl + N` | `Cmd + N` |
+| Open Project Folder | `Ctrl + O` | `Cmd + O` |
+| Save Active File | `Ctrl + S` | `Cmd + S` |
+| Export PDF | `Ctrl + E` | `Cmd + E` |
+| Open Settings | `Ctrl + ,` | `Cmd + ,` |
+| Toggle Left Sidebar | `Ctrl + B` | `Cmd + B` |
+| Toggle Bottom Panel | `Ctrl + J` | `Cmd + J` |
+| Rescan Folder on Disk | `F5` | `F5` |
+| Undo / Redo (incl. CRDT Collab) | `Ctrl + Z` / `Ctrl + Y` or `Ctrl + Shift + Z` | `Cmd + Z` / `Cmd + Shift + Z` |
+| Cut / Copy / Paste / Select All | `Ctrl + X` / `C` / `V` / `A` | `Cmd + X` / `C` / `V` / `A` |
+| Zoom Preview Canvas | `Ctrl + Mouse Wheel` | `Cmd + Mouse Wheel` |
+
+## Localization [#localization]
+
+UI strings live in monolingual Weblate-compatible YAML files under `locales/` (`locales/en.yml`, `locales/de.yml`) powered by `rust-i18n`. New translations can be added by creating a matching `locales/<lang>.yml` file and registering it in `app/src/core/i18n.rs`.
+
+# Contributing (/docs/contributing)
+
+Contributions to **azo-type** are welcome across both the Rust desktop IDE (`/app`) and this documentation site (`/website`). All code in this repository is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+
+## Repository Structure [#repository-structure]
+
+```text
+azo-type/
+├── app/        # Cross-platform Rust desktop IDE (egui, typst, yrs, iroh)
+├── website/    # Marketing & documentation static site (Next.js + Fumadocs)
+├── locales/    # Weblate-compatible UI translations (en.yml, de.yml)
+├── docs/       # Engineering specs, architecture notes, and agent docs
+└── scripts/    # Unified quality gate (check.sh) and coverage scripts
+```
+
+## Working on the Desktop App (`/app`) [#working-on-the-desktop-app-app]
+
+Before submitting any pull request touching Rust code, run the unified quality gate from the repository root:
+
+```bash
+./scripts/check.sh
+```
+
+`./scripts/check.sh` enforces four checks:
+
+1. `cargo fmt --check --manifest-path app/Cargo.toml`
+2. `cargo clippy --all-targets --manifest-path app/Cargo.toml -- -D warnings`
+3. `python3 scripts/verify_structural_rules.py` (enforces inward layer boundaries, `//!` module docs, file size limits, externalized tests in `app/src/tests/`, and `docs/agent/PROJECT_MAP.md` synchronization)
+4. `cargo test --manifest-path app/Cargo.toml` (unit tests, integration tests, and headless `egui_kittest` UI tests)
+
+To inspect line coverage with `cargo-llvm-cov`:
+
+```bash
+./scripts/coverage.sh
+```
+
+### Key Architectural Rules [#key-architectural-rules]
+
+- `app/src/core/` must remain pure Rust with **zero** GUI (`egui`/`eframe`), OS dialog (`rfd`/`muda`), or async/P2P (`tokio`/`iroh`) imports.
+- Do not place inline `mod tests { ... }` blocks inside production `.rs` files—wire unit tests via `#[cfg(test)] #[path = "..."] mod tests;` into `app/src/tests/`.
+- Create commits on a dedicated branch using [Conventional Commits](https://www.conventionalcommits.org/) (`feat(...)`, `fix(...)`, `docs(...)`, `refactor(...)`, `test(...)`).
+
+## Working on the Website (`/website`) [#working-on-the-website-website]
+
+The marketing pages and documentation are built with Next.js static export (`output: 'export'`) and Fumadocs.
+
+```bash
+cd website
+npm install
+
+# Start local development server
+npm run dev
+
+# Typecheck routes and MDX
+npm run types:check
+
+# Build static output into website/out/
+npm run build
+```
+
+Documentation pages live in `website/content/docs/*.mdx`, ordered by `website/content/docs/meta.json`.
+
+# Features (/docs/features)
+
+## Live Preview & Interactive Source Sync [#live-preview--interactive-source-sync]
+
+`azo-type` renders compiled Typst pages to RGBA textures using `typst_render` on a non-blocking worker thread:
+
+- **Rasterization DPI:** Choose between **1.5x Fast**, **2.0x Crisp** (default), and **3.0x Ultra HiDPI** in Settings.
+- **Zoom & Navigation:** Toggle **Fit Width**, select preset zoom percentages (`50%`–`200%`), or hold `Ctrl` + mouse wheel over the preview (`25%`–`400%`).
+- **Click & Drag Text Selection:** Select text directly on rendered preview pages to copy it or automatically jump the editor cursor back to the corresponding Typst source range (**Auto-Jump**).
+- **Hand Pan Mode:** Switch to **Hand Pan** in the preview toolbar to drag-pan across zoomed pages without triggering text selection.
+
+## Multi-Version Typst Compiler Engine [#multi-version-typst-compiler-engine]
+
+While Typst `0.15.1` is compiled directly into `azo-type`, older documents may target earlier Typst releases. In **Settings → Compiler & Preview** (or by clicking the Typst version badge in the status bar), you can switch between:
+
+- **Typst `0.15.1`** (built-in offline default)
+- **Legacy Typst `0.14.2`, `0.13.1`, and `0.12.0`** (downloaded on demand from official Typst GitHub releases for your host triple and verified against embedded SHA-256 checksums before activation)
+
+## Hierarchical AST Document Outline [#hierarchical-ast-document-outline]
+
+The outline parser (`app/src/core/outline.rs`) inspects the Typst AST (`typst-syntax`) rather than naive regexes:
+
+- Extracts `= ...` markup headings and `#heading(level: ...)[...]` calls while ignoring headings inside comments, raw code blocks, and `show heading.where(...)` styling rules.
+- Recursively resolves `#include "..."` and `#module` imports across project files and merges compiled outline items from templates.
+- Also parses Markdown `# Heading` sections and BibTeX `@article{key, ...}` citation entries.
+- Assigns hierarchical numbering (`1`, `1.1`, `1.1.1`) and highlights the heading matching your current cursor position.
+
+## Zero-Server P2P Collaboration [#zero-server-p2p-collaboration]
+
+Open **Project → Collaboration (P2P)...** to co-author an entire project folder in real time without central servers:
+
+- **CRDT Synchronization (`yrs`):** Multi-file project state is synced via Yjs CRDT updates (`Origin::from("local")` vs `Origin::from("remote")`), preserving cursor positions with `StickyIndex` and isolating each peer's undo/redo history (`yrs::UndoManager`).
+- **Direct QUIC Transport (`iroh`):** Hosts bind an `iroh` QUIC endpoint (`b"azo-type/collab/v1"`) and generate a 256-bit secret invite ticket prefixed with `typst-collab-v1:`.
+- **LAN / Localhost Only Mode:** Optionally disable public relays when collaborating on a trusted local network.
+- **Peer Presence & Persistence:** Displays connected peers with custom display names, cursor colors, active file indicators, and connection routes (`Direct` vs `Relay` with RTT). Snapshots are saved to `.typst-collab/` with path-traversal protection and deterministic conflict naming (`<stem>.conflict-<id>.<ext>`).
+
+<Callout type="warn" title="Invite Ticket Security">
+Treat `typst-collab-v1:` invite tickets like passwords—anyone holding a ticket can join the active P2P session. Use the **Mask Ticket** toggle when screen-sharing.
+</Callout>
+
+## Standards-Compliant PDF Export [#standards-compliant-pdf-export]
+
+Press `Ctrl+E` (`Cmd+E` on macOS) or choose **File → Export PDF...** to configure standards-checked PDF output:
+
+- **PDF Versions:** `1.4`, `1.5`, `1.6`, `1.7` (default), and `2.0`.
+- **PDF/A Archival Standards (ISO 19005):** `PDF/A-1b`, `PDF/A-1a`, `PDF/A-2b`, `PDF/A-2u`, `PDF/A-2a`, `PDF/A-3b`, `PDF/A-3u`, `PDF/A-3a`, `PDF/A-4`, `PDF/A-4f`, and `PDF/A-4e`.
+- **Accessibility:** Toggle **PDF/UA-1** (ISO 14289-1) and **Tagged PDF** structure tree generation.
+- **Compatibility Guard:** Automatically validates combinations (for example, `PDF/A-1` requires `PDF 1.4` and `PDF/A-4` requires `PDF 2.0`), offers a one-click compatible version switch, and displays the equivalent `typst compile --pdf-standard` CLI flags.
+
+## Offline Spell & Grammar Checking [#offline-spell--grammar-checking]
+
+Disabled by default so it stays out of your way until needed, offline proofreading runs strictly locally inside **azo-type**:
+
+- **Typst-Aware Prose Extraction:** Masks code, math, labels, comments, and syntax tokens before checking prose.
+- **Tier-1 Language Packs (`en`, `de`, `fr`, `es`):** Download Hunspell dictionaries (`spellbook`) and `nlprule` grammar binaries on demand with SHA-256 verification. Language detection (`lingua`) or `#set text(lang: "...")` automatically selects the active language when set to `Auto`.
+- **Tier-2 Custom Hunspell Dictionaries:** Import any local `.dic` / `.aff` dictionary pair from disk (automatically transcoded to UTF-8).
+- **Interactive Diagnostics:** Review spelling, grammar, and typography suggestions in the bottom panel, jump directly to line/column, or add terms to your ignore list.
+
+# Getting Started (/docs/getting-started)
+
+When you launch **azo-type** without a directory argument, it opens an **in-memory blank project** so you can start typing Typst markup immediately without creating files up front.
+
+## Workspace Layout [#workspace-layout]
+
+The IDE is organized into four main areas:
+
+1. **Menu Bar (`File`, `Edit`, `View`, `Project`)**:
+   - On **Linux** and **Windows**, an in-window menu bar sits across the top, including a quick **Panel** toggle and active folder indicator.
+   - On **macOS**, `azo-type` installs a native screen-top menu bar via `muda`.
+2. **Left Sidebar (`Ctrl+B` / `Cmd+B`)**:
+   - **Disk Project Tree:** Browse directories and files with type badges (`[T]` Typst, `[B]` BibTeX/YAML, `[S]` SVG, `[I]` images, `[F]` text, `[#]` binary), dirty indicators (`*`), main-file star (`★`), and live P2P peer presence markers.
+   - **Document Outline:** Hierarchical AST heading tree showing section numbers and line locations.
+3. **Center Code Editor & Preview Split**:
+   - **Tabbed Typst Editor:** Line-number gutter, active line highlighting, syntax coloring, formatting toolbar, and asset inspector for images/SVGs.
+   - **Live Document Preview:** Resizable split divider (drag to resize, double-click to reset 50/50) displaying compiled pages in real time.
+4. **Bottom Workspace Panel (`Ctrl+J` / `Cmd+J`)**:
+   - **Warnings & Errors:** Clickable compiler diagnostics with `file:line:col` jump links and compiler hints.
+   - **Console:** Recorded runtime and tool output.
+   - **Language Auto-Correction:** Offline spelling, grammar, and typography check results.
+
+## Creating and Opening Projects [#creating-and-opening-projects]
+
+- **Open Folder (`Ctrl+O` / `Cmd+O`):** Choose an existing Typst project directory via the native OS folder picker. Internal directories such as `target/`, `node_modules/`, and `shots/` are skipped during tree scans.
+- **Create a New File (`Ctrl+N` / `Cmd+N`):** Use **+ File** in the sidebar or the File menu to create nested paths (e.g., `chapters/results.typ`). New `.typ` files are seeded with a default heading template.
+- **Set Main Entrypoint:** Right-click any `.typ` file in the sidebar (or select **Project → Set Active File as Main Entrypoint**) to designate the root document compiled into the preview and PDF export.
+- **Save Work (`Ctrl+S` / `Cmd+S`):** If you started in an in-memory blank document, pressing Save prompts you to pick a destination on disk. With **Auto-save modified files to disk as you type** enabled (on by default for disk projects), edits flush automatically.
+
+## Writing and Compiling Typst [#writing-and-compiling-typst]
+
+Use the editor formatting toolbar or right-click context menu to insert common Typst constructs quickly:
+
+- **`= Heading`** — Inserts a new section (`== New Section`).
+- **`*Bold*`** / **`_Italic_`** — Wraps the current selection or inserts formatted placeholders.
+- **`$ Math $`** — Inserts a display math equation block.
+- **`+ Table`** — Inserts a two-column `#table(...)` block.
+- **`+ Figure`** — Inserts a `#figure(image(...))` template.
+
+As you type, `azo-type` debounces compilation (default `120 ms`) on a background thread and updates the status bar with compilation timing, page count, and active Typst compiler version. External `@preview/...` packages referenced in your document are downloaded automatically via `typst-kit`.
+
+# Introduction (/docs)
+
+**azo-type** (Azo Type) is a native, local-first desktop IDE for authoring [Typst](https://typst.app/) documents. Built in Rust with `egui`/`eframe`, it combines incremental Typst compilation, AST-driven outline navigation, standards-compliant PDF export, offline spell and grammar checking, and zero-server peer-to-peer collaboration.
+
+<Callout type="warn" title="Early Pre-Alpha">
+azo-type is currently in early pre-alpha development. Features and interfaces are actively evolving—please report bugs or feedback on the [GitHub repository](https://github.com/azocloud/azo-type/issues).
+</Callout>
+
+## Why azo-type? [#why-azo-type]
+
+- **Local-First Native Speed:** Written in Rust (`2021` edition) with an immediate-mode `egui` / `eframe` `0.31` GPU-accelerated interface (`glow`).
+- **Bundled Typst Runtime:** Ships with Typst `0.15.1` and 17 embedded fonts out of the box, plus optional SHA-256 verified downloads of legacy Typst versions (`0.14.2`, `0.13.1`, `0.12.0`).
+- **Zero-Server P2P Collaboration:** Powered by `yrs` (`0.28`, Yjs CRDT) over direct `iroh` (`1.4.1`) QUIC streams—no central accounts or cloud servers required.
+- **Archival & Accessible PDF Export:** Supports PDF `1.4`–`2.0`, ISO 19005 PDF/A standards (`1a`/`1b` through `4`/`4f`/`4e`), PDF/UA-1, and tagged document structure trees.
+- **Offline Proofreading:** Optional offline spellchecking (`spellbook`), grammar rules (`nlprule`), and automatic language detection (`lingua`).
+
+## Architecture at a Glance [#architecture-at-a-glance]
+
+The desktop application in `/app` follows strict inward dependency inversion so pure domain logic stays independent of GUI and network frameworks:
+
+| Layer | Modules (`app/src/`) | Responsibility |
+| :--- | :--- | :--- |
+| **UI Presentation** | `app.rs`, `ui/components/`, `ui/dialogs/`, `ui/theme.rs` | Immediate-mode panels, editor canvas, preview pane, modal sub-windows, and design tokens. |
+| **Application Services** | `compiler.rs`, `world.rs`, `collab/`, `engine/`, `language_check/`, `project/`, `services/` | Background Typst compilation, P2P actor runtime, workspace buffers, and language packs. |
+| **Platform Abstraction** | `platform/menu.rs`, `platform/dialogs.rs`, `platform/shortcuts.rs`, `platform/icon.rs` | macOS `muda` menu bar, async `rfd` file pickers, global hotkeys, and desktop integration. |
+| **Core Domain** | `core/outline.rs`, `core/diff.rs`, `core/pdf.rs`, `core/settings.rs`, `core/spellcheck.rs`, `core/i18n.rs` | Pure Rust AST outline parsing, UTF-16 CRDT diffing, PDF validation, settings schema, and localization. |
+
+## Next Steps [#next-steps]
+
+<Cards>
+<Card title="Installation" description="Install azo-type on Linux, macOS, or Windows, or build from source with Cargo." href="/docs/installation" />
+
+<Card title="Getting Started" description="Learn the workspace layout, file tree, editor tools, and live preview." href="/docs/getting-started" />
+
+<Card title="Features" description="Explore P2P collaboration, PDF/A export, AST outline, and spell/grammar checking." href="/docs/features" />
+
+<Card title="Configuration" description="Customize themes, compiler settings, keyboard shortcuts, and UI language." href="/docs/configuration" />
+</Cards>
+
+# Installation (/docs/installation)
+
+azo-type targets **Linux** (Wayland & X11), **macOS** (Apple Silicon `aarch64` & Intel `x86_64`), and **Windows** (`x86_64` & `aarch64`).
+
+## Release Binaries [#release-binaries]
+
+Pre-built release archives are published on [GitHub Releases](https://github.com/azocloud/azo-type/releases) (and directly on the [Download page](/download)).
+
+1. Download the archive or installer matching your operating system and CPU architecture.
+2. Extract or install the `azo-type` executable (`azo-type.exe` on Windows, `Azo Type.app` on macOS).
+3. Launch the binary directly—Typst `0.15.1` and 17 bundled fonts are embedded inside the application, so no external `typst` CLI installation is required.
+
+<Callout type="warn" title="Early Pre-Alpha — No Release Binary Ready Yet">
+azo-type is currently in early pre-alpha development, and pre-built release binaries are not yet ready to download. Building from source with Cargo below is currently the recommended way to run the application.
+</Callout>
+
+## Building from Source [#building-from-source]
+
+### Prerequisites [#prerequisites]
+
+- **Rust `1.80+`** (stable toolchain via [rustup](https://rustup.rs/))
+- **C compiler toolchain** (`gcc`/`clang` on Linux, Xcode Command Line Tools on macOS, MSVC Build Tools on Windows)
+- **Linux system libraries:** `fontconfig` development headers plus X11/Wayland libraries
+
+On Debian/Ubuntu Linux, install the required development packages before compiling:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxcb-shape0-dev libxcb-xfixes0-dev
+```
+
+### Compile and Run [#compile-and-run]
+
+Clone the repository and build the desktop application from `/app`:
+
+```bash
+git clone https://github.com/azocloud/azo-type.git
+cd azo-type
+
+# Run debug build
+cargo run --manifest-path app/Cargo.toml
+
+# Or build an optimized release binary (LTO fat, stripped)
+cargo build --release --manifest-path app/Cargo.toml
+```
+
+The release profile in `app/Cargo.toml` uses `opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, and `strip = true`. The resulting binary is written to `app/target/release/azo-type` (or `azo-type.exe` on Windows).
+
+## Command-Line Options [#command-line-options]
+
+`azo-type` accepts optional CLI arguments at startup (parsed in `app/src/lib.rs`):
+
+| Invocation | Behavior |
+| :--- | :--- |
+| `azo-type` | Starts directly in an in-memory blank Typst project ready for immediate editing. |
+| `azo-type <folder>` | Opens the specified project directory if it exists on disk. |
+| `azo-type --screenshot <path>` | Headless CI capture mode: renders the UI, writes a PNG/JPEG screenshot to `<path>`, and exits. |
+| `azo-type --screenshot=<path>` | Equivalent equals-sign form for screenshot output. |

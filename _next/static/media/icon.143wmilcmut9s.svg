@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="800" height="800" viewBox="0 0 800 800">
+  <title>logo_fixed</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <path id="Background_Card" data-name="Background Card" d="M190 50 L610 50 C687.32 50 750 112.68 750 190 L750 610 C750 687.32 687.32 750 610 750 L190 750 C112.68 750 50 687.32 50 610 L50 190 C50 112.68 112.68 50 190 50 Z" fill="#f7f2ec"/>
+    <polygon id="Letter_A" data-name="Letter A" points="123.5,596 375.5,204 462.93,340 382.57,340 218,596" fill="#20242d"/>
+    <polygon id="Letter_T" data-name="Letter T" points="394.04,361 676.5,361 637.93,421 568,421 455.5,596 375.5,596 488,421 355.47,421" fill="#20242d"/>
+    <polygon id="Dot" points="616.5,536 676.5,536 637.93,596 577.93,596" fill="#20242d"/>
+  </g>
+</svg>
