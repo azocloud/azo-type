@@ -17,7 +17,9 @@ pub use bottom_panel::{
     BottomPanelState, BottomPanelTab,
 };
 pub use editor::{render_editor_pane, EditorPaneOutput, EditorPaneParams};
-pub use menu_bar::{render_desktop_menu_bar, EditorContextAction, MenuBarOutput, MenuBarParams};
+#[cfg(not(target_os = "macos"))]
+pub use menu_bar::render_desktop_menu_bar;
+pub use menu_bar::{EditorContextAction, MenuBarOutput, MenuBarParams};
 pub use preview::{
     render_preview_pane, PreviewPaneOutput, PreviewPaneParams, PreviewSelectionState,
     PreviewSourceJump,

@@ -1,5 +1,7 @@
 //! Binary entrypoint launching the native `eframe` desktop window and parsing CLI arguments.
 
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use azo_type::app::AzoTypeApp;
 
 fn parse_cli_args() -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) {

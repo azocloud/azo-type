@@ -4,11 +4,15 @@
 
 use std::path::Path;
 
+#[cfg(not(target_os = "macos"))]
 use egui::{Align, Context, CornerRadius, Frame, Layout, Margin, RichText, Stroke, TopBottomPanel};
+#[cfg(not(target_os = "macos"))]
 use rust_i18n::t;
 
+#[cfg(not(target_os = "macos"))]
 use crate::core::file_kind::FileKind;
 use crate::platform::menu::MenuAction;
+#[cfg(not(target_os = "macos"))]
 use crate::ui::theme::ThemePalette;
 
 /// Editor context actions triggered from the Edit menu.

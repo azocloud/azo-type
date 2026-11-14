@@ -34,7 +34,7 @@ impl Downloader for ReqwestDownloader {
                 .map_err(io::Error::other)?;
             rt.block_on(async move {
                 let client = reqwest::Client::builder()
-                    .user_agent("azo-type/0.3.0")
+                    .user_agent(concat!("azo-type/", env!("CARGO_PKG_VERSION")))
                     .build()
                     .map_err(io::Error::other)?;
                 let response = client

@@ -12,13 +12,21 @@
     <string>Azo Type</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
     <key>CFBundleIconFile</key>
     <string>icon.icns</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.3.0</string>
+    <string>0.0.0</string>
     <key>CFBundleVersion</key>
-    <string>0.3.0</string>
+    <string>0.0.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
     <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
 </dict>
 </plist>

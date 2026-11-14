@@ -4,8 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::cli_parse::{parse_cli_diagnostics, parse_cli_outline_json, StagedWorkspace};
+#[cfg(unix)]
 use super::ExternalWorkerEngine;
+#[cfg(unix)]
 use crate::core::pdf::PdfExportConfig;
+#[cfg(unix)]
 use crate::engine::types::TypstEngine;
 use crate::project::DiskProject;
 

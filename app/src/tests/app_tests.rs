@@ -52,7 +52,8 @@ fn new_headless_opens_disk_folder_and_saves_state_to_storage() {
     let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), Some(dir.clone()), None);
 
     assert!(app.project.has_disk_backing());
-    assert_eq!(app.project.root_dir, dir);
+    let expected_root = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+    assert_eq!(app.project.root_dir, expected_root);
 
     eframe::App::save(&mut app, &mut storage);
     assert!(storage
@@ -189,7 +190,8 @@ fn poll_channels_processes_io_events_and_navigation_clamps_cursor() {
 
     app.poll_channels(&ctx);
 
-    assert_eq!(app.project.root_dir, dir);
+    let expected_root = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+    assert_eq!(app.project.root_dir, expected_root);
     assert!(app
         .bottom_panel
         .console_logs

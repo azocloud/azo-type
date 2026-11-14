@@ -301,7 +301,7 @@ fn download_pack_blocking(
         .map_err(|e| format!("Failed initializing download runtime: {e}"))?;
 
     let client = reqwest::Client::builder()
-        .user_agent("azo-type/0.3.0")
+        .user_agent(concat!("azo-type/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(180))
         .build()

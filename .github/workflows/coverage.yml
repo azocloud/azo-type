@@ -1,0 +1,122 @@
+name: Test Coverage
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'locales/**'
+      - '.cargo/**'
+      - 'scripts/coverage.sh'
+      - '.github/workflows/coverage.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: ${{ github.workspace }}/app/target
+  MAX_ALLOWED_DROP: "2.0"
+
+jobs:
+  coverage:
+    name: Coverage Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+
+      - name: Install Linux build and GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang mold pkg-config \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libfontconfig1-dev libssl-dev \
+            libgtk-3-dev libwayland-dev libx11-dev
+
+      - name: Install Rust toolchain with llvm-tools
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache Cargo registry and target build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+
+      - name: Install cargo-llvm-cov (prebuilt binary)
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Compute baseline coverage on main
+        run: |
+          mkdir -p coverage
+          git fetch origin "${{ github.event.pull_request.base.sha }}" --depth=1 \
+            || git fetch origin "${{ github.event.pull_request.base.ref }}"
+          git worktree add --detach /tmp/main-baseline "${{ github.event.pull_request.base.sha }}"
+
+          cd /tmp/main-baseline/app
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --workspace --locked --json --summary-only --output-path "${{ github.workspace }}/app/coverage/baseline-summary.json"
+
+          cd "${{ github.workspace }}/app"
+          cargo llvm-cov clean --workspace
+          git worktree remove --force /tmp/main-baseline
+
+      - name: Run PR tests and generate coverage reports
+        run: |
+          cargo llvm-cov --workspace --locked --html --output-dir coverage
+          cargo llvm-cov report --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --json --summary-only --output-path coverage/summary.json
+
+      - name: Compare PR coverage against main baseline
+        run: |
+          python3 - << 'EOF'
+          import json, os, sys
+
+          max_drop = float(os.environ.get("MAX_ALLOWED_DROP", "2.0"))
+
+          with open("coverage/baseline-summary.json", encoding="utf-8") as f:
+              base_cov = json.load(f)["data"][0]["totals"]["lines"]["percent"]
+          with open("coverage/summary.json", encoding="utf-8") as f:
+              pr_cov = json.load(f)["data"][0]["totals"]["lines"]["percent"]
+
+          delta = pr_cov - base_cov
+          min_allowed = base_cov - max_drop
+          passed = pr_cov >= min_allowed
+          status_text = "PASSED" if passed else "FAILED (Drop exceeds tolerance)"
+
+          table = (
+              f"### Test Coverage Check: {status_text}\n\n"
+              f"| Metric | Value |\n"
+              f"| :--- | :--- |\n"
+              f"| **Base (`main`) Coverage** | `{base_cov:.2f}%` |\n"
+              f"| **PR Coverage** | `{pr_cov:.2f}%` |\n"
+              f"| **Change (Delta)** | `{delta:+.2f}%` |\n"
+              f"| **Minimum Allowed (`-{max_drop:.1f}%` tolerance)** | `{min_allowed:.2f}%` |\n"
+          )
+          print(table)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(table + "\n")
+
+          if not passed:
+              print(f"::error::Test coverage dropped by {abs(delta):.2f}% (from {base_cov:.2f}% to {pr_cov:.2f}%), exceeding the {max_drop:.1f}% tolerance.")
+              sys.exit(1)
+          EOF
+
+      - name: Upload HTML coverage report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-html-report
+          path: app/coverage/html/
+          retention-days: 14

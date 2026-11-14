@@ -139,7 +139,7 @@ fn test_apply_download_event_updates_selected_version_and_errors() {
 fn test_ensure_tls_crypto_provider_allows_reqwest_client_build() {
     super::ensure_tls_crypto_provider();
     let client = reqwest::Client::builder()
-        .user_agent("azo-type-test/0.3.0")
+        .user_agent(concat!("azo-type-test/", env!("CARGO_PKG_VERSION")))
         .build();
     assert!(
         client.is_ok(),
