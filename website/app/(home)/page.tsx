@@ -10,7 +10,6 @@ import {
   ListTree,
   Network,
   Sparkles,
-  Terminal,
   Zap,
 } from 'lucide-react';
 import { ThemeCompareSlider } from '@/components/theme-compare-slider';
@@ -210,56 +209,6 @@ export default function HomePage() {
                 </div>
               );
             })}
-          </div>
-        </div>
-      </section>
-
-      {/* Quick-start & Open Source Callout */}
-      <section className="border-t border-fd-border py-16">
-        <div className="mx-auto grid w-full max-w-6xl gap-8 px-6 lg:grid-cols-2 lg:items-center">
-          <div>
-            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-fd-muted-foreground">
-              <Terminal className="size-3.5" aria-hidden="true" />
-              <span>Quick Start from Source</span>
-            </div>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-fd-foreground sm:text-3xl">
-              Run locally in seconds with Cargo
-            </h2>
-            <p className="mt-3 text-sm leading-relaxed text-fd-muted-foreground sm:text-base">
-              Launch straight into an in-memory blank Typst document, open an existing project folder from disk, or pass a directory directly via CLI.
-            </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link
-                href="/docs/installation"
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-fd-border bg-fd-card px-4 py-2 text-sm font-medium text-fd-foreground hover:bg-fd-accent"
-              >
-                <span>Installation Guide</span>
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </Link>
-              <Link
-                href="/docs/getting-started"
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-fd-border bg-fd-card px-4 py-2 text-sm font-medium text-fd-foreground hover:bg-fd-accent"
-              >
-                <span>Getting Started</span>
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </Link>
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-fd-border bg-fd-card">
-            <div className="border-b border-fd-border bg-fd-secondary/50 px-4 py-2 font-mono text-xs text-fd-muted-foreground">
-              bash
-            </div>
-            <pre className="overflow-x-auto p-4 font-mono text-xs leading-6 text-fd-foreground sm:text-sm">
-              <code>{`git clone https://github.com/azocloud/azo-type.git
-cd azo-type
-
-# Run the desktop editor (opens an in-memory blank project)
-cargo run --manifest-path app/Cargo.toml
-
-# Or open an existing Typst project folder directly
-cargo run --manifest-path app/Cargo.toml -- ./my-paper`}</code>
-            </pre>
           </div>
         </div>
       </section>
