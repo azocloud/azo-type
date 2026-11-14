@@ -265,10 +265,12 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    name: Build macOS (universal)
+    name: Build macOS (arm64 + x86_64)
     needs: [check]
     if: ${{ github.event_name == 'pull_request' || inputs.is_release == true }}
     runs-on: macos-latest
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -282,6 +284,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: app
+          env-vars: MACOSX_DEPLOYMENT_TARGET
+
+      - name: Validate Info.plist
+        run: plutil -lint app/Info.plist
 
       - name: Run macOS ARM64 tests and check Intel target (CI)
         if: ${{ !inputs.is_release }}
@@ -295,33 +301,68 @@ jobs:
           cargo build --release --locked --manifest-path app/Cargo.toml --target aarch64-apple-darwin
           cargo build --release --locked --manifest-path app/Cargo.toml --target x86_64-apple-darwin
 
-      - name: Package macOS universal release archive
+      - name: Verify macOS deployment target (14.0)
         if: ${{ inputs.is_release }}
         run: |
-          mkdir -p dist
-          APP_BUNDLE="dist/Azo Type.app"
-          mkdir -p "${APP_BUNDLE}/Contents/MacOS" "${APP_BUNDLE}/Contents/Resources"
-          lipo -create \
-            "app/target/aarch64-apple-darwin/release/${APP_NAME}" \
-            "app/target/x86_64-apple-darwin/release/${APP_NAME}" \
-            -output "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
-          chmod +x "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
-          cp app/icons/icon.icns "${APP_BUNDLE}/Contents/Resources/icon.icns"
-          cp app/Info.plist "${APP_BUNDLE}/Contents/Info.plist"
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            bin="app/target/${target}/release/${APP_NAME}"
+            echo "=== vtool -show-build ${bin} ==="
+            vtool -show-build "${bin}"
+            if ! vtool -show-build "${bin}" | grep -Eq '^[[:space:]]*minos[[:space:]]+14\.0(\.0)?[[:space:]]*$'; then
+              echo "Error: ${bin} does not report minos 14.0" >&2
+              exit 1
+            fi
+          done
+
+      - name: Package and ad-hoc sign macOS release archives
+        if: ${{ inputs.is_release }}
+        run: |
           if [[ "${RELEASE_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
             BUNDLE_VERSION="${BASH_REMATCH[1]}"
           else
             BUNDLE_VERSION="$(awk -F'"' '/^version = / { print $2; exit }' app/Cargo.toml)"
           fi
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BUNDLE_VERSION}" "${APP_BUNDLE}/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUNDLE_VERSION}" "${APP_BUNDLE}/Contents/Info.plist"
-          cp LICENSE dist/
-          tar -C dist -czf "dist/${APP_NAME}-${RELEASE_TAG}-universal-macos.tar.gz" "Azo Type.app" LICENSE
 
-      - name: Upload macOS release artifact
+          mkdir -p dist
+          package_arch() {
+            local arch="$1"
+            local rust_target="$2"
+            local stage_dir="dist/staging-${arch}"
+            local app_bundle="${stage_dir}/Azo Type.app"
+            local archive="dist/${APP_NAME}-${RELEASE_TAG}-${arch}-macos.tar.gz"
+
+            rm -rf "${stage_dir}"
+            mkdir -p "${app_bundle}/Contents/MacOS" "${app_bundle}/Contents/Resources"
+            cp "app/target/${rust_target}/release/${APP_NAME}" "${app_bundle}/Contents/MacOS/${APP_NAME}"
+            chmod +x "${app_bundle}/Contents/MacOS/${APP_NAME}"
+            cp app/icons/icon.icns "${app_bundle}/Contents/Resources/icon.icns"
+            cp app/Info.plist "${app_bundle}/Contents/Info.plist"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BUNDLE_VERSION}" "${app_bundle}/Contents/Info.plist"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUNDLE_VERSION}" "${app_bundle}/Contents/Info.plist"
+            plutil -lint "${app_bundle}/Contents/Info.plist"
+            cp LICENSE "${stage_dir}/LICENSE"
+
+            codesign --force --deep --sign - "${app_bundle}"
+            codesign --verify --deep --strict --verbose=2 "${app_bundle}"
+
+            COPYFILE_DISABLE=1 tar -C "${stage_dir}" -czf "${archive}" "Azo Type.app" LICENSE
+          }
+
+          package_arch arm64 aarch64-apple-darwin
+          package_arch x86_64 x86_64-apple-darwin
+
+      - name: Upload macOS ARM64 release artifact
         if: ${{ inputs.is_release }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.APP_NAME }}-universal-macos
-          path: dist/${{ env.APP_NAME }}-${{ env.RELEASE_TAG }}-universal-macos.tar.gz
+          name: ${{ env.APP_NAME }}-arm64-macos
+          path: dist/${{ env.APP_NAME }}-${{ env.RELEASE_TAG }}-arm64-macos.tar.gz
+          if-no-files-found: error
+
+      - name: Upload macOS x86_64 release artifact
+        if: ${{ inputs.is_release }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.APP_NAME }}-x86_64-macos
+          path: dist/${{ env.APP_NAME }}-${{ env.RELEASE_TAG }}-x86_64-macos.tar.gz
           if-no-files-found: error

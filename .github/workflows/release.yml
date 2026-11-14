@@ -70,7 +70,7 @@ jobs:
           echo "Created release tag: $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-  # 2. Run checks and build all 5 release targets when a Release PR was merged or a v* tag was pushed.
+  # 2. Run checks and build all 6 release targets when a Release PR was merged or a v* tag was pushed.
   build-all:
     name: CI & Multi-Target Builds
     needs: [release-plz]
@@ -83,7 +83,7 @@ jobs:
       is_release: true
       release_tag: ${{ needs.release-plz.outputs.release_tag || github.ref_name }}
 
-  # 3. Create the GitHub Release with git-cliff notes and attach all 5 release packages.
+  # 3. Create the GitHub Release with git-cliff notes and attach all 6 release packages.
   publish-release:
     name: Publish GitHub Release
     needs: [release-plz, build-all]
