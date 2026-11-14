@@ -193,3 +193,7 @@ pub fn render_status_bar(ctx: &Context, params: StatusBarParams<'_>) -> StatusBa
         });
     output
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/components/status_bar_tests.rs"]
+mod tests;

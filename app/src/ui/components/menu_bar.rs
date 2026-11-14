@@ -265,3 +265,7 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
 
     output
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/components/menu_bar_tests.rs"]
+mod tests;

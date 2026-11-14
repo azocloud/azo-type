@@ -116,3 +116,78 @@ fn test_diagnostic_char_offset_maps_line_and_column() {
     };
     assert_eq!(diagnostic_char_offset(&project, &diag), 19);
 }
+
+#[test]
+fn bottom_panel_switches_tabs_clears_console_and_closes_on_click() {
+    use egui_kittest::{kittest::Queryable, Harness};
+    use rust_i18n::t;
+
+    use crate::language_check::LanguageCheckHost;
+    use crate::ui::components::bottom_panel::{render_bottom_panel, BottomPanelParams};
+
+    struct PanelHarnessState {
+        panel: BottomPanelState,
+        spell_check_enabled: bool,
+        auto_spell_check: bool,
+        lc: LanguageCheckHost,
+        diagnostics: Vec<DiagnosticItem>,
+        close_requested: bool,
+    }
+
+    let mut panel = BottomPanelState {
+        visible: true,
+        ..Default::default()
+    };
+    panel.push_console_log("Build finished in 42 ms");
+
+    let console_tab = BottomPanelTab::Console.label(1);
+    let autocorrect_tab = BottomPanelTab::AutoCorrection.label(1);
+    let clear_console = t!("bottom_panel.clear_console", locale = "en").to_string();
+
+    let mut harness = Harness::new_ui_state(
+        |ui, s: &mut PanelHarnessState| {
+            let out = render_bottom_panel(
+                ui,
+                BottomPanelParams {
+                    dark_mode: true,
+                    state: &mut s.panel,
+                    diagnostics: &s.diagnostics,
+                    active_file: std::path::Path::new("main.typ"),
+                    is_active_typst: true,
+                    language: "en",
+                    spell_check_enabled: &mut s.spell_check_enabled,
+                    auto_spell_check: &mut s.auto_spell_check,
+                    language_check: &s.lc,
+                },
+            );
+            s.close_requested |= out.close_requested;
+        },
+        PanelHarnessState {
+            panel,
+            spell_check_enabled: true,
+            auto_spell_check: true,
+            lc: LanguageCheckHost::new(None),
+            diagnostics: vec![sample_diag(true, 1, "expected expression")],
+            close_requested: false,
+        },
+    );
+
+    harness.get_by_label(&console_tab).click();
+    harness.run();
+    assert_eq!(harness.state().panel.active_tab, BottomPanelTab::Console);
+
+    harness.get_by_label(&clear_console).click();
+    harness.run();
+    assert!(harness.state().panel.console_logs.is_empty());
+
+    harness.get_by_label(&autocorrect_tab).click();
+    harness.run();
+    assert_eq!(
+        harness.state().panel.active_tab,
+        BottomPanelTab::AutoCorrection
+    );
+
+    harness.get_by_label("✕").click();
+    harness.run();
+    assert!(harness.state().close_requested);
+}

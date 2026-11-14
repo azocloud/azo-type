@@ -568,3 +568,7 @@ fn render_diagnostics_banner(
                 });
         });
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/components/preview_tests.rs"]
+mod tests;

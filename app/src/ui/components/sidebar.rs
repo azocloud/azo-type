@@ -580,3 +580,7 @@ fn render_fs_tree_node(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/components/sidebar_tests.rs"]
+mod tests;

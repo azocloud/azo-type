@@ -47,3 +47,35 @@ fn test_compute_vertical_split_allocates_side_by_side_panes_and_enforces_min_pre
     assert!((max_editor.second_rect.width() - 340.0).abs() < 0.01);
     assert!((max_editor.first_rect.width() - 660.0).abs() < 0.01);
 }
+
+#[test]
+fn render_vertical_and_horizontal_split_dividers_draw_without_panicking() {
+    use super::{render_horizontal_split_divider, render_vertical_split_divider};
+    use crate::ui::theme::ThemePalette;
+
+    let mut harness_v = egui_kittest::Harness::new_ui_state(
+        |ui, v_ratio: &mut f32| {
+            let ctx = ui.ctx().clone();
+            let palette = ThemePalette::for_mode(true);
+            let rect = ui.available_rect_before_wrap();
+            let v_split = compute_vertical_split(rect, 4.0, 80.0, 80.0, *v_ratio);
+            render_vertical_split_divider(&ctx, ui, &palette, rect, &v_split, v_ratio);
+        },
+        0.5_f32,
+    );
+    harness_v.run();
+
+    let mut harness_h = egui_kittest::Harness::new_ui_state(
+        |ui, h_ratio: &mut f32| {
+            let ctx = ui.ctx().clone();
+            let palette = ThemePalette::for_mode(false);
+            let rect = ui.available_rect_before_wrap();
+            let h_split = compute_horizontal_split(rect, 6.0, 60.0, 60.0, *h_ratio);
+            render_horizontal_split_divider(
+                &ctx, ui, &palette, "h_div", "Resize", rect, &h_split, 0.5, h_ratio,
+            );
+        },
+        0.5_f32,
+    );
+    harness_h.run();
+}

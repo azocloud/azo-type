@@ -248,3 +248,7 @@ pub fn render_autocorrect_tab(
         });
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/components/bottom_panel_autocorrect_tests.rs"]
+mod tests;
