@@ -78,7 +78,7 @@ export default async function DownloadPage() {
         </div>
       </div>
 
-      <DownloadCatalog initialRelease={latestRelease} />
+      <DownloadCatalog release={latestRelease} />
 
       {/* Post-Install & Verification + Source Build */}
       <section className="mt-12 grid gap-6 md:grid-cols-2">

@@ -280,9 +280,7 @@ export function formatReleaseDate(iso?: string): string | null {
 }
 
 export interface FetchReleaseOptions {
-  isClient?: boolean;
   token?: string;
-  priority?: 'low' | 'auto';
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -290,13 +288,7 @@ export interface FetchReleaseOptions {
 export async function fetchLatestRelease(
   options: FetchReleaseOptions = {},
 ): Promise<GitHubRelease | null> {
-  const {
-    isClient = false,
-    token,
-    priority,
-    signal,
-    timeoutMs = 4500,
-  } = options;
+  const { token, signal, timeoutMs = 4500 } = options;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -305,24 +297,16 @@ export async function fetchLatestRelease(
 
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
+    'User-Agent': 'azo-type-website',
   };
-  if (!isClient) {
-    headers['User-Agent'] = 'azo-type-website';
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
 
-  const init: RequestInit & { priority?: 'low' | 'auto' | 'high' } = {
+  const init: RequestInit = {
     headers,
     signal: controller.signal,
   };
-  if (isClient) {
-    init.cache = 'no-store';
-    if (priority) {
-      init.priority = priority;
-    }
-  }
 
   try {
     const res = await fetch(GITHUB_API_LATEST, init);

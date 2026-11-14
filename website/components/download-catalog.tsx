@@ -9,7 +9,6 @@ import {
   Copy,
   Download,
   Laptop,
-  RefreshCw,
   Sparkles,
 } from 'lucide-react';
 import {
@@ -22,7 +21,6 @@ import {
   LATEST_RELEASE_URL,
   PLATFORM_SPECS,
   type PlatformSpec,
-  fetchLatestRelease,
   formatBytes,
   formatReleaseDate,
   formatSha256,
@@ -31,10 +29,8 @@ import {
 } from '@/lib/releases';
 
 interface DownloadCatalogProps {
-  initialRelease: GitHubRelease | null;
+  release: GitHubRelease | null;
 }
-
-type RefreshState = 'checking' | 'live' | 'fallback';
 
 function RecommendedSpotlight({
   detectedHost,
@@ -238,9 +234,7 @@ function RecommendedSpotlight({
   );
 }
 
-export function DownloadCatalog({ initialRelease }: DownloadCatalogProps) {
-  const [release, setRelease] = useState<GitHubRelease | null>(initialRelease);
-  const [refreshState, setRefreshState] = useState<RefreshState>('checking');
+export function DownloadCatalog({ release }: DownloadCatalogProps) {
   const [detectedHost, setDetectedHost] = useState<DetectedHostSystem | null>(
     null,
   );
@@ -260,29 +254,6 @@ export function DownloadCatalog({ initialRelease }: DownloadCatalogProps) {
       active = false;
     };
   }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    fetchLatestRelease({
-      isClient: true,
-      // Deprioritize when valid build-time URLs are already embedded in static HTML.
-      priority: initialRelease ? 'low' : 'auto',
-      signal: controller.signal,
-    }).then((liveRelease) => {
-      if (controller.signal.aborted) return;
-      if (liveRelease) {
-        setRelease(liveRelease);
-        setRefreshState('live');
-      } else {
-        setRefreshState('fallback');
-      }
-    });
-
-    return () => {
-      controller.abort();
-    };
-  }, [initialRelease]);
 
   async function handleCopyChecksum(assetName: string, fullHash: string) {
     try {
@@ -336,12 +307,11 @@ export function DownloadCatalog({ initialRelease }: DownloadCatalogProps) {
                 for Linux, macOS (Sonoma 14+ required), and Windows, though
                 bugs, rough edges, and breaking changes may still occur.
               </p>
-              {!release && refreshState === 'fallback' && (
+              {!release && (
                 <p className="mt-1.5 text-xs text-fd-muted-foreground">
-                  Could not load live asset metadata from the GitHub API right
-                  now (network offline or unauthenticated 60 req/hr limit
-                  reached). Use the links below to open the latest GitHub
-                  Release directly.
+                  Release asset links were unavailable when this static page was
+                  built. Use the links below to open the latest GitHub Release
+                  directly.
                 </p>
               )}
             </div>
@@ -357,27 +327,6 @@ export function DownloadCatalog({ initialRelease }: DownloadCatalogProps) {
               <span>View release notes</span>
               <ArrowUpRight className="size-3.5" aria-hidden="true" />
             </a>
-            <span
-              aria-live="polite"
-              className="inline-flex items-center gap-1 text-[11px] text-fd-muted-foreground"
-            >
-              {refreshState === 'live' && release ? (
-                <>
-                  <CheckCircle2
-                    className="size-3 text-emerald-500"
-                    aria-hidden="true"
-                  />
-                  <span>Synced live ({release.tag_name})</span>
-                </>
-              ) : refreshState === 'checking' && release ? (
-                <>
-                  <RefreshCw className="size-3" aria-hidden="true" />
-                  <span>Build snapshot ({release.tag_name})</span>
-                </>
-              ) : release ? (
-                <span>Cached build release ({release.tag_name})</span>
-              ) : null}
-            </span>
           </div>
         </div>
       </aside>
