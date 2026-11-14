@@ -17,4 +17,41 @@ html > body[data-scroll-locked] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
+
+  .theme-compare-line {
+    background-color: Highlight;
+  }
+
+  .theme-compare-range:focus-visible + .theme-compare-divider .theme-compare-handle {
+    outline-color: Highlight;
+  }
+}
+
+.theme-compare-range {
+  -webkit-appearance: none;
+  appearance: none;
+  touch-action: pan-y;
+}
+
+.theme-compare-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 2.75rem;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  cursor: ew-resize;
+}
+
+.theme-compare-range::-moz-range-thumb {
+  width: 2.75rem;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  cursor: ew-resize;
+}
+
+.theme-compare-range:focus-visible + .theme-compare-divider .theme-compare-handle {
+  outline: 3px solid var(--color-fd-primary);
+  outline-offset: 3px;
 }

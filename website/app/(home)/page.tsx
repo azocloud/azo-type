@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -14,20 +13,20 @@ import {
   Terminal,
   Zap,
 } from 'lucide-react';
-import screenshotImg from '@/assets/screenshot.png';
+import { ThemeCompareSlider } from '@/components/theme-compare-slider';
 
 const features = [
   {
     icon: Zap,
     title: 'Live Incremental Preview',
     description:
-      'Compiles Typst in a non-blocking background thread with configurable debouncing, 1.5x–3.0x DPI rasterization, Fit Width zoom, and click-to-jump source synchronization.',
+      'Compiles Typst documents in a non-blocking background thread with configurable debouncing, crisp HiDPI rasterization, Fit Width zoom, and click-to-jump source synchronization.',
   },
   {
     icon: Network,
     title: 'Zero-Server P2P Collaboration',
     description:
-      'Real-time multi-user editing powered by Yrs CRDT and Iroh QUIC transport. Share encrypted typst-collab-v1: invite tickets with live peer cursors and isolated local undo/redo.',
+      'Real-time multi-user peer-to-peer editing with no central accounts or cloud servers required. Share encrypted invite tickets with live peer cursors and isolated local undo/redo.',
   },
   {
     icon: ListTree,
@@ -45,24 +44,17 @@ const features = [
     icon: Languages,
     title: 'Offline Spell & Grammar Check',
     description:
-      'Privacy-first proofreading via Hunspell (spellbook), nlprule grammar rules, and Lingua language detection—with on-demand EN, DE, FR, ES packs and custom .dic/.aff support.',
+      'Privacy-first local proofreading covering spelling, grammar, and automatic language detection—with on-demand EN, DE, FR, ES packs and custom .dic/.aff dictionary support.',
   },
   {
     icon: Sparkles,
     title: 'Native Cross-Platform Desktop App',
     description:
-      'Built in Rust with egui/eframe for Linux (Wayland & X11), macOS (native screen-top menu bar), and Windows—complete with light/dark themes and English/German localization.',
+      'Built in Rust for Linux (Wayland & X11), macOS (native screen-top menu bar), and Windows—complete with light/dark themes and English/German localization.',
   },
 ];
 
-const techBadges = [
-  'Rust',
-  'egui / eframe',
-  'Typst',
-  'Yrs CRDT',
-  'Iroh QUIC',
-  'GPL-3.0',
-];
+const techBadges = ['Rust', 'GPL-3.0-or-later'];
 
 export default function HomePage() {
   return (
@@ -71,15 +63,19 @@ export default function HomePage() {
       <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-6 pt-16 pb-14 text-center md:pt-24 md:pb-20">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-card px-3.5 py-1 text-xs font-medium text-fd-muted-foreground">
           <span className="size-2 rounded-full bg-amber-500" aria-hidden="true" />
-          <span>Alpha Release · Open Source (GPL-3.0)</span>
+          <span>Alpha Release · Open Source</span>
         </div>
 
         <h1 className="max-w-3xl text-4xl font-bold tracking-tight text-fd-foreground sm:text-5xl md:text-6xl">
-          Native Typst authoring, built for speed and P2P collaboration.
+          Azo Type
         </h1>
 
+        <p className="mt-3 text-xl font-medium tracking-tight text-fd-foreground/90 sm:text-2xl">
+          From source to beautiful pages.
+        </p>
+
         <p className="mt-5 max-w-2xl text-base leading-relaxed text-fd-muted-foreground sm:text-lg">
-          <strong>Azo Type</strong> is a cross-platform Rust desktop editor for{' '}
+          A native, cross-platform Rust desktop editor for{' '}
           <a
             href="https://typst.app/"
             target="_blank"
@@ -94,14 +90,14 @@ export default function HomePage() {
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/download"
-            className="inline-flex items-center gap-2 rounded-lg bg-fd-primary px-5 py-2.5 text-sm font-medium text-fd-primary-foreground transition-opacity hover:opacity-90"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-fd-primary px-5 py-2.5 text-sm font-medium text-fd-primary-foreground transition-opacity hover:opacity-90"
           >
             <Download className="size-4" aria-hidden="true" />
             <span>Download</span>
           </Link>
           <Link
             href="/docs"
-            className="inline-flex items-center gap-2 rounded-lg border border-fd-border bg-fd-card px-5 py-2.5 text-sm font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-fd-border bg-fd-card px-5 py-2.5 text-sm font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
           >
             <BookOpen className="size-4" aria-hidden="true" />
             <span>Read the Docs</span>
@@ -111,7 +107,7 @@ export default function HomePage() {
             href="https://github.com/azocloud/azo-type"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg border border-fd-border px-4 py-2.5 text-sm font-medium text-fd-muted-foreground transition-colors hover:bg-fd-accent hover:text-fd-foreground"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-fd-border px-4 py-2.5 text-sm font-medium text-fd-muted-foreground transition-colors hover:bg-fd-accent hover:text-fd-foreground"
           >
             <GitBranch className="size-4" aria-hidden="true" />
             <span>GitHub</span>
@@ -167,7 +163,7 @@ export default function HomePage() {
           </div>
         </aside>
 
-        {/* Desktop App Screenshot Preview */}
+        {/* Desktop App Screenshot Preview (Dark / Light Comparison) */}
         <div className="mt-12 w-full overflow-hidden rounded-xl border border-fd-border bg-fd-card shadow-lg">
           <div className="flex items-center justify-between border-b border-fd-border bg-fd-secondary/50 px-4 py-2.5 text-xs text-fd-muted-foreground">
             <div className="flex w-10 items-center gap-1.5" aria-hidden="true">
@@ -178,12 +174,7 @@ export default function HomePage() {
             <span className="font-mono">Azo Type</span>
             <span className="w-10" aria-hidden="true" />
           </div>
-          <Image
-            src={screenshotImg}
-            alt="Screenshot of Azo Type showing the project file tree, document outline, syntax-highlighted code pane, and live compiled document preview."
-            className="h-auto w-full object-cover"
-            priority
-          />
+          <ThemeCompareSlider />
         </div>
       </section>
 
@@ -240,14 +231,14 @@ export default function HomePage() {
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
                 href="/docs/installation"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-fd-border bg-fd-card px-4 py-2 text-sm font-medium text-fd-foreground hover:bg-fd-accent"
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-fd-border bg-fd-card px-4 py-2 text-sm font-medium text-fd-foreground hover:bg-fd-accent"
               >
                 <span>Installation Guide</span>
                 <ArrowRight className="size-3.5" aria-hidden="true" />
               </Link>
               <Link
                 href="/docs/getting-started"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-fd-border bg-fd-card px-4 py-2 text-sm font-medium text-fd-foreground hover:bg-fd-accent"
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-fd-border bg-fd-card px-4 py-2 text-sm font-medium text-fd-foreground hover:bg-fd-accent"
               >
                 <span>Getting Started</span>
                 <ArrowRight className="size-3.5" aria-hidden="true" />
