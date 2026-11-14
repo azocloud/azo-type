@@ -2,7 +2,7 @@
 
 ## Live Preview & Interactive Source Sync [#live-preview--interactive-source-sync]
 
-`azo-type` renders compiled Typst pages to RGBA textures using `typst_render` on a non-blocking worker thread:
+**Azo Type** renders compiled Typst pages to RGBA textures using `typst_render` on a non-blocking worker thread:
 
 - **Rasterization DPI:** Choose between **1.5x Fast**, **2.0x Crisp** (default), and **3.0x Ultra HiDPI** in Settings.
 - **Zoom & Navigation:** Toggle **Fit Width**, select preset zoom percentages (`50%`–`200%`), or hold `Ctrl` + mouse wheel over the preview (`25%`–`400%`).
@@ -11,7 +11,7 @@
 
 ## Multi-Version Typst Compiler Engine [#multi-version-typst-compiler-engine]
 
-While Typst `0.15.1` is compiled directly into `azo-type`, older documents may target earlier Typst releases. In **Settings → Compiler & Preview** (or by clicking the Typst version badge in the status bar), you can switch between:
+While Typst `0.15.1` is compiled directly into Azo Type, older documents may target earlier Typst releases. In **Settings → Compiler & Preview** (or by clicking the Typst version badge in the status bar), you can switch between:
 
 - **Typst `0.15.1`** (built-in offline default)
 - **Legacy Typst `0.14.2`, `0.13.1`, and `0.12.0`** (downloaded on demand from official Typst GitHub releases for your host triple and verified against embedded SHA-256 checksums before activation)
@@ -49,7 +49,7 @@ Press `Ctrl+E` (`Cmd+E` on macOS) or choose **File → Export PDF...** to config
 
 ## Offline Spell & Grammar Checking [#offline-spell--grammar-checking]
 
-Disabled by default so it stays out of your way until needed, offline proofreading runs strictly locally inside **azo-type**:
+Disabled by default so it stays out of your way until needed, offline proofreading runs strictly locally inside **Azo Type**:
 
 - **Typst-Aware Prose Extraction:** Masks code, math, labels, comments, and syntax tokens before checking prose.
 - **Tier-1 Language Packs (`en`, `de`, `fr`, `es`):** Download Hunspell dictionaries (`spellbook`) and `nlprule` grammar binaries on demand with SHA-256 verification. Language detection (`lingua`) or `#set text(lang: "...")` automatically selects the active language when set to `Auto`.

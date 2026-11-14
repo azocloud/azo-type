@@ -1,6 +1,6 @@
-:HL["/azo-type/_next/static/chunks/1a0-hww-zzgj7.css","style"]
+:HL["/azo-type/_next/static/chunks/15dr7cb6r515b.css","style"]
 :HL["/azo-type/_next/static/media/07c7676b89ed2778-s.p.2bn3s6zvc0dyp.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
 3:[["children",{"s":"__PAGE__","h":160}]]
 2:[["children",{"s":{"n":"slug","t":"oc","k":"","s":[]},"h":96,"c":"$Q3"}]]
 1:[["children",{"s":"docs","h":96,"c":"$Q2"}]]
-0:{"b":"nA-bBbI0NxPOH2NVrLXRb","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"cfRs3pGg9h8Y1C56w25hc","t":{"t":{"s":"","h":80,"c":"$Q1"}}}

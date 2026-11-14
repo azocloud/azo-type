@@ -1,12 +1,12 @@
 # Introduction (/docs)
 
-**azo-type** (Azo Type) is a native, local-first desktop editor for authoring [Typst](https://typst.app/) documents. Built in Rust with `egui`/`eframe`, it combines incremental Typst compilation, AST-driven outline navigation, standards-compliant PDF export, offline spell and grammar checking, and zero-server peer-to-peer collaboration.
+**Azo Type** is a native, local-first desktop editor for authoring [Typst](https://typst.app/) documents. Built in Rust with `egui`/`eframe`, it combines incremental Typst compilation, AST-driven outline navigation, standards-compliant PDF export, offline spell and grammar checking, and zero-server peer-to-peer collaboration.
 
-<Callout type="warn" title="Early Pre-Alpha">
-azo-type is currently in early pre-alpha development. Features and interfaces are actively evolving—please report bugs or feedback on the [GitHub repository](https://github.com/azocloud/azo-type/issues).
+<Callout type="warn" title="Alpha Software">
+Azo Type is currently in **alpha** development. Pre-built desktop binaries are available on the [Download page](/download), while features and interfaces are actively evolving—please report bugs or feedback on the [GitHub repository](https://github.com/azocloud/azo-type/issues).
 </Callout>
 
-## Why azo-type? [#why-azo-type]
+## Why Azo Type? [#why-azo-type]
 
 - **Local-First Native Speed:** Written in Rust (`2021` edition) with an immediate-mode `egui` / `eframe` `0.31` GPU-accelerated interface (`glow`).
 - **Bundled Typst Runtime:** Ships with Typst `0.15.1` and 17 embedded fonts out of the box, plus optional SHA-256 verified downloads of legacy Typst versions (`0.14.2`, `0.13.1`, `0.12.0`).
@@ -28,7 +28,7 @@ The desktop application in `/app` follows strict inward dependency inversion so 
 ## Next Steps [#next-steps]
 
 <Cards>
-<Card title="Installation" description="Install azo-type on Linux, macOS, or Windows, or build from source with Cargo." href="/docs/installation" />
+<Card title="Installation" description="Install Azo Type on Linux, macOS, or Windows, or build from source with Cargo." href="/docs/installation" />
 
 <Card title="Getting Started" description="Learn the workspace layout, file tree, editor tools, and live preview." href="/docs/getting-started" />
 

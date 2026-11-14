@@ -1,6 +1,6 @@
 # Contributing (/docs/contributing)
 
-Contributions to **azo-type** are welcome across both the Rust desktop IDE (`/app`) and this documentation site (`/website`). All code in this repository is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+Contributions to **Azo Type** are welcome across both the Rust desktop app (`/app`) and this documentation site (`/website`). All code in this repository is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
 
 ## Repository Structure [#repository-structure]
 

@@ -1,19 +1,19 @@
 # Getting Started (/docs/getting-started)
 
-When you launch **azo-type** without a directory argument, it opens an **in-memory blank project** so you can start typing Typst markup immediately without creating files up front.
+When you launch **Azo Type** without a directory argument, it opens an **in-memory blank project** so you can start typing Typst markup immediately without creating files up front.
 
 ## Workspace Layout [#workspace-layout]
 
-The IDE is organized into four main areas:
+The workspace is organized into four main areas:
 
 1. **Menu Bar (`File`, `Edit`, `View`, `Project`)**:
    - On **Linux** and **Windows**, an in-window menu bar sits across the top, including a quick **Panel** toggle and active folder indicator.
-   - On **macOS**, `azo-type` installs a native screen-top menu bar via `muda`.
+   - On **macOS**, Azo Type installs a native screen-top menu bar via `muda`.
 2. **Left Sidebar (`Ctrl+B` / `Cmd+B`)**:
    - **Disk Project Tree:** Browse directories and files with type badges (`[T]` Typst, `[B]` BibTeX/YAML, `[S]` SVG, `[I]` images, `[F]` text, `[#]` binary), dirty indicators (`*`), main-file star (`★`), and live P2P peer presence markers.
    - **Document Outline:** Hierarchical AST heading tree showing section numbers and line locations.
 3. **Center Code Editor & Preview Split**:
-   - **Tabbed Typst Editor:** Line-number gutter, active line highlighting, syntax coloring, formatting toolbar, and asset inspector for images/SVGs.
+   - **Tabbed Editor for Typst:** Line-number gutter, active line highlighting, syntax coloring, formatting toolbar, and asset inspector for images/SVGs.
    - **Live Document Preview:** Resizable split divider (drag to resize, double-click to reset 50/50) displaying compiled pages in real time.
 4. **Bottom Workspace Panel (`Ctrl+J` / `Cmd+J`)**:
    - **Warnings & Errors:** Clickable compiler diagnostics with `file:line:col` jump links and compiler hints.
@@ -37,4 +37,4 @@ Use the editor formatting toolbar or right-click context menu to insert common T
 - **`+ Table`** — Inserts a two-column `#table(...)` block.
 - **`+ Figure`** — Inserts a `#figure(image(...))` template.
 
-As you type, `azo-type` debounces compilation (default `120 ms`) on a background thread and updates the status bar with compilation timing, page count, and active Typst compiler version. External `@preview/...` packages referenced in your document are downloaded automatically via `typst-kit`.
+As you type, Azo Type debounces compilation (default `120 ms`) on a background thread and updates the status bar with compilation timing, page count, and active Typst compiler version. External `@preview/...` packages referenced in your document are downloaded automatically via `typst-kit`.
