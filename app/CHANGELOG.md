@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1](https://github.com/azocloud/azo-type/compare/v0.0.0...v0.0.1) - 2026-11-14
+
+### Build
+
+- *(license)* configure cargo-deny for GPL-3.0-or-later compatibility
+
 ## [0.0.0](https://github.com/azocloud/azo-type/releases/tag/v0.0.0) - 2026-11-14
 
 ### Added
