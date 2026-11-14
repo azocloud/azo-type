@@ -205,6 +205,65 @@ pub fn open_picked_folder(
     }
 }
 
+/// Applies a single `SessionToUiEvent` onto UI and project state.
+///
+/// Returns `(need_compile, optional_status_notice)`.
+pub fn apply_collab_session_event(
+    ev: SessionToUiEvent,
+    collab_ui: &mut CollabUiState,
+    project: &mut DiskProject,
+    pending_cursor_restore: &mut Option<CharSelection>,
+) -> (bool, Option<String>) {
+    match ev {
+        SessionToUiEvent::SessionStarted {
+            is_host,
+            ticket_str,
+            local_endpoint_id,
+            files,
+        } => {
+            collab_ui.on_session_started(is_host, ticket_str, local_endpoint_id);
+            if !files.is_empty() {
+                project.sync_from_crdt_files(&files);
+                return (true, None);
+            }
+            (false, None)
+        }
+        SessionToUiEvent::SessionStopped { reason } => {
+            collab_ui.reset_session();
+            collab_ui.is_host = false;
+            collab_ui.status_banner = Some(reason.clone());
+            (false, Some(reason))
+        }
+        SessionToUiEvent::PeerListChanged { peers } => {
+            collab_ui.peers = peers;
+            (false, None)
+        }
+        SessionToUiEvent::RemoteFilesUpdated {
+            files,
+            disk_updated_paths: _,
+            preserved_selection,
+        } => {
+            project.sync_from_crdt_files(&files);
+            if let Some(sel) = preserved_selection {
+                *pending_cursor_restore = Some(sel);
+            }
+            (true, None)
+        }
+        SessionToUiEvent::RemotePresenceUpdated { presences } => {
+            collab_ui.remote_presences = presences;
+            (false, None)
+        }
+        SessionToUiEvent::StatusNotice { message } => {
+            collab_ui.status_banner = Some(message.clone());
+            (false, Some(message))
+        }
+        SessionToUiEvent::CollabError { message } => {
+            collab_ui.last_error = Some(message.clone());
+            (false, Some(format!("Collab error: {message}")))
+        }
+    }
+}
+
 /// Drains pending P2P collaboration actor events onto UI and project state.
 ///
 /// Returns `(need_compile, optional_status_notice)`.
@@ -217,48 +276,11 @@ pub fn poll_collab_session_events(
     let mut need_compile = false;
     let mut status_notice = None;
     while let Some(ev) = collab_session.try_recv() {
-        match ev {
-            SessionToUiEvent::SessionStarted {
-                is_host,
-                ticket_str,
-                local_endpoint_id,
-                files,
-            } => {
-                collab_ui.on_session_started(is_host, ticket_str, local_endpoint_id);
-                if !files.is_empty() {
-                    project.sync_from_crdt_files(&files);
-                    need_compile = true;
-                }
-            }
-            SessionToUiEvent::SessionStopped { reason } => {
-                collab_ui.reset_session();
-                collab_ui.is_host = false;
-                collab_ui.status_banner = Some(reason.clone());
-                status_notice = Some(reason);
-            }
-            SessionToUiEvent::PeerListChanged { peers } => collab_ui.peers = peers,
-            SessionToUiEvent::RemoteFilesUpdated {
-                files,
-                disk_updated_paths: _,
-                preserved_selection,
-            } => {
-                project.sync_from_crdt_files(&files);
-                if let Some(sel) = preserved_selection {
-                    *pending_cursor_restore = Some(sel);
-                }
-                need_compile = true;
-            }
-            SessionToUiEvent::RemotePresenceUpdated { presences } => {
-                collab_ui.remote_presences = presences;
-            }
-            SessionToUiEvent::StatusNotice { message } => {
-                collab_ui.status_banner = Some(message.clone());
-                status_notice = Some(message);
-            }
-            SessionToUiEvent::CollabError { message } => {
-                collab_ui.last_error = Some(message.clone());
-                status_notice = Some(format!("Collab error: {message}"));
-            }
+        let (ev_compile, ev_notice) =
+            apply_collab_session_event(ev, collab_ui, project, pending_cursor_restore);
+        need_compile |= ev_compile;
+        if ev_notice.is_some() {
+            status_notice = ev_notice;
         }
     }
     (need_compile, status_notice)
@@ -331,3 +353,7 @@ pub fn dispatch_collab_window_actions(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/services/project_actions_tests.rs"]
+mod tests;

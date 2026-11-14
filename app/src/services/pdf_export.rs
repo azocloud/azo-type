@@ -21,16 +21,26 @@ pub struct PdfExportFlowOutcome {
     pub console_logs: Vec<String>,
 }
 
-/// Runs PDF compilation via `engine_manager` for `requested_version` and opens the save dialog on success.
-pub fn run_pdf_export_flow<E: Send + 'static>(
-    ctx: &Context,
+/// Compiled PDF bytes and metadata ready to pass to an OS save dialog.
+pub struct CompiledPdfExport {
+    pub pdf_bytes: Vec<u8>,
+    pub default_pdf_name: String,
+    pub start_dir: PathBuf,
+    pub badge: String,
+    pub size_str: String,
+    pub byte_len: usize,
+    pub status_notice: String,
+    pub fallback_notice: Option<String>,
+    pub console_logs: Vec<String>,
+}
+
+/// Compiles the project into PDF bytes for export without invoking any OS file dialog.
+pub fn compile_pdf_for_export(
     engine_manager: &EngineManager,
     requested_version: &str,
     project: &DiskProject,
     config: &PdfExportConfig,
-    tx: Sender<E>,
-    make_event: impl FnOnce(String, String) -> E + Send + 'static,
-) -> PdfExportFlowOutcome {
+) -> Result<CompiledPdfExport, Box<PdfExportFlowOutcome>> {
     let start = Instant::now();
     let (engine, fallback_notice) = engine_manager.resolve_engine(requested_version);
     let engine_meta = engine.metadata();
@@ -78,48 +88,17 @@ pub fn run_pdf_export_flow<E: Send + 'static>(
                 size = size_str.as_str()
             )
             .to_string();
-            let ctx_clone = ctx.clone();
-
-            spawn_save_file_dialog(
-                &start_dir,
-                &default_pdf_name,
-                "PDF Document",
-                "pdf",
+            Ok(CompiledPdfExport {
                 pdf_bytes,
-                move |res| {
-                    let (status_msg, console_msg) = match res {
-                        Ok(p) => {
-                            let path_str = p.display().to_string();
-                            let status = rust_i18n::t!(
-                                "app.status_pdf_exported",
-                                badge = badge.as_str(),
-                                path = path_str.as_str(),
-                                size = size_str.as_str()
-                            )
-                            .to_string();
-                            let console = format!(
-                                "[PDF Export] Saved '{path_str}' ({size_str} KB, {byte_len} bytes, {badge})"
-                            );
-                            (status, console)
-                        }
-                        Err(e) => (
-                            format!("PDF write failed: {e}"),
-                            format!("[PDF Export] Save cancelled or failed: {e}"),
-                        ),
-                    };
-                    let _ = tx.send(make_event(status_msg, console_msg));
-                },
-                move || ctx_clone.request_repaint(),
-            );
-
-            PdfExportFlowOutcome {
-                exported: true,
-                export_pdf_error: None,
-                diagnostics: None,
+                default_pdf_name,
+                start_dir,
+                badge,
+                size_str,
+                byte_len,
                 status_notice,
                 fallback_notice,
                 console_logs,
-            }
+            })
         }
         Err(diagnostics) => {
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -145,14 +124,89 @@ pub fn run_pdf_export_flow<E: Send + 'static>(
                 rust_i18n::t!("app.status_cannot_export_pdf", error = first_error.as_str())
                     .to_string();
 
-            PdfExportFlowOutcome {
+            Err(Box::new(PdfExportFlowOutcome {
                 exported: false,
                 export_pdf_error: Some(first_error),
                 diagnostics: Some(diagnostics),
                 status_notice,
                 fallback_notice,
                 console_logs,
-            }
+            }))
         }
     }
 }
+
+/// Runs PDF compilation via `engine_manager` for `requested_version` and opens the save dialog on success.
+pub fn run_pdf_export_flow<E: Send + 'static>(
+    ctx: &Context,
+    engine_manager: &EngineManager,
+    requested_version: &str,
+    project: &DiskProject,
+    config: &PdfExportConfig,
+    tx: Sender<E>,
+    make_event: impl FnOnce(String, String) -> E + Send + 'static,
+) -> PdfExportFlowOutcome {
+    let compiled = match compile_pdf_for_export(engine_manager, requested_version, project, config)
+    {
+        Ok(c) => c,
+        Err(outcome) => return *outcome,
+    };
+
+    let CompiledPdfExport {
+        pdf_bytes,
+        default_pdf_name,
+        start_dir,
+        badge,
+        size_str,
+        byte_len,
+        status_notice,
+        fallback_notice,
+        console_logs,
+    } = compiled;
+    let ctx_clone = ctx.clone();
+
+    spawn_save_file_dialog(
+        &start_dir,
+        &default_pdf_name,
+        "PDF Document",
+        "pdf",
+        pdf_bytes,
+        move |res| {
+            let (status_msg, console_msg) = match res {
+                Ok(p) => {
+                    let path_str = p.display().to_string();
+                    let status = rust_i18n::t!(
+                        "app.status_pdf_exported",
+                        badge = badge.as_str(),
+                        path = path_str.as_str(),
+                        size = size_str.as_str()
+                    )
+                    .to_string();
+                    let console = format!(
+                        "[PDF Export] Saved '{path_str}' ({size_str} KB, {byte_len} bytes, {badge})"
+                    );
+                    (status, console)
+                }
+                Err(e) => (
+                    format!("PDF write failed: {e}"),
+                    format!("[PDF Export] Save cancelled or failed: {e}"),
+                ),
+            };
+            let _ = tx.send(make_event(status_msg, console_msg));
+        },
+        move || ctx_clone.request_repaint(),
+    );
+
+    PdfExportFlowOutcome {
+        exported: true,
+        export_pdf_error: None,
+        diagnostics: None,
+        status_notice,
+        fallback_notice,
+        console_logs,
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/services/pdf_export_tests.rs"]
+mod tests;

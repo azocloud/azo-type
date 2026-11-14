@@ -55,3 +55,7 @@ pub fn handle_screenshot_lifecycle(
         ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/services/screenshot_tests.rs"]
+mod tests;
