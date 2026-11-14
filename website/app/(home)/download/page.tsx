@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
-  AlertCircle,
+  AlertTriangle,
   ArrowUpRight,
   BookOpen,
   CheckCircle2,
@@ -152,11 +152,7 @@ export default async function DownloadPage() {
             className="inline-flex items-center gap-2 rounded-lg bg-fd-primary px-5 py-2.5 text-sm font-medium text-fd-primary-foreground transition-opacity hover:opacity-90"
           >
             <Download className="size-4" aria-hidden="true" />
-            <span>
-              {latestRelease
-                ? `Latest Release (${latestRelease.tag_name})`
-                : 'Latest Release on GitHub'}
-            </span>
+            <span>Latest Release on GitHub</span>
             <ArrowUpRight className="size-4" aria-hidden="true" />
           </a>
           <a
@@ -178,16 +174,16 @@ export default async function DownloadPage() {
         </div>
       </div>
 
-      {/* Release Status Banner */}
-      <div className="mt-8 rounded-xl border border-fd-border bg-fd-card p-4 text-sm">
+      {/* Pre-Alpha / Release Status Warning */}
+      <div
+        role="alert"
+        className="mt-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm"
+      >
         {latestRelease ? (
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2 font-medium text-fd-foreground">
               <CheckCircle2 className="size-4 text-emerald-500" aria-hidden="true" />
-              <span>
-                Latest published release:{' '}
-                <span className="font-mono">{latestRelease.tag_name}</span>
-              </span>
+              <span>Pre-alpha build published on GitHub Releases</span>
             </div>
             <a
               href={latestRelease.html_url}
@@ -200,23 +196,28 @@ export default async function DownloadPage() {
             </a>
           </div>
         ) : (
-          <div className="flex items-start gap-2.5 text-fd-muted-foreground">
-            <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden="true" />
+          <div className="flex items-start gap-3 text-fd-muted-foreground">
+            <AlertTriangle
+              className="mt-0.5 size-5 shrink-0 text-amber-500"
+              aria-hidden="true"
+            />
             <div>
-              <p className="font-medium text-fd-foreground">
-                Early Pre-Alpha (v0.3.0 in <code className="font-mono">app/Cargo.toml</code>)
+              <p className="font-semibold text-fd-foreground">
+                Pre-Alpha Warning: No Release Binary Ready to Download Yet
               </p>
-              <p className="mt-1">
-                If no pre-built binary is published on{' '}
+              <p className="mt-1 leading-relaxed">
+                <strong>azo-type</strong> is still in early pre-alpha development, so pre-built
+                desktop binaries are not yet available on{' '}
                 <a
                   href={RELEASES_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="underline underline-offset-4 hover:text-fd-foreground"
+                  className="font-medium text-fd-foreground underline underline-offset-4 hover:text-fd-primary"
                 >
                   GitHub Releases
-                </a>{' '}
-                yet, you can build <code className="font-mono">azo-type</code> directly from source with Rust 1.80+.
+                </a>
+                . You can check back there for future builds or compile from source using Cargo
+                below.
               </p>
             </div>
           </div>

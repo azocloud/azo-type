@@ -70,7 +70,7 @@ export default function HomePage() {
       <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-6 pt-16 pb-14 text-center md:pt-24 md:pb-20">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-card px-3.5 py-1 text-xs font-medium text-fd-muted-foreground">
           <span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />
-          <span>v0.3.0 · Early Pre-Alpha · Open Source (GPL-3.0)</span>
+          <span>Early Pre-Alpha · Open Source (GPL-3.0)</span>
         </div>
 
         <h1 className="max-w-3xl text-4xl font-bold tracking-tight text-fd-foreground sm:text-5xl md:text-6xl">
