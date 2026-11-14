@@ -134,7 +134,7 @@ function RecommendedSpotlight({
   return (
     <section
       aria-labelledby="recommended-download-heading"
-      className="download-card-highlighted mt-6 rounded-xl border border-fd-primary/60 bg-fd-primary/5 p-5"
+      className="download-card-highlighted mt-6 w-full min-w-0 overflow-hidden rounded-xl border border-fd-primary/60 bg-fd-primary/5 p-5"
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
@@ -154,7 +154,7 @@ function RecommendedSpotlight({
               {matchedAsset ? (
                 <>
                   Latest asset:{' '}
-                  <code className="font-mono text-fd-foreground">
+                  <code className="break-all font-mono text-fd-foreground">
                     {matchedAsset.name}
                   </code>{' '}
                   ({formatBytes(matchedAsset.size)}). Need a different target?
@@ -185,13 +185,13 @@ function RecommendedSpotlight({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5">
           {confidentTarget ? (
             <a
               href={matchedAsset?.browser_download_url ?? releaseHref}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-fd-primary px-5 py-2.5 text-sm font-medium text-fd-primary-foreground transition-opacity hover:opacity-90"
+              className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-lg bg-fd-primary px-5 py-2.5 text-sm font-medium text-fd-primary-foreground transition-opacity hover:opacity-90"
             >
               <Download className="size-4 shrink-0" aria-hidden="true" />
               <span>
@@ -275,15 +275,15 @@ export function DownloadCatalog({ release }: DownloadCatalogProps) {
       {/* Alpha Warning & Latest Release Status Banner */}
       <aside
         aria-label="Alpha software notice and latest release status"
-        className="mt-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm"
+        className="mt-8 w-full min-w-0 overflow-hidden rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-3">
+          <div className="flex min-w-0 items-start gap-3">
             <AlertTriangle
               className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-400"
               aria-hidden="true"
             />
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="font-semibold text-fd-foreground">
                   Alpha Release Warning
@@ -337,7 +337,7 @@ export function DownloadCatalog({ release }: DownloadCatalogProps) {
       {/* All 3 Platform Cards (fixed DOM order) */}
       <section
         aria-label="Desktop downloads by operating system"
-        className="mt-6 grid gap-5 md:grid-cols-3"
+        className="mt-6 grid w-full min-w-0 grid-cols-1 gap-5 md:grid-cols-3"
       >
         {PLATFORM_SPECS.map((platform) => {
           const isDetectedOs = detectedHost?.os === platform.id;
@@ -348,13 +348,13 @@ export function DownloadCatalog({ release }: DownloadCatalogProps) {
           return (
             <article
               key={platform.id}
-              className={`flex flex-col justify-between rounded-xl border p-6 transition-colors ${
+              className={`flex min-w-0 flex-col justify-between overflow-hidden rounded-xl border p-6 transition-colors ${
                 isDetectedOs
                   ? 'download-card-highlighted border-fd-primary bg-fd-card ring-1 ring-fd-primary/30'
                   : 'border-fd-border bg-fd-card'
               }`}
             >
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <h2 className="text-xl font-semibold text-fd-foreground">
                     {platform.name}
@@ -395,7 +395,7 @@ export function DownloadCatalog({ release }: DownloadCatalogProps) {
                 </div>
               </div>
 
-              <div className="mt-6 space-y-2.5">
+              <div className="mt-6 min-w-0 space-y-2.5">
                 {platform.targets.map((target) => {
                   const asset = release
                     ? matchAssetForTarget(
@@ -413,7 +413,7 @@ export function DownloadCatalog({ release }: DownloadCatalogProps) {
                   return (
                     <div
                       key={target.arch}
-                      className={`rounded-lg border p-3 transition-colors ${
+                      className={`min-w-0 overflow-hidden rounded-lg border p-3 transition-colors ${
                         isRecommendedTarget
                           ? 'download-target-highlighted border-fd-primary bg-fd-primary/10'
                           : 'border-fd-border bg-fd-secondary/40'
@@ -452,7 +452,7 @@ export function DownloadCatalog({ release }: DownloadCatalogProps) {
                         href={asset ? asset.browser_download_url : releaseHref}
                         target="_blank"
                         rel="noreferrer"
-                        className={`mt-2.5 flex min-h-10 w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+                        className={`mt-2.5 flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
                           isRecommendedTarget
                             ? 'bg-fd-primary text-fd-primary-foreground hover:opacity-90'
                             : 'border border-fd-border bg-fd-card text-fd-foreground hover:bg-fd-accent'
@@ -527,9 +527,9 @@ export function DownloadCatalog({ release }: DownloadCatalogProps) {
                     href={asset.browser_download_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex min-h-10 w-full items-center justify-between rounded-lg border border-fd-border bg-fd-secondary/60 px-3.5 py-2 text-xs font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
+                    className="flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-fd-border bg-fd-secondary/60 px-3.5 py-2 text-xs font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
                   >
-                    <span className="truncate font-mono">{asset.name}</span>
+                    <span className="min-w-0 truncate font-mono">{asset.name}</span>
                     <span className="ml-2 shrink-0 text-fd-muted-foreground">
                       {formatBytes(asset.size)}
                     </span>

@@ -27,7 +27,7 @@ export default async function DownloadPage() {
   });
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-14 md:py-20">
+    <main className="mx-auto flex w-full min-w-0 max-w-5xl flex-1 flex-col px-6 py-14 md:py-20">
       {/* Header */}
       <div className="max-w-3xl">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-fd-border bg-fd-card px-3 py-1 text-xs font-medium text-fd-muted-foreground">
@@ -81,13 +81,13 @@ export default async function DownloadPage() {
       <DownloadCatalog release={latestRelease} />
 
       {/* Post-Install & Verification + Source Build */}
-      <section className="mt-12 grid gap-6 md:grid-cols-2">
-        <div className="rounded-xl border border-fd-border bg-fd-card p-6">
+      <section className="mt-12 grid w-full min-w-0 grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-fd-border bg-fd-card p-6">
           <div className="flex items-center gap-2 text-sm font-semibold text-fd-foreground">
             <ShieldCheck className="size-4" aria-hidden="true" />
             <span>Post-Install &amp; Verification Notes</span>
           </div>
-          <ul className="mt-3 space-y-2.5 text-sm leading-relaxed text-fd-muted-foreground">
+          <ul className="mt-3 space-y-2.5 break-words text-sm leading-relaxed text-fd-muted-foreground">
             <li>
               <strong className="text-fd-foreground">
                 Built-in Typst Compiler:
@@ -130,7 +130,7 @@ export default async function DownloadPage() {
           </ul>
         </div>
 
-        <div className="rounded-xl border border-fd-border bg-fd-card p-6">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-fd-border bg-fd-card p-6">
           <div className="flex items-center gap-2 text-sm font-semibold text-fd-foreground">
             <Terminal className="size-4" aria-hidden="true" />
             <span>Build Optimized Binary from Source</span>
@@ -140,7 +140,7 @@ export default async function DownloadPage() {
             <code className="font-mono">libfontconfig1-dev</code> plus
             X11/Wayland headers.
           </p>
-          <pre className="mt-3 overflow-x-auto rounded-lg border border-fd-border bg-fd-secondary/50 p-3.5 font-mono text-xs leading-6 text-fd-foreground">
+          <pre className="mt-3 max-w-full overflow-x-auto rounded-lg border border-fd-border bg-fd-secondary/50 p-3.5 font-mono text-xs leading-6 text-fd-foreground">
             <code>{`git clone https://github.com/azocloud/azo-type.git
 cd azo-type
 cargo build --release --manifest-path app/Cargo.toml
