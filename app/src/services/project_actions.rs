@@ -11,6 +11,48 @@ use crate::collab::ui::{CollabUiState, CollabWindowAction};
 use crate::platform::dialogs::{spawn_open_folder_dialog, spawn_save_file_dialog};
 use crate::project::DiskProject;
 
+/// Opens `file` (if not already active/open) and clamps `(selection, scroll_to_char)` to its text length.
+pub fn open_and_clamp_source(
+    project: &mut DiskProject,
+    file: &Path,
+    selection: CharSelection,
+    scroll_to_char: usize,
+) -> Option<(CharSelection, usize)> {
+    let norm = crate::core::diff::normalize_rel_path(&file.to_string_lossy());
+    let target_path = PathBuf::from(norm);
+    if (target_path != project.active_file || !project.open_tabs.iter().any(|p| p == &target_path))
+        && project.open_file(&target_path).is_err()
+    {
+        return None;
+    }
+    let max_chars = project
+        .active_buffer()
+        .and_then(|b| b.text.as_deref())
+        .map(|t| t.chars().count());
+    let clamped_sel = max_chars.map_or(selection, |n| CharSelection {
+        primary_char: selection.primary_char.min(n),
+        secondary_char: selection.secondary_char.min(n),
+    });
+    let clamped_scroll = max_chars.map_or(scroll_to_char, |n| scroll_to_char.min(n));
+    Some((clamped_sel, clamped_scroll))
+}
+
+/// Returns the startup status banner for `project`, preserving any engine fallback notice.
+pub fn initial_project_status_notice(project: &DiskProject, fallback: Option<String>) -> String {
+    fallback.unwrap_or_else(|| {
+        if project.has_disk_backing() {
+            rust_i18n::t!(
+                "app.status_opened_folder",
+                name = project.project_name.as_str(),
+                path = project.root_dir.display().to_string()
+            )
+            .to_string()
+        } else {
+            rust_i18n::t!("app.status_blank_ready").to_string()
+        }
+    })
+}
+
 /// Creates `new_file_str` on disk (or in memory) and notifies peers when P2P collab is active.
 ///
 /// Returns `(succeeded, status_notice)`.

@@ -75,6 +75,7 @@ INTEGRATION_TEST_MAP = {
     "app/src/core/spellcheck.rs": ["app/tests/language_check_tests.rs"],
     "app/src/core/typst_prose.rs": ["app/tests/language_check_tests.rs"],
     "app/src/language_check/engine.rs": ["app/tests/language_check_tests.rs"],
+    "app/src/app.rs": ["app/tests/ui_tests.rs"],
 }
 
 MODULE_NOTES = {
@@ -213,6 +214,7 @@ def generate_project_map() -> str:
         "| `app/tests/pdf_config_tests.rs` | PDF versions (1.4–2.0) and PDF/A standard validation | `cargo test --manifest-path app/Cargo.toml --test pdf_config_tests` |",
         "| `app/tests/persistence_tests.rs` | CRDT snapshot saving, loading, and path traversal safety | `cargo test --manifest-path app/Cargo.toml --test persistence_tests` |",
         "| `app/tests/project_tests.rs` | DiskProject file CRUD, buffers, dirty flags, entrypoints | `cargo test --manifest-path app/Cargo.toml --test project_tests` |",
+        "| `app/tests/ui_tests.rs` | End-to-end headless `egui_kittest` cross-panel UI flows | `cargo test --manifest-path app/Cargo.toml --test ui_tests` |",
         "",
     ])
 

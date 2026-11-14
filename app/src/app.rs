@@ -100,54 +100,51 @@ pub struct AzoTypeApp {
 }
 
 impl AzoTypeApp {
+    /// Constructs the application state from an `eframe::CreationContext`.
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         initial_folder: Option<PathBuf>,
         screenshot_path: Option<PathBuf>,
     ) -> Self {
+        Self::new_headless(&cc.egui_ctx, cc.storage, initial_folder, screenshot_path)
+    }
+
+    /// Constructs a headless-compatible `AzoTypeApp` from any `egui::Context` and optional storage.
+    pub fn new_headless(
+        ctx: &Context,
+        storage: Option<&dyn eframe::Storage>,
+        initial_folder: Option<PathBuf>,
+        screenshot_path: Option<PathBuf>,
+    ) -> Self {
         let resources = Arc::new(SharedWorldResources::new());
         let mut persisted =
-            crate::services::load_persisted_state(cc.storage, &rust_i18n::available_locales!());
-        persisted.settings.dark_mode = crate::platform::resolve_effective_dark_mode(
-            &cc.egui_ctx,
-            persisted.settings.theme_preference,
-        );
+            crate::services::load_persisted_state(storage, &rust_i18n::available_locales!());
+        persisted.settings.dark_mode =
+            crate::platform::resolve_effective_dark_mode(ctx, persisted.settings.theme_preference);
         let last_persisted_state = persisted.clone();
         let (language, settings, zoom) = (persisted.language, persisted.settings, persisted.zoom);
         rust_i18n::set_locale(&language);
-
         let project = initial_folder
             .filter(|f| f.is_dir())
             .and_then(|f| DiskProject::open_folder(&f, settings.show_hidden_files).ok())
             .unwrap_or_default();
-
-        apply_theme(&cc.egui_ctx, settings.dark_mode);
-
+        apply_theme(ctx, settings.dark_mode);
         let (engine_host, initial_snapshot) = EngineHost::init(
             resources,
             &project,
             &settings.typst_version,
             settings.render_dpi_scale,
         );
-        let page_textures = upload_page_textures(&cc.egui_ctx, &initial_snapshot.pages);
-
+        let page_textures = upload_page_textures(ctx, &initial_snapshot.pages);
         let (io_tx, io_rx) = mpsc::channel();
         let (compile_tx, compile_rx) = mpsc::channel();
-        let collab_session = CollabSessionHandle::spawn(Some(cc.egui_ctx.clone()));
-        let language_check = LanguageCheckHost::new(Some(cc.egui_ctx.clone()));
+        let collab_session = CollabSessionHandle::spawn(Some(ctx.clone()));
+        let language_check = LanguageCheckHost::new(Some(ctx.clone()));
 
-        let status_notice = engine_host.fallback_notice.clone().unwrap_or_else(|| {
-            if project.has_disk_backing() {
-                rust_i18n::t!(
-                    "app.status_opened_folder",
-                    name = project.project_name.as_str(),
-                    path = project.root_dir.display().to_string()
-                )
-                .to_string()
-            } else {
-                rust_i18n::t!("app.status_blank_ready").to_string()
-            }
-        });
+        let status_notice = crate::services::project_actions::initial_project_status_notice(
+            &project,
+            engine_host.fallback_notice.clone(),
+        );
 
         #[cfg(target_os = "macos")]
         let macos_menu = MacOsMenuBar::init();
@@ -214,7 +211,8 @@ impl AzoTypeApp {
         }
     }
 
-    fn dispatch_menu_action(&mut self, ctx: &Context, action: MenuAction) {
+    /// Dispatches a top-level menu or keyboard-shortcut action.
+    pub fn dispatch_menu_action(&mut self, ctx: &Context, action: MenuAction) {
         match action {
             MenuAction::NewFile => self.show_new_file_input = true,
             MenuAction::OpenFolder => self.open_folder_dialog(ctx),
@@ -261,14 +259,13 @@ impl AzoTypeApp {
             MenuAction::ToggleBottomPanel => self.bottom_panel.toggle_visible(),
             MenuAction::ToggleWordWrap => self.settings.word_wrap = !self.settings.word_wrap,
             MenuAction::ToggleTheme => {
-                let next_dark = !self.settings.dark_mode;
-                self.settings.theme_preference = if next_dark {
+                self.settings.dark_mode = !self.settings.dark_mode;
+                self.settings.theme_preference = if self.settings.dark_mode {
                     ThemePreference::Dark
                 } else {
                     ThemePreference::Light
                 };
-                self.settings.dark_mode = next_dark;
-                apply_theme(ctx, next_dark);
+                apply_theme(ctx, self.settings.dark_mode);
             }
             MenuAction::ZoomIn => self.zoom.step_in(),
             MenuAction::ZoomOut => self.zoom.step_out(),
@@ -439,9 +436,10 @@ impl AzoTypeApp {
             self.io_tx.clone(),
             |status, console| IoEvent::PdfExportFinished { status, console },
         );
-        for line in outcome.console_logs {
-            self.bottom_panel.push_console_log(line);
-        }
+        outcome
+            .console_logs
+            .into_iter()
+            .for_each(|line| self.bottom_panel.push_console_log(line));
         self.export_pdf_error = outcome.export_pdf_error;
         self.status_notice = outcome.status_notice;
         self.engine_host.fallback_notice = outcome.fallback_notice;
@@ -840,29 +838,20 @@ impl AzoTypeApp {
         selection: CharSelection,
         scroll_to_char: usize,
     ) {
-        let norm = crate::core::diff::normalize_rel_path(&file.to_string_lossy());
-        let target_path = PathBuf::from(norm);
-        if (target_path != self.project.active_file
-            || !self.project.open_tabs.iter().any(|p| p == &target_path))
-            && self.project.open_file(&target_path).is_err()
+        if let Some((clamped_sel, clamped_scroll)) =
+            crate::services::project_actions::open_and_clamp_source(
+                &mut self.project,
+                file,
+                selection,
+                scroll_to_char,
+            )
         {
-            return;
+            self.inspect_asset_mode = false;
+            self.pending_cursor_restore = Some(clamped_sel);
+            self.pending_scroll_to_char = Some(clamped_scroll);
+            self.last_editor_selection = Some(clamped_sel);
+            ctx.request_repaint();
         }
-        let max_chars = self
-            .project
-            .active_buffer()
-            .and_then(|b| b.text.as_deref())
-            .map(|t| t.chars().count());
-        let clamped_sel = max_chars.map_or(selection, |n| CharSelection {
-            primary_char: selection.primary_char.min(n),
-            secondary_char: selection.secondary_char.min(n),
-        });
-        let clamped_scroll = max_chars.map_or(scroll_to_char, |n| scroll_to_char.min(n));
-        self.inspect_asset_mode = false;
-        self.pending_cursor_restore = Some(clamped_sel);
-        self.pending_scroll_to_char = Some(clamped_scroll);
-        self.last_editor_selection = Some(clamped_sel);
-        ctx.request_repaint();
     }
 
     fn render_preview_pane(&mut self, ctx: &Context, ui: &mut Ui) {
@@ -934,10 +923,9 @@ impl AzoTypeApp {
             char_offset,
         );
     }
-}
 
-impl eframe::App for AzoTypeApp {
-    fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+    /// Runs a full UI frame without requiring an `eframe::Frame`, enabling headless tests.
+    pub fn render_ui(&mut self, ctx: &Context) {
         self.poll_channels(ctx);
         if self.settings.theme_preference == ThemePreference::SystemDefault {
             let resolved =
@@ -972,12 +960,10 @@ impl eframe::App for AzoTypeApp {
 
         // Main Split View (Code Editor Left + Live Preview Right)
         let palette = ThemePalette::for_mode(self.settings.dark_mode);
-        let central_bg = palette.chrome_sidebar;
-
         egui::CentralPanel::default()
             .frame(
                 Frame::new()
-                    .fill(central_bg)
+                    .fill(palette.chrome_sidebar)
                     .corner_radius(CornerRadius::ZERO)
                     .inner_margin(Margin::ZERO),
             )
@@ -1077,13 +1063,18 @@ impl eframe::App for AzoTypeApp {
             &self.collab_session,
             collab_actions,
         );
-
         crate::services::handle_screenshot_lifecycle(
             ctx,
             self.screenshot_path.as_deref(),
             &mut self.frame_count,
             &mut self.screenshot_requested,
         );
+    }
+}
+
+impl eframe::App for AzoTypeApp {
+    fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+        self.render_ui(ctx);
         crate::services::flush_if_changed(
             frame,
             &mut self.last_persisted_state,
@@ -1097,3 +1088,7 @@ impl eframe::App for AzoTypeApp {
         crate::services::save_persisted_parts(storage, &self.language, &self.settings, self.zoom);
     }
 }
+
+#[cfg(test)]
+#[path = "tests/app_tests.rs"]
+mod tests;

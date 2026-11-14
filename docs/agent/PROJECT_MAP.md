@@ -17,7 +17,7 @@
 
 | Module Path | Purpose (`//!` Summary) | Key Public Types / Entrypoints | Internal `crate::` Deps | Tests Location | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `app/src/app.rs` | Top-level application state orchestrator (`AzoTypeApp`), event loop, and channel dispatcher. | `IoEvent`, `TypstIdeApp`, `AzoTypeApp`, `set_language` | `collab`, `compiler`, `core`, `engine`, `highlight`, `language_check`, `platform`, `project`, `ui`, `world` | *(covered via integration/UI)* | Top-level `eframe::App` state orchestrator; delegates view rendering to `ui/`. |
+| `app/src/app.rs` | Top-level application state orchestrator (`AzoTypeApp`), event loop, and channel dispatcher. | `IoEvent`, `TypstIdeApp`, `AzoTypeApp`, `new_headless`, `set_language`, `dispatch_menu_action` | `collab`, `compiler`, `core`, `engine`, `highlight`, `language_check`, `platform`, `project`, `ui`, `world` | `app/src/tests/app_tests.rs`, `app/tests/ui_tests.rs` | Top-level `eframe::App` state orchestrator; delegates view rendering to `ui/`. |
 | `app/src/collab/awareness.rs` | Ephemeral peer presence, active file tracking, and remote cursor awareness synchronization. | `PeerPresence`, `CollabAwareness`, `client_id`, `set_local_presence`, `encode_full_update`, `apply_remote_awareness_bytes` | *(none)* | `app/src/tests/collab/awareness_tests.rs` | — |
 | `app/src/collab/cursor_overlay.rs` | In-editor remote peer cursor, selection highlight, and name-tag overlay painting. | `paint_remote_cursors_in_editor` | `collab` | `app/src/tests/collab/cursor_overlay_tests.rs` | — |
 | `app/src/collab/doc.rs` | Multi-file Yrs CRDT document container (`CollabProjectDoc`), sticky cursors, and local undo manager. | `LOCAL_ORIGIN`, `REMOTE_ORIGIN`, `FILES_MAP_KEY`, `CollabFileEntry`, `CollabProjectDoc`, `with_client_id` | `core` | `app/src/tests/collab/doc_tests.rs` | — |
@@ -64,7 +64,7 @@
 | `app/src/services/mod.rs` | Application background services and runners. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/services/pdf_export.rs` | PDF compilation and asynchronous OS save-dialog workflow orchestration. | `PdfExportFlowOutcome`, `CompiledPdfExport`, `compile_pdf_for_export`, `run_pdf_export_flow` | `core`, `engine`, `platform`, `project` | `app/src/tests/services/pdf_export_tests.rs` | — |
 | `app/src/services/persistence.rs` | Persistent application preferences, language, and preview zoom backed by `eframe::Storage`. | `SETTINGS_STORAGE_KEY`, `PREVIEW_ZOOM_STORAGE_KEY`, `PersistedAppState`, `load_persisted_state`, `save_persisted_state`, `save_persisted_parts` | `core` | `app/src/tests/services/persistence_tests.rs` | — |
-| `app/src/services/project_actions.rs` | Project file creation, renaming, and deletion workflows synchronized with collaboration state. | `create_project_file`, `rename_project_file`, `delete_project_file`, `save_active_or_prompt`, `save_all_project_files`, `open_picked_folder` | `collab`, `platform`, `project` | `app/src/tests/services/project_actions_tests.rs` | — |
+| `app/src/services/project_actions.rs` | Project file creation, renaming, and deletion workflows synchronized with collaboration state. | `open_and_clamp_source`, `initial_project_status_notice`, `create_project_file`, `rename_project_file`, `delete_project_file`, `save_active_or_prompt` | `collab`, `platform`, `project` | `app/src/tests/services/project_actions_tests.rs` | — |
 | `app/src/services/screenshot.rs` | Headless screenshot capture automation for tests and CI documentation. | `handle_screenshot_lifecycle` | *(none)* | `app/src/tests/services/screenshot_tests.rs` | — |
 | `app/src/ui/components/bottom_panel.rs` | Collapsible multi-tab bottom workspace panel rendered beneath the editor and preview panes. | `BottomPanelTab`, `ALL`, `label`, `BottomPanelState`, `toggle_visible`, `toggle_diagnostic_expanded` | `core`, `engine`, `language_check`, `project`, `ui` | `app/src/tests/ui/components/bottom_panel_tests.rs` | — |
 | `app/src/ui/components/bottom_panel_autocorrect.rs` | Auto-Correction & Language Analysis tab inside the collapsible bottom workspace panel. | `render_autocorrect_tab` | `core`, `language_check`, `ui` | `app/src/tests/ui/components/bottom_panel_autocorrect_tests.rs` | — |
@@ -91,6 +91,7 @@
 
 | Test Module Path | Purpose (`//!` Summary) |
 | :--- | :--- |
+| `app/src/tests/app_tests.rs` | Unit tests for `AzoTypeApp` orchestration, menu dispatch, snapshot application, and channel polling. |
 | `app/src/tests/collab/awareness_tests.rs` | Unit tests for peer awareness state encoding, decoding, and synchronization. |
 | `app/src/tests/collab/cursor_overlay_tests.rs` | Unit tests for painting remote collaboration cursors, selections, and name tags. |
 | `app/src/tests/collab/doc_tests.rs` | Unit tests for Yrs CRDT convergence, sticky cursors, path collisions, and local undo. |
@@ -153,3 +154,4 @@
 | `app/tests/pdf_config_tests.rs` | PDF versions (1.4–2.0) and PDF/A standard validation | `cargo test --manifest-path app/Cargo.toml --test pdf_config_tests` |
 | `app/tests/persistence_tests.rs` | CRDT snapshot saving, loading, and path traversal safety | `cargo test --manifest-path app/Cargo.toml --test persistence_tests` |
 | `app/tests/project_tests.rs` | DiskProject file CRUD, buffers, dirty flags, entrypoints | `cargo test --manifest-path app/Cargo.toml --test project_tests` |
+| `app/tests/ui_tests.rs` | End-to-end headless `egui_kittest` cross-panel UI flows | `cargo test --manifest-path app/Cargo.toml --test ui_tests` |
