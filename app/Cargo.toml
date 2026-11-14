@@ -1,6 +1,6 @@
 [package]
 name = "azo-type"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2021"
 description = "Native Cross-Platform Typst Editor with P2P Real-Time Collaborative Editing"
 authors = ["AzoCloud"]
