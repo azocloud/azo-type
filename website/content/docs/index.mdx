@@ -1,13 +1,38 @@
 ---
-title: Hello World
-description: Your first document
+title: Introduction
+description: Overview of azo-type, a native cross-platform Rust desktop IDE for Typst with live preview and P2P collaboration.
 ---
 
-Welcome to the docs! You can start writing documents in `/content/docs`.
+**azo-type** (Azo Type) is a native, local-first desktop IDE for authoring [Typst](https://typst.app/) documents. Built in Rust with `egui`/`eframe`, it combines incremental Typst compilation, AST-driven outline navigation, standards-compliant PDF export, offline spell and grammar checking, and zero-server peer-to-peer collaboration.
 
-## What is Next?
+<Callout type="warn" title="Early Pre-Alpha">
+  azo-type (`v0.3.0`) is currently in early pre-alpha development. Features and interfaces are actively evolving—please report bugs or feedback on the [GitHub repository](https://github.com/azocloud/azo-type/issues).
+</Callout>
+
+## Why azo-type?
+
+- **Local-First Native Speed:** Written in Rust (`2021` edition) with an immediate-mode `egui` / `eframe` `0.31` GPU-accelerated interface (`glow`).
+- **Bundled Typst Runtime:** Ships with Typst `0.15.1` and 17 embedded fonts out of the box, plus optional SHA-256 verified downloads of legacy Typst versions (`0.14.2`, `0.13.1`, `0.12.0`).
+- **Zero-Server P2P Collaboration:** Powered by `yrs` (`0.28`, Yjs CRDT) over direct `iroh` (`1.4.1`) QUIC streams—no central accounts or cloud servers required.
+- **Archival & Accessible PDF Export:** Supports PDF `1.4`–`2.0`, ISO 19005 PDF/A standards (`1a`/`1b` through `4`/`4f`/`4e`), PDF/UA-1, and tagged document structure trees.
+- **Offline Proofreading:** Optional offline spellchecking (`spellbook`), grammar rules (`nlprule`), and automatic language detection (`lingua`).
+
+## Architecture at a Glance
+
+The desktop application in `/app` follows strict inward dependency inversion so pure domain logic stays independent of GUI and network frameworks:
+
+| Layer | Modules (`app/src/`) | Responsibility |
+| :--- | :--- | :--- |
+| **UI Presentation** | `app.rs`, `ui/components/`, `ui/dialogs/`, `ui/theme.rs` | Immediate-mode panels, editor canvas, preview pane, modal sub-windows, and design tokens. |
+| **Application Services** | `compiler.rs`, `world.rs`, `collab/`, `engine/`, `language_check/`, `project/`, `services/` | Background Typst compilation, P2P actor runtime, workspace buffers, and language packs. |
+| **Platform Abstraction** | `platform/menu.rs`, `platform/dialogs.rs`, `platform/shortcuts.rs`, `platform/icon.rs` | macOS `muda` menu bar, async `rfd` file pickers, global hotkeys, and desktop integration. |
+| **Core Domain** | `core/outline.rs`, `core/diff.rs`, `core/pdf.rs`, `core/settings.rs`, `core/spellcheck.rs`, `core/i18n.rs` | Pure Rust AST outline parsing, UTF-16 CRDT diffing, PDF validation, settings schema, and localization. |
+
+## Next Steps
 
 <Cards>
-  <Card title="Learn more about Next.js" href="https://nextjs.org/docs" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
+  <Card title="Installation" description="Install azo-type on Linux, macOS, or Windows, or build from source with Cargo." href="/docs/installation" />
+  <Card title="Getting Started" description="Learn the workspace layout, file tree, editor tools, and live preview." href="/docs/getting-started" />
+  <Card title="Features" description="Explore P2P collaboration, PDF/A export, AST outline, and spell/grammar checking." href="/docs/features" />
+  <Card title="Configuration" description="Customize themes, compiler settings, keyboard shortcuts, and UI language." href="/docs/configuration" />
 </Cards>
