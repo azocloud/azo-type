@@ -201,7 +201,9 @@ fn saves_modified_buffer_to_disk_and_clears_dirty_flag() {
     assert!(project.active_buffer().unwrap().dirty);
 
     let saved_path = project.save_active_file().expect("save should succeed");
-    assert_eq!(saved_path, temp_dir.join("main.typ"));
+    let expected_path = std::fs::canonicalize(temp_dir.join("main.typ"))
+        .unwrap_or_else(|_| temp_dir.join("main.typ"));
+    assert_eq!(saved_path, expected_path);
     assert!(!project.active_buffer().unwrap().dirty);
     assert_eq!(
         fs::read_to_string(temp_dir.join("main.typ")).unwrap(),
