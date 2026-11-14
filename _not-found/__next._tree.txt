@@ -1,4 +1,4 @@
 :HL["/azo-type/_next/static/chunks/1a0-hww-zzgj7.css","style"]
 2:[["children",{"s":"__PAGE__","h":160}]]
 1:[["children",{"s":"/_not-found","h":96,"c":"$Q2"}]]
-0:{"b":"43IGJ0jnWNH6MsxVc3uyk","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
+0:{"b":"l1cDqJXcWvu3SDw0s0hPN","t":{"t":{"s":"","h":80,"c":"$Q1"}}}
