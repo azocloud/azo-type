@@ -309,3 +309,7 @@ impl LanguageCheckHost {
         status_notice
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/language_check/host_tests.rs"]
+mod tests;

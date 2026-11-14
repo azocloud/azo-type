@@ -231,3 +231,7 @@ fn format_for_leaf(
 
     format
 }
+
+#[cfg(test)]
+#[path = "tests/highlight_tests.rs"]
+mod tests;

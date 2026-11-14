@@ -46,3 +46,7 @@ pub fn poll_keyboard_shortcuts(ctx: &Context, collab_active: bool) -> KeyboardSh
 
     outcome
 }
+
+#[cfg(test)]
+#[path = "../tests/platform/shortcuts_tests.rs"]
+mod tests;

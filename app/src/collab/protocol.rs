@@ -260,3 +260,7 @@ pub trait CollabTransport: Send + Sync {
     fn disconnect_peer(&self, peer_id: &str);
     fn shutdown(&self);
 }
+
+#[cfg(test)]
+#[path = "../tests/collab/protocol_tests.rs"]
+mod tests;

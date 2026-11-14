@@ -22,7 +22,7 @@
 | `app/src/collab/doc.rs` | Multi-file Yrs CRDT document container (`CollabProjectDoc`), sticky cursors, and local undo manager. | `LOCAL_ORIGIN`, `REMOTE_ORIGIN`, `FILES_MAP_KEY`, `CollabFileEntry`, `CollabProjectDoc`, `with_client_id` | `core` | `app/src/tests/collab/doc_tests.rs` | — |
 | `app/src/collab/mod.rs` | Peer-to-peer real-time collaborative editing subsystem (Yrs CRDT + Iroh QUIC transport). | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/collab/persistence.rs` | Atomic disk persistence for CRDT state snapshots (`.typst-collab/state.yrs`) and workspace reconciliation. | `PersistedFileIdMap`, `CollabPersistence`, `snapshot_path`, `file_ids_path`, `load_and_reconcile_from_disk`, `save_snapshot` | `collab`, `project` | `app/tests/persistence_tests.rs` | — |
-| `app/src/collab/protocol.rs` | Wire protocol definitions, tickets, and abstract transport trait for P2P collaboration. | `COLLAB_ALPN`, `COLLAB_PROTOCOL_VERSION`, `MAX_WIRE_FRAME_BYTES`, `TICKET_PREFIX`, `ConnectionRoute`, `badge_label` | *(none)* | *(covered via integration/UI)* | `SessionTicket` redacts secret bytes in `Debug` impl. |
+| `app/src/collab/protocol.rs` | Wire protocol definitions, tickets, and abstract transport trait for P2P collaboration. | `COLLAB_ALPN`, `COLLAB_PROTOCOL_VERSION`, `MAX_WIRE_FRAME_BYTES`, `TICKET_PREFIX`, `ConnectionRoute`, `badge_label` | *(none)* | `app/src/tests/collab/protocol_tests.rs` | `SessionTicket` redacts secret bytes in `Debug` impl. |
 | `app/src/collab/session.rs` | Background asynchronous collaboration session actor coordinating CRDT state, transport, and UI channels. | `PeerLifecycleState`, `label`, `ConnectedPeerStatus`, `UiToSessionCmd`, `SessionToUiEvent`, `CollabSessionHandle` | `collab` | `app/src/tests/collab/session_tests.rs` | Runs a dedicated `tokio` runtime on a background thread; communicates via `mpsc`. |
 | `app/src/collab/transport.rs` | Concrete `Iroh` QUIC peer-to-peer network transport implementation (`IrohCollabTransport`). | `inspect_connection_route`, `write_framed_message`, `read_framed_message`, `IrohTransport`, `bind_host`, `connect_with_ticket` | `collab` | `app/src/tests/collab/transport_tests.rs` | — |
 | `app/src/collab/ui.rs` | Collaborative UI window, peer list badges, session controls, and in-editor remote cursor painting. | `CollabUiState`, `connected_peer_count`, `peers_in_file`, `on_session_started`, `reset_session`, `render_collaboration_window` | `collab`, `highlight` | *(covered via integration/UI)* | — |
@@ -43,10 +43,10 @@
 | `app/src/engine/types.rs` | Version-agnostic compiler trait, plain Rust boundary types, and external worker DTOs. | `DiagnosticItem`, `PreviewCharBox`, `RenderedPageData`, `RenderedPageTexture`, `CompileSnapshot`, `EngineMetadata` | `core`, `project` | `app/src/tests/engine/types_tests.rs` | — |
 | `app/src/engine/worker/cli_parse.rs` | Isolated workspace staging, PNG page decoding, and CLI stderr/query parsing helpers. | `TempDirGuard`, `path`, `StagedWorkspace`, `prepare`, `normalize_rel_pathbuf`, `decode_rendered_png_pages` | `core`, `engine`, `project` | *(covered via integration/UI)* | — |
 | `app/src/engine/worker.rs` | External Typst compiler process bridge supporting official CLI binaries and JSON-stdio workers. | `WorkerMode`, `ExternalWorkerEngine`, `with_json_stdio` | `core`, `engine`, `project` | `app/src/tests/engine/worker_tests.rs` | — |
-| `app/src/highlight.rs` | Syntax highlighting engine mapping Typst AST tokens to styled `egui::text::LayoutJob` spans. | `highlight_typst_code` | `ui` | *(covered via integration/UI)* | — |
+| `app/src/highlight.rs` | Syntax highlighting engine mapping Typst AST tokens to styled `egui::text::LayoutJob` spans. | `highlight_typst_code` | `ui` | `app/src/tests/highlight_tests.rs` | — |
 | `app/src/language_check/downloader.rs` | On-demand Tier-1 Hunspell dictionary and `nlprule` grammar model downloader and cache manager. | `DictionaryPackStatus`, `DictionaryDownloadProgress`, `fraction`, `elapsed_secs`, `InstalledTier1Paths`, `DictionaryDownloadOutcome` | `core`, `engine` | `app/src/tests/language_check/downloader_tests.rs` | — |
 | `app/src/language_check/engine.rs` | Offline spellcheck (`spellbook`), grammar (`nlprule`), and language detection (`lingua`) | `LanguageSource`, `DocumentCheckResult`, `LanguageCheckEngine`, `invalidate_dictionaries`, `resolve_language`, `check_document` | `core`, `language_check` | `app/src/tests/language_check/engine_tests.rs`, `app/tests/language_check_tests.rs` | — |
-| `app/src/language_check/host.rs` | Background worker actor, debounce scheduler, and UI channel bridge for offline spell & grammar checking. | `LanguageCheckHost`, `on_text_edited`, `check_now`, `clear_results`, `invalidate_dictionaries`, `download_pack` | `core`, `language_check`, `project` | *(covered via integration/UI)* | — |
+| `app/src/language_check/host.rs` | Background worker actor, debounce scheduler, and UI channel bridge for offline spell & grammar checking. | `LanguageCheckHost`, `on_text_edited`, `check_now`, `clear_results`, `invalidate_dictionaries`, `download_pack` | `core`, `language_check`, `project` | `app/src/tests/language_check/host_tests.rs` | — |
 | `app/src/language_check/mod.rs` | Offline spellchecking (`spellbook`), grammar checking (`nlprule`), language detection | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/language_check/tokenize.rs` | Word tokenization and UTF-8 byte-to-char/line-column source offset mapping. | `tokenize_prose_words`, `SourceOffsetMapper`, `map_range` | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/lib.rs` | Library root for `azo-type`, exposing domain, platform, collaboration, compiler, and UI modules. | `parse_cli_args_from` | *(none)* | `app/tests/cli_tests.rs` | — |
@@ -55,7 +55,7 @@
 | `app/src/platform/icon.rs` | Application icon loader, PNG image decoding, and desktop viewport icon configuration. | `APP_ID`, `app_window_icon`, `configure_viewport_builder`, `load_icon_from_png_bytes`, `LINUX_ICONS`, `ensure_linux_desktop_integration_to_dir` | *(none)* | `app/src/tests/platform/icon_tests.rs` | — |
 | `app/src/platform/menu.rs` | Platform-specific native OS application menu integration. | `MenuAction`, `MacOsMenuBar`, `init`, `poll_action` | *(none)* | *(covered via integration/UI)* | Native `muda` menu bar active only under `#[cfg(target_os = "macos")]`. |
 | `app/src/platform/mod.rs` | Platform-specific integrations and OS services. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
-| `app/src/platform/shortcuts.rs` | Keyboard shortcut polling for desktop editor, panels, and collaboration undo/redo. | `KeyboardShortcutOutcome`, `poll_keyboard_shortcuts` | `platform` | *(covered via integration/UI)* | — |
+| `app/src/platform/shortcuts.rs` | Keyboard shortcut polling for desktop editor, panels, and collaboration undo/redo. | `KeyboardShortcutOutcome`, `poll_keyboard_shortcuts` | `platform` | `app/src/tests/platform/shortcuts_tests.rs` | — |
 | `app/src/platform/theme.rs` | Cross-platform OS dark/light theme detection (`System-Default`) with safe Dark fallback. | `resolve_effective_dark_mode`, `detect_system_dark_mode`, `parse_portal_color_scheme`, `parse_gsettings_color_scheme`, `parse_gtk_theme_name_is_dark`, `parse_gtk_settings_ini` | `core` | `app/src/tests/platform/theme_tests.rs` | — |
 | `app/src/project/buffer.rs` | Open buffer and file tree node types for workspace and in-memory documents. | `FsTreeNode`, `OpenBuffer`, `load_from_disk`, `save_to_disk`, `line_count` | `core` | *(covered via integration/UI)* | — |
 | `app/src/project.rs` | Workspace management (`DiskProject`), on-disk and in-memory projects, file tree scanning, and buffer caching. | `DiskProject`, `blank`, `has_disk_backing`, `open_folder`, `rescan_tree`, `collect_typ_files` | `core` | `app/tests/project_tests.rs` | — |
@@ -83,7 +83,7 @@
 | `app/src/ui/dialogs/settings.rs` | Settings modal dialog (`File > Settings`) managing editor, appearance, and compilation preferences. | `SettingsModalOutput`, `render_settings_dialog` | `core`, `engine`, `language_check`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/dialogs/settings_spell.rs` | Settings dialog tab for offline spellchecking, grammar checking, and dictionary management. | `render_spell_and_grammar_tab` | `core`, `language_check`, `ui` | *(covered via integration/UI)* | — |
 | `app/src/ui/mod.rs` | UI presentation layer, components, dialogs, and styling. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
-| `app/src/ui/theme.rs` | UI Design System tokens, ThemePalette, and egui Visuals styling. | `DESIGN_SYSTEM_CSS_TOKENS`, `ThemePalette`, `DARK`, `LIGHT`, `for_mode`, `apply_theme` | *(none)* | *(covered via integration/UI)* | — |
+| `app/src/ui/theme.rs` | UI Design System tokens, ThemePalette, and egui Visuals styling. | `DESIGN_SYSTEM_CSS_TOKENS`, `ThemePalette`, `DARK`, `LIGHT`, `for_mode`, `apply_theme` | *(none)* | `app/src/tests/ui/theme_tests.rs` | — |
 | `app/src/world.rs` | Implementation of `typst::World` (`IdeWorld`) providing fonts, packages, and file sources to the compiler. | `ReqwestDownloader`, `SharedWorldResources`, `font_family_count`, `EditorWorld`, `display_path_for_id` | `project` | *(covered via integration/UI)* | — |
 
 ## 3. Centralized Unit Test Modules (`app/src/tests/`)
@@ -92,6 +92,7 @@
 | :--- | :--- |
 | `app/src/tests/collab/awareness_tests.rs` | Unit tests for peer awareness state encoding, decoding, and synchronization. |
 | `app/src/tests/collab/doc_tests.rs` | Unit tests for Yrs CRDT convergence, sticky cursors, path collisions, and local undo. |
+| `app/src/tests/collab/protocol_tests.rs` | Unit tests for P2P collaboration wire protocol types, ticket validation, and secret redaction. |
 | `app/src/tests/collab/session_tests.rs` | Unit tests for end-to-end multi-file P2P session synchronization over Iroh. |
 | `app/src/tests/collab/transport_tests.rs` | Unit tests for session ticket encoding, redaction, and Iroh QUIC handshake. |
 | `app/src/tests/compiler_tests.rs` | Unit tests for the Typst compiler, package fetching, and PDF export pipeline. |
@@ -107,10 +108,13 @@
 | `app/src/tests/engine/manager_tests.rs` | Unit tests for [`EngineManager`] resolution, fallback behavior, and SHA-256 verification. |
 | `app/src/tests/engine/types_tests.rs` | Unit tests for version-agnostic engine DTO serialization and RGBA/glyph roundtrips. |
 | `app/src/tests/engine/worker_tests.rs` | Unit tests for the external engine worker bridge (`cli` parsers, staging, and JSON-stdio protocol). |
+| `app/src/tests/highlight_tests.rs` | Unit tests for Typst syntax highlighting into styled `LayoutJob` spans. |
 | `app/src/tests/language_check/downloader_tests.rs` | Unit tests for the Tier-1 dictionary cache and download status tracking. |
 | `app/src/tests/language_check/engine_tests.rs` | Unit tests for offline spell/grammar engine tokenization, language detection, and caching. |
+| `app/src/tests/language_check/host_tests.rs` | Unit tests for `LanguageCheckHost` background checking, debouncing, and poll transitions. |
 | `app/src/tests/platform/dialogs_tests.rs` | Unit tests for Hunspell dictionary companion file resolution. |
 | `app/src/tests/platform/icon_tests.rs` | Unit tests for application icon decoding, caching, and viewport builder configuration. |
+| `app/src/tests/platform/shortcuts_tests.rs` | Unit tests for global keyboard shortcut polling across editor and collab modes. |
 | `app/src/tests/platform/theme_tests.rs` | Unit tests for OS theme detection parsers and System-Default fallback behavior. |
 | `app/src/tests/services/language_actions_tests.rs` | Unit tests for spell/grammar suggestion application and Tier-2 dictionary registration. |
 | `app/src/tests/services/persistence_tests.rs` | Unit tests for `eframe::Storage` settings persistence and reload behavior. |
@@ -118,6 +122,7 @@
 | `app/src/tests/ui/components/editor_diagnostics_tests.rs` | Unit tests for editor language diagnostic underline geometry and color mapping. |
 | `app/src/tests/ui/components/preview_selection_tests.rs` | Unit tests for preview coordinate mapping, hit-testing, multi-file selection, and text extraction. |
 | `app/src/tests/ui/components/split_divider_tests.rs` | Unit tests for split divider pane geometry calculations. |
+| `app/src/tests/ui/theme_tests.rs` | Unit tests for UI Design System palettes and `egui` theme application. |
 
 ## 4. Integration & Characterization Suites (`app/tests/`)
 

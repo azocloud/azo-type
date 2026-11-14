@@ -209,3 +209,7 @@ pub fn apply_theme(ctx: &Context, dark_mode: bool) {
 
     ctx.set_visuals(visuals);
 }
+
+#[cfg(test)]
+#[path = "../tests/ui/theme_tests.rs"]
+mod tests;
