@@ -197,7 +197,7 @@ Adding dependencies increases compile times, binary size, and supply-chain surfa
 4. **Layer Placement Check:**
    - Never expose UI or I/O crates inside `app/src/core/`.
 5. **Verify Full Build & Lockfile:**
-   - Run `./scripts/check.sh` and commit `app/Cargo.toml` and `app/Cargo.lock` together in a `build(deps): ...` or `chore(deps): ...` commit.
+   - Run `./scripts/check.sh` and commit `app/Cargo.toml` and `Cargo.lock` together in a `build(deps): ...` or `chore(deps): ...` commit.
 
 ### Checklist
 - [ ] User explicitly approved the new dependency.
