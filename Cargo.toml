@@ -1,0 +1,13 @@
+# Workspace root manifest so repository-root tooling (such as release-plz in
+# git_only mode) resolves from the Git repository root while keeping the crate in app/.
+
+[workspace]
+resolver = "2"
+members = ["app"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

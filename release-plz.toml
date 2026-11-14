@@ -17,7 +17,7 @@ git_tag_enable = true
 git_tag_name = "v{{ version }}"
 
 # The publish-release job in .github/workflows/release.yml creates the GitHub Release
-# after all 5 cross-platform build targets complete.
+# after all 6 cross-platform build targets complete.
 git_release_enable = false
 
 # Ensure `feat:` commits bump the minor version even while in 0.x (e.g., 0.1.0 -> 0.2.0).

@@ -5,6 +5,8 @@ on:
     branches:
       - main
     paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'app/**'
       - 'locales/**'
       - '.cargo/**'
@@ -65,8 +67,6 @@ jobs:
 
       - name: Cache Cargo registry and target build
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
 
       - name: Check formatting
         run: cargo fmt --check --manifest-path app/Cargo.toml
@@ -115,8 +115,6 @@ jobs:
 
       - name: Cache Cargo registry and target build
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
 
       - name: Run ARM64 tests (CI)
         if: ${{ !inputs.is_release && matrix.arch == 'aarch64' }}
@@ -134,7 +132,7 @@ jobs:
         if: ${{ inputs.is_release }}
         run: |
           mkdir -p dist staging
-          cp "app/target/${{ matrix.target }}/release/${APP_NAME}" staging/
+          cp "target/${{ matrix.target }}/release/${APP_NAME}" staging/
           chmod +x "staging/${APP_NAME}"
           cp app/azo-type.desktop staging/
           cp LICENSE staging/
@@ -221,8 +219,6 @@ jobs:
 
       - name: Cache Cargo registry and target build
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
 
       - name: Run Windows tests (CI)
         if: ${{ !inputs.is_release }}
@@ -237,7 +233,7 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path dist, staging | Out-Null
-          Copy-Item "app/target/${{ matrix.target }}/release/${env:APP_NAME}.exe" staging/
+          Copy-Item "target/${{ matrix.target }}/release/${env:APP_NAME}.exe" staging/
           Copy-Item "LICENSE" staging/
           Compress-Archive -Path "staging/*" -DestinationPath "dist/${env:APP_NAME}-${env:RELEASE_TAG}-${{ matrix.arch }}-windows.zip" -Force
 
@@ -268,7 +264,6 @@ jobs:
       - name: Cache Cargo registry and target build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app
           env-vars: MACOSX_DEPLOYMENT_TARGET
 
       - name: Validate Info.plist
@@ -290,7 +285,7 @@ jobs:
         if: ${{ inputs.is_release }}
         run: |
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
-            bin="app/target/${target}/release/${APP_NAME}"
+            bin="target/${target}/release/${APP_NAME}"
             echo "=== vtool -show-build ${bin} ==="
             vtool -show-build "${bin}"
             if ! vtool -show-build "${bin}" | grep -Eq '^[[:space:]]*minos[[:space:]]+14\.0(\.0)?[[:space:]]*$'; then
@@ -318,7 +313,7 @@ jobs:
 
             rm -rf "${stage_dir}"
             mkdir -p "${app_bundle}/Contents/MacOS" "${app_bundle}/Contents/Resources"
-            cp "app/target/${rust_target}/release/${APP_NAME}" "${app_bundle}/Contents/MacOS/${APP_NAME}"
+            cp "target/${rust_target}/release/${APP_NAME}" "${app_bundle}/Contents/MacOS/${APP_NAME}"
             chmod +x "${app_bundle}/Contents/MacOS/${APP_NAME}"
             cp app/icons/icon.icns "${app_bundle}/Contents/Resources/icon.icns"
             cp app/Info.plist "${app_bundle}/Contents/Info.plist"

@@ -5,6 +5,8 @@ on:
     branches:
       - main
     paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'app/**'
       - 'locales/**'
       - '.cargo/**'
@@ -20,7 +22,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_TARGET_DIR: ${{ github.workspace }}/app/target
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
   MAX_ALLOWED_DROP: "2.0"
 
 jobs:
@@ -51,8 +53,6 @@ jobs:
 
       - name: Cache Cargo registry and target build
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: app
 
       - name: Install cargo-llvm-cov (prebuilt binary)
         uses: taiki-e/install-action@cargo-llvm-cov

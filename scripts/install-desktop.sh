@@ -16,7 +16,7 @@ mkdir -p "$BIN_TARGET"
 mkdir -p "$APPS_TARGET"
 
 echo "==> Installing binary to $BIN_TARGET/azo-type..."
-cp "$REPO_ROOT/app/target/release/azo-type" "$BIN_TARGET/azo-type"
+cp "$REPO_ROOT/target/release/azo-type" "$BIN_TARGET/azo-type"
 chmod +x "$BIN_TARGET/azo-type"
 
 echo "==> Installing desktop entry to $APPS_TARGET/azo-type.desktop..."

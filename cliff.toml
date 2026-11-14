@@ -27,6 +27,8 @@ conventional_commits = true
 filter_unconventional = true
 split_commits = false
 include_paths = [
+  "Cargo.toml",
+  "Cargo.lock",
   "app/**",
   "locales/**",
   ".cargo/**",
