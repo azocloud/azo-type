@@ -106,7 +106,17 @@ impl AzoTypeApp {
         initial_folder: Option<PathBuf>,
         screenshot_path: Option<PathBuf>,
     ) -> Self {
-        Self::new_headless(&cc.egui_ctx, cc.storage, initial_folder, screenshot_path)
+        #[cfg(not(target_os = "macos"))]
+        {
+            Self::new_headless(&cc.egui_ctx, cc.storage, initial_folder, screenshot_path)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let mut app =
+                Self::new_headless(&cc.egui_ctx, cc.storage, initial_folder, screenshot_path);
+            app.macos_menu = MacOsMenuBar::init();
+            app
+        }
     }
 
     /// Constructs a headless-compatible `AzoTypeApp` from any `egui::Context` and optional storage.
@@ -145,9 +155,6 @@ impl AzoTypeApp {
             &project,
             engine_host.fallback_notice.clone(),
         );
-
-        #[cfg(target_os = "macos")]
-        let macos_menu = MacOsMenuBar::init();
 
         Self {
             language,
@@ -195,7 +202,7 @@ impl AzoTypeApp {
             compile_tx,
             compile_rx,
             #[cfg(target_os = "macos")]
-            macos_menu,
+            macos_menu: None,
             screenshot_path,
             frame_count: 0,
             screenshot_requested: false,
@@ -316,10 +323,8 @@ impl AzoTypeApp {
 
     fn poll_channels(&mut self, ctx: &Context) {
         #[cfg(target_os = "macos")]
-        if let Some(ref menu) = self.macos_menu {
-            while let Some(action) = menu.poll_action() {
-                self.dispatch_menu_action(ctx, action);
-            }
+        while let Some(action) = self.macos_menu.as_ref().and_then(|menu| menu.poll_action()) {
+            self.dispatch_menu_action(ctx, action);
         }
 
         while let Ok(snapshot) = self.compile_rx.try_recv() {
