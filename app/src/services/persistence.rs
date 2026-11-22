@@ -5,6 +5,7 @@
 mod tests;
 
 use crate::core::i18n::{detect_system_locale, AppSavedState};
+use crate::core::recent_projects::RecentProjects;
 use crate::core::settings::{IdeSettings, PreviewZoom};
 
 /// Storage key used to persist [`IdeSettings`] inside `eframe`'s native store.
@@ -13,15 +14,19 @@ pub const SETTINGS_STORAGE_KEY: &str = "ide_settings";
 /// Storage key used to persist [`PreviewZoom`] inside `eframe`'s native store.
 pub const PREVIEW_ZOOM_STORAGE_KEY: &str = "preview_zoom";
 
+/// Storage key used to persist [`RecentProjects`] inside `eframe`'s native store.
+pub const RECENT_PROJECTS_STORAGE_KEY: &str = "recent_projects";
+
 /// Snapshot of user-modifiable persistent state tracked for immediate flush on change.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PersistedAppState {
     pub language: String,
     pub settings: IdeSettings,
     pub zoom: PreviewZoom,
+    pub recent_projects: RecentProjects,
 }
 
-/// Loads persisted language, IDE settings, and preview zoom from `eframe::Storage`.
+/// Loads persisted language, IDE settings, preview zoom, and recent projects from `eframe::Storage`.
 ///
 /// Missing keys fall back to OS-detected locale and default settings cleanly.
 pub fn load_persisted_state(
@@ -42,16 +47,28 @@ pub fn load_persisted_state(
         .and_then(|s| eframe::get_value::<PreviewZoom>(s, PREVIEW_ZOOM_STORAGE_KEY))
         .unwrap_or_default();
 
+    let loaded_recent = storage
+        .and_then(|s| eframe::get_value::<RecentProjects>(s, RECENT_PROJECTS_STORAGE_KEY))
+        .unwrap_or_default();
+    let recent_projects = RecentProjects::from_paths(loaded_recent.entries().iter().cloned());
+
     PersistedAppState {
         language,
         settings,
         zoom,
+        recent_projects,
     }
 }
 
-/// Writes the current language, IDE settings, and preview zoom into `eframe::Storage`.
+/// Writes the current language, IDE settings, preview zoom, and recent projects into `eframe::Storage`.
 pub fn save_persisted_state(storage: &mut dyn eframe::Storage, state: &PersistedAppState) {
-    save_persisted_parts(storage, &state.language, &state.settings, state.zoom);
+    save_persisted_parts(
+        storage,
+        &state.language,
+        &state.settings,
+        state.zoom,
+        &state.recent_projects,
+    );
 }
 
 /// Writes individual state parts into `eframe::Storage`.
@@ -60,6 +77,7 @@ pub fn save_persisted_parts(
     language: &str,
     settings: &IdeSettings,
     zoom: PreviewZoom,
+    recent_projects: &RecentProjects,
 ) {
     eframe::set_value(
         storage,
@@ -70,6 +88,7 @@ pub fn save_persisted_parts(
     );
     eframe::set_value(storage, SETTINGS_STORAGE_KEY, settings);
     eframe::set_value(storage, PREVIEW_ZOOM_STORAGE_KEY, &zoom);
+    eframe::set_value(storage, RECENT_PROJECTS_STORAGE_KEY, recent_projects);
 }
 
 /// Flushes updated preferences to disk immediately when any persisted field changes.
@@ -79,10 +98,15 @@ pub fn flush_if_changed(
     language: &str,
     settings: &IdeSettings,
     zoom: PreviewZoom,
+    recent_projects: &RecentProjects,
 ) {
     let zoom_changed = last_saved.zoom.fit_width != zoom.fit_width
         || (last_saved.zoom.scale - zoom.scale).abs() > 1e-4;
-    if last_saved.language == language && last_saved.settings == *settings && !zoom_changed {
+    if last_saved.language == language
+        && last_saved.settings == *settings
+        && !zoom_changed
+        && last_saved.recent_projects == *recent_projects
+    {
         return;
     }
 
@@ -90,6 +114,7 @@ pub fn flush_if_changed(
         language: language.to_string(),
         settings: settings.clone(),
         zoom,
+        recent_projects: recent_projects.clone(),
     };
     if let Some(storage) = frame.storage_mut() {
         save_persisted_state(storage, &next);

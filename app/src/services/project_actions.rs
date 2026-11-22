@@ -8,6 +8,7 @@ use egui::Context;
 use crate::collab::doc::CharSelection;
 use crate::collab::session::{CollabSessionHandle, SessionToUiEvent, UiToSessionCmd};
 use crate::collab::ui::{CollabUiState, CollabWindowAction};
+use crate::core::recent_projects::RecentProjects;
 use crate::platform::dialogs::{spawn_open_folder_dialog, spawn_save_file_dialog};
 use crate::project::DiskProject;
 
@@ -245,6 +246,88 @@ pub fn open_picked_folder(
             rust_i18n::t!("app.status_cannot_open_folder", error = err.to_string()).to_string(),
         ),
     }
+}
+
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    if let Some(raw) = path.to_str() {
+        if let Some(rest) = raw.strip_prefix(r"\\?\") {
+            if rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(r"UNC\") {
+                return PathBuf::from(format!(r"\\{}", &rest[4..]));
+            }
+            return PathBuf::from(rest);
+        }
+    }
+    path
+}
+
+/// Resolves `path` to its canonical filesystem path, falling back to `path` if canonicalization fails.
+///
+/// Strips Windows verbatim prefixes (`\\?\` and `\\?\UNC\`) so stored and displayed paths remain
+/// clean cross-platform.
+pub fn canonicalize_project_path(path: &Path) -> PathBuf {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    strip_windows_verbatim_prefix(resolved)
+}
+
+/// Resolves the initial project opened at application startup.
+///
+/// Prioritizes an explicit `initial_folder` launch argument, then falls back to the most recent
+/// project folder when `open_last_project_on_startup` is enabled, or a blank in-memory project
+/// otherwise. Successfully opened folders are recorded into `recent_projects`.
+pub fn resolve_startup_project(
+    initial_folder: Option<PathBuf>,
+    open_last_project_on_startup: bool,
+    recent_projects: &mut RecentProjects,
+    show_hidden_files: bool,
+) -> DiskProject {
+    if let Some(dir) = initial_folder.filter(|d| d.is_dir()) {
+        if let Ok(proj) = DiskProject::open_folder(&dir, show_hidden_files) {
+            recent_projects.record(canonicalize_project_path(&proj.root_dir));
+            return proj;
+        }
+    }
+
+    if open_last_project_on_startup {
+        if let Some(last) = recent_projects
+            .most_recent()
+            .map(Path::to_path_buf)
+            .filter(|p| p.is_dir())
+        {
+            if let Ok(proj) = DiskProject::open_folder(&last, show_hidden_files) {
+                recent_projects.record(canonicalize_project_path(&proj.root_dir));
+                return proj;
+            }
+        }
+    }
+
+    DiskProject::blank()
+}
+
+/// Opens `path` as the active project via [`open_picked_folder`] and updates `recent_projects`.
+///
+/// Records the canonicalized project root when opening succeeds, and removes `path` from
+/// `recent_projects` if opening fails because `path` no longer exists on disk.
+pub fn open_folder_and_record(
+    path: &Path,
+    show_hidden_files: bool,
+    collab_active: bool,
+    collab_session: &CollabSessionHandle,
+    project: &mut DiskProject,
+    recent_projects: &mut RecentProjects,
+) -> (bool, String) {
+    let (opened, notice) = open_picked_folder(
+        path,
+        show_hidden_files,
+        collab_active,
+        collab_session,
+        project,
+    );
+    if opened {
+        recent_projects.record(canonicalize_project_path(&project.root_dir));
+    } else if !path.exists() {
+        recent_projects.remove(path);
+    }
+    (opened, notice)
 }
 
 /// Applies a single `SessionToUiEvent` onto UI and project state.
