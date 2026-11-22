@@ -2,15 +2,20 @@
 //!
 //! (On macOS, `muda` provides the native screen-top menu bar via `src/platform/menu.rs`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(not(target_os = "macos"))]
-use egui::{Align, Context, CornerRadius, Frame, Layout, Margin, RichText, Stroke, TopBottomPanel};
+use egui::{
+    Align, Button, Context, CornerRadius, Frame, Layout, Margin, RichText, Stroke, TopBottomPanel,
+    Ui,
+};
 #[cfg(not(target_os = "macos"))]
 use rust_i18n::t;
 
 #[cfg(not(target_os = "macos"))]
 use crate::core::file_kind::FileKind;
+#[cfg(not(target_os = "macos"))]
+use crate::core::recent_projects::{RecentProjects, MAX_RECENT_PROJECTS};
 use crate::platform::menu::MenuAction;
 #[cfg(not(target_os = "macos"))]
 use crate::ui::theme::ThemePalette;
@@ -47,6 +52,7 @@ pub struct MenuBarParams<'a> {
     pub word_wrap: bool,
     pub project_root: &'a Path,
     pub active_file: &'a Path,
+    pub recent_projects: &'a [PathBuf],
 }
 
 /// Renders the in-window menu bar for Windows and Linux.
@@ -81,6 +87,7 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                         output.pending_action = Some(MenuAction::OpenFolder);
                         ui.close_menu();
                     }
+                    render_recent_projects_submenu(ui, params.recent_projects, &mut output);
                     if ui.button(t!("menu.rescan_folder")).clicked() {
                         output.pending_action = Some(MenuAction::RescanFolder);
                         ui.close_menu();
@@ -268,6 +275,37 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
         });
 
     output
+}
+
+#[cfg(not(target_os = "macos"))]
+fn render_recent_projects_submenu(
+    ui: &mut Ui,
+    recent_projects: &[PathBuf],
+    output: &mut MenuBarOutput,
+) {
+    ui.menu_button(t!("menu.recent_projects"), |ui| {
+        ui.set_min_width(260.0);
+        if recent_projects.is_empty() {
+            ui.add_enabled(false, Button::new(t!("menu.recent_empty")));
+        } else {
+            for (idx, path) in recent_projects.iter().take(MAX_RECENT_PROJECTS).enumerate() {
+                let label = RecentProjects::format_entry_label(path);
+                if ui
+                    .button(label)
+                    .on_hover_text(path.display().to_string())
+                    .clicked()
+                {
+                    output.pending_action = Some(MenuAction::OpenRecentProject(idx));
+                    ui.close_menu();
+                }
+            }
+            ui.separator();
+            if ui.button(t!("menu.clear_recent")).clicked() {
+                output.pending_action = Some(MenuAction::ClearRecentProjects);
+                ui.close_menu();
+            }
+        }
+    });
 }
 
 #[cfg(test)]
