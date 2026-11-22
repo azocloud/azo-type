@@ -7,7 +7,9 @@ use egui::text_edit::TextEditOutput;
 use egui::{Context, RichText, Ui};
 use rust_i18n::t;
 
+use crate::core::diff::CharSelection;
 use crate::core::file_kind::FileKind;
+use crate::core::text_edit;
 use crate::platform::menu::MenuAction;
 use crate::ui::components::editor::EditorPaneOutput;
 use crate::ui::components::menu_bar::EditorContextAction;
@@ -124,6 +126,15 @@ pub fn render_editor_context_menu(
             ui.close_menu();
         }
     });
+
+    if ui.button(t!("menu.toggle_line_comment")).clicked() {
+        *context_action = Some(EditorContextAction::Menu(MenuAction::ToggleLineComment));
+        ui.close_menu();
+    }
+    if ui.button(t!("menu.toggle_block_comment")).clicked() {
+        *context_action = Some(EditorContextAction::Menu(MenuAction::ToggleBlockComment));
+        ui.close_menu();
+    }
 
     ui.separator();
 
@@ -257,6 +268,50 @@ fn commit_text_mutation(
     output.edited_text_snapshot = Some(text_ref.to_owned());
 }
 
+fn current_char_selection(
+    total_chars: usize,
+    current_range: Option<CCursorRange>,
+) -> CharSelection {
+    match current_range {
+        Some(r) => CharSelection {
+            primary_char: r.primary.index.min(total_chars),
+            secondary_char: r.secondary.index.min(total_chars),
+        },
+        None => CharSelection::caret(total_chars),
+    }
+}
+
+fn char_selection_to_ccursor_range(sel: CharSelection) -> CCursorRange {
+    if sel.primary_char != sel.secondary_char {
+        CCursorRange::two(
+            CCursor::new(sel.secondary_char),
+            CCursor::new(sel.primary_char),
+        )
+    } else {
+        CCursorRange::one(CCursor::new(sel.primary_char))
+    }
+}
+
+fn apply_text_edit_mutation(
+    ctx: &Context,
+    text_ref: &mut String,
+    edit_output: &mut TextEditOutput,
+    ccursor_range: CCursorRange,
+    mutation: Option<(String, CharSelection)>,
+    output: &mut EditorPaneOutput,
+) {
+    if let Some((next_text, next_sel)) = mutation {
+        if next_text != *text_ref {
+            let mut undoer = edit_output.state.undoer();
+            undoer.feed_state(ctx.input(|i| i.time), &(ccursor_range, text_ref.clone()));
+            *text_ref = next_text;
+            let new_range = char_selection_to_ccursor_range(next_sel);
+            commit_text_mutation(ctx, text_ref, edit_output, undoer, new_range, true, output);
+        }
+    }
+    edit_output.response.request_focus();
+}
+
 /// Applies an editor context or shortcut action to the text buffer and editor state.
 pub fn apply_editor_context_action(
     ctx: &Context,
@@ -386,7 +441,25 @@ pub fn apply_editor_context_action(
             commit_text_mutation(ctx, text_ref, edit_output, undoer, new_range, false, output);
             edit_output.response.request_focus();
         }
-        EditorContextAction::Menu(_) | EditorContextAction::SetActiveAsMain => {}
+        EditorContextAction::Menu(menu_act) => {
+            let sel = current_char_selection(total_chars, current_range);
+            let mutation = match menu_act {
+                MenuAction::ToggleLineComment => {
+                    Some(text_edit::toggle_line_comment(text_ref, sel, "//"))
+                }
+                MenuAction::ToggleBlockComment => {
+                    Some(text_edit::toggle_block_comment(text_ref, sel))
+                }
+                MenuAction::IndentLines => Some(text_edit::indent_lines(text_ref, sel, 2)),
+                MenuAction::OutdentLines => Some(text_edit::outdent_lines(text_ref, sel, 2)),
+                MenuAction::DuplicateLine => Some(text_edit::duplicate_lines(text_ref, sel)),
+                MenuAction::MoveLineUp => text_edit::move_lines(text_ref, sel, true),
+                MenuAction::MoveLineDown => text_edit::move_lines(text_ref, sel, false),
+                _ => return,
+            };
+            apply_text_edit_mutation(ctx, text_ref, edit_output, ccursor_range, mutation, output);
+        }
+        EditorContextAction::SetActiveAsMain => {}
     }
 }
 
