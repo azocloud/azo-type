@@ -24,6 +24,7 @@ struct TestEditorHost {
     clipboard_fallback: String,
     intellisense: EditorIntellisenseState,
     compiler_diagnostics: Vec<DiagnosticItem>,
+    hover_hide_delay_ms: u64,
     last_text_changed: bool,
     focus_editor_once: bool,
     move_cursor_to_end_once: bool,
@@ -44,6 +45,7 @@ impl TestEditorHost {
             clipboard_fallback: String::new(),
             intellisense: EditorIntellisenseState::default(),
             compiler_diagnostics: Vec::new(),
+            hover_hide_delay_ms: 400,
             last_text_changed: false,
             focus_editor_once: true,
             move_cursor_to_end_once: true,
@@ -93,6 +95,7 @@ fn render_test_editor(ui: &mut Ui, host: &mut TestEditorHost) {
             language_diagnostics: &[],
             compiler_diagnostics: &host.compiler_diagnostics,
             intellisense: &mut host.intellisense,
+            hover_hide_delay_ms: host.hover_hide_delay_ms,
         },
     );
     host.last_text_changed |= out.text_changed;
@@ -624,6 +627,7 @@ fn completion_popup_height_is_compact_and_anchored_near_caret_on_900px_viewport(
                             dark_mode: true,
                             ime_in_progress: false,
                             accepted_completion: None,
+                            hover_hide_delay_ms: 400,
                         },
                         &mut st.text,
                         &mut edit_out,
@@ -767,4 +771,347 @@ fn hover_popup_stays_continuously_open_without_flicker_and_has_bounded_height() 
             "Expected bounded hover height <= 280px on frame {frame}, got {hr:?}"
         );
     }
+}
+
+struct GraceHoverHarnessState {
+    text: String,
+    intel: EditorIntellisenseState,
+    hover_hide_delay_ms: u64,
+    token_a_pos: Option<Pos2>,
+    token_b_pos: Option<Pos2>,
+    empty_pos: Option<Pos2>,
+}
+
+fn setup_grace_hover_harness(
+    text: String,
+    token_a_char: usize,
+    token_b_char: usize,
+    hover_hide_delay_ms: u64,
+) -> Harness<'static, GraceHoverHarnessState> {
+    let mut harness = Harness::builder()
+        .with_size(egui::Vec2::new(800.0, 540.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(20)
+        .build_ui_state(
+            move |ui, st: &mut GraceHoverHarnessState| {
+                let mut edit_out = egui::TextEdit::multiline(&mut st.text)
+                    .desired_rows(20)
+                    .show(ui);
+                let char_center = |idx: usize| -> Pos2 {
+                    edit_out
+                        .galley
+                        .pos_from_cursor(&edit_out.galley.from_ccursor(CCursor::new(idx)))
+                        .translate(edit_out.galley_pos.to_vec2())
+                        .center()
+                };
+                st.token_a_pos = Some(char_center(token_a_char));
+                st.token_b_pos = Some(char_center(token_b_char));
+                st.empty_pos = Some(Pos2::new(760.0, 500.0));
+
+                let mut pane_out = EditorPaneOutput::default();
+                let ctx_clone = ui.ctx().clone();
+                update_and_render_intellisense(
+                    &ctx_clone,
+                    ui,
+                    IntellisenseUpdateParams {
+                        active_file: Path::new("main.typ"),
+                        compiler_diagnostics: &[],
+                        dark_mode: true,
+                        ime_in_progress: false,
+                        accepted_completion: None,
+                        hover_hide_delay_ms: st.hover_hide_delay_ms,
+                    },
+                    &mut st.text,
+                    &mut edit_out,
+                    &mut st.intel,
+                    &mut pane_out,
+                );
+            },
+            GraceHoverHarnessState {
+                text,
+                intel: EditorIntellisenseState::default(),
+                hover_hide_delay_ms,
+                token_a_pos: None,
+                token_b_pos: None,
+                empty_pos: None,
+            },
+        );
+    harness.run();
+    harness
+}
+
+fn step_at(harness: &mut Harness<'_, GraceHoverHarnessState>, t: f64) {
+    harness.input_mut().time = Some(t);
+    harness.step();
+    harness.input_mut().time = None;
+}
+
+#[test]
+fn hover_popup_persists_during_grace_delay_and_hides_after_expiry() {
+    let text = concat!(
+        "#show heading.where(level: 1): set text(blue)\n\n",
+        "#figure(rect(), caption: [Cap])\n",
+    )
+    .to_string();
+    let where_char = text.find("where").unwrap() + 2;
+    let figure_char = text.find("figure").unwrap() + 2;
+
+    let mut harness = setup_grace_hover_harness(text, where_char, figure_char, 200);
+    let where_pos = harness.state().token_a_pos.unwrap();
+    let figure_pos = harness.state().token_b_pos.unwrap();
+    let empty_pos = harness.state().empty_pos.unwrap();
+
+    // Hover `heading.where` at t = 10.0s -> opens popup.
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(where_pos));
+    step_at(&mut harness, 10.0);
+    step_at(&mut harness, 10.02);
+    assert!(harness.state().intel.active_hover.is_some());
+    assert!(harness.query_by_label("heading.where").is_some());
+
+    // Move pointer into empty space at t = 10.12s (+100ms < 200ms) -> stays alive!
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(empty_pos));
+    step_at(&mut harness, 10.12);
+    assert!(
+        harness.state().intel.active_hover.is_some(),
+        "Expected hover popup to stay alive during grace delay (+100ms < 200ms)"
+    );
+    assert!(harness.query_by_label("heading.where").is_some());
+
+    // Advance to t = 10.25s (+230ms >= 200ms) -> hides!
+    step_at(&mut harness, 10.25);
+    assert!(
+        harness.state().intel.active_hover.is_none(),
+        "Expected hover popup to hide after grace delay expires (+230ms >= 200ms)"
+    );
+    assert!(harness.query_by_label("heading.where").is_none());
+
+    // Passing over another token during the grace delay does not hijack the popup until expiry.
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(where_pos));
+    step_at(&mut harness, 20.0);
+    step_at(&mut harness, 20.02);
+    assert_eq!(
+        harness
+            .state()
+            .intel
+            .active_hover
+            .as_ref()
+            .map(|h| h.hover.title.as_str()),
+        Some("heading.where")
+    );
+
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(figure_pos));
+    step_at(&mut harness, 20.12);
+    assert_eq!(
+        harness
+            .state()
+            .intel
+            .active_hover
+            .as_ref()
+            .map(|h| h.hover.title.as_str()),
+        Some("heading.where")
+    );
+
+    step_at(&mut harness, 20.25);
+    assert_eq!(
+        harness
+            .state()
+            .intel
+            .active_hover
+            .as_ref()
+            .map(|h| h.hover.title.as_str()),
+        Some("figure")
+    );
+}
+
+#[test]
+fn hover_popup_stays_open_and_scrolls_when_pointer_enters_then_closes_on_exit() {
+    let mut doc = String::from("#long_doc_fn(42)\n\n");
+    for line_idx in 1..=28 {
+        doc.push_str(&format!(
+            "/// Doc line {line_idx:02}: detailed parameter explanation for scrolling.\n"
+        ));
+    }
+    doc.push_str("#let long_doc_fn(x) = x\n");
+    let call_char = doc.find("long_doc_fn").unwrap() + 3;
+
+    let mut harness = setup_grace_hover_harness(doc, call_char, call_char, 200);
+    let call_pos = harness.state().token_a_pos.unwrap();
+    let empty_pos = harness.state().empty_pos.unwrap();
+
+    // Open hover popup on `#long_doc_fn`.
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(call_pos));
+    step_at(&mut harness, 10.0);
+    step_at(&mut harness, 10.02);
+
+    let (initial_placement, popup_rect) = {
+        let ah = harness
+            .state()
+            .intel
+            .active_hover
+            .as_ref()
+            .expect("hover popup open");
+        assert!(!ah.entered_popup);
+        (ah.locked_placement, ah.last_rect.expect("popup last_rect"))
+    };
+    assert!(initial_placement.is_some());
+    assert!(harness.query_by_label_contains("Doc line 01").is_some());
+
+    // Moving pointer halfway toward the popup keeps placement locked (no jumping/running away).
+    let halfway_pos = Pos2::new(
+        (call_pos.x + popup_rect.center().x) * 0.5,
+        (call_pos.y + popup_rect.center().y) * 0.5,
+    );
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(halfway_pos));
+    step_at(&mut harness, 10.06);
+    assert_eq!(
+        harness
+            .state()
+            .intel
+            .active_hover
+            .as_ref()
+            .and_then(|ah| ah.locked_placement),
+        initial_placement,
+        "Hover popup placement must stay locked while pointer moves toward it"
+    );
+
+    // Move pointer INSIDE the popup and hold well beyond hover_hide_delay_ms (200ms -> +800ms).
+    let inside_popup = popup_rect.center();
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(inside_popup));
+    step_at(&mut harness, 10.10);
+    assert!(
+        harness
+            .state()
+            .intel
+            .active_hover
+            .as_ref()
+            .is_some_and(|ah| ah.entered_popup),
+        "Expected entered_popup = true when pointer enters hover popup"
+    );
+
+    step_at(&mut harness, 10.90);
+    assert!(
+        harness.state().intel.active_hover.is_some(),
+        "Expected hover popup to stay open indefinitely while pointer is inside it"
+    );
+
+    // Measure initial vertical position of Doc line 01, then scroll down inside the popup.
+    let doc_y_before = harness
+        .get_by_label_contains("Doc line 01")
+        .bounding_box()
+        .expect("Doc line 01 bounding box before scroll")
+        .y0;
+    harness.input_mut().events.push(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::Vec2::new(0.0, -180.0),
+        modifiers: Modifiers::NONE,
+    });
+    step_at(&mut harness, 11.0);
+    harness.run_steps(4);
+    assert!(
+        harness
+            .state()
+            .intel
+            .active_hover
+            .as_ref()
+            .is_some_and(|ah| ah.entered_popup),
+        "Scrolling inside hover popup must not close it"
+    );
+    let doc_y_after = harness
+        .get_by_label_contains("Doc line 01")
+        .bounding_box()
+        .expect("Doc line 01 bounding box after scroll")
+        .y0;
+    assert!(
+        doc_y_after < doc_y_before - 5.0,
+        "Expected documentation inside hover popup to scroll upward (before={doc_y_before}, after={doc_y_after})"
+    );
+
+    // Moving pointer OUT of the popup into empty space closes it immediately.
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(empty_pos));
+    step_at(&mut harness, 11.10);
+    assert!(
+        harness.state().intel.active_hover.is_none(),
+        "Expected hover popup to close immediately when pointer exits popup into empty space"
+    );
+    assert!(harness.query_by_label_contains("Doc line 01").is_none());
+}
+
+#[test]
+fn active_hover_clears_when_project_changes_or_completion_opens() {
+    let mut state = EditorIntellisenseState {
+        active_hover: Some(ActiveHoverPopup {
+            hover: crate::core::intellisense::HoverInfo {
+                start_char: 0,
+                end_char: 4,
+                title: "test".into(),
+                detail: String::new(),
+                documentation: "doc".into(),
+                is_diagnostic: false,
+            },
+            last_token_hover_time: 1.0,
+            entered_popup: false,
+            locked_placement: None,
+            last_rect: None,
+        }),
+        ..Default::default()
+    };
+
+    let mut project = DiskProject::blank();
+    state.refresh_project_cache(&project);
+    assert!(
+        state.active_hover.is_none(),
+        "Changing project revision/active file must clear active_hover"
+    );
+
+    // Editing text inside the editor clears active_hover immediately.
+    let text = "#show heading.where(level: 1): set text(blue)\n".to_string();
+    let where_char = text.find("where").unwrap() + 2;
+    let mut harness = setup_grace_hover_harness(text, where_char, where_char, 400);
+    let where_pos = harness.state().token_a_pos.unwrap();
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(where_pos));
+    step_at(&mut harness, 10.0);
+    step_at(&mut harness, 10.02);
+    assert!(harness.state().intel.active_hover.is_some());
+
+    harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .focus();
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text(" #".into()));
+    step_at(&mut harness, 10.05);
+    assert!(
+        harness.state().intel.active_hover.is_none(),
+        "Editing text / opening completion must clear active_hover"
+    );
+    project.revision += 1;
+    let _ = project;
 }

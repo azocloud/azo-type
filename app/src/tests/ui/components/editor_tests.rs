@@ -109,6 +109,7 @@ fn editor_pane_renders_typst_toolbar_actions_and_tabs() {
                     language_diagnostics: std::slice::from_ref(&diag),
                     compiler_diagnostics: &[],
                     intellisense: &mut state.intellisense,
+                    hover_hide_delay_ms: 400,
                 },
             );
             state.text_changed |= out.text_changed;
@@ -203,6 +204,7 @@ fn editor_pane_renders_svg_and_asset_inspector_mode() {
                     language_diagnostics: &[],
                     compiler_diagnostics: &[],
                     intellisense: &mut state.intellisense,
+                    hover_hide_delay_ms: 400,
                 },
             );
         },
@@ -258,6 +260,7 @@ fn editor_pane_handles_empty_buffer_without_panicking() {
                     language_diagnostics: &[],
                     compiler_diagnostics: &[],
                     intellisense: &mut state.intellisense,
+                    hover_hide_delay_ms: 400,
                 },
             );
         },
@@ -319,6 +322,7 @@ fn editor_pane_scroll_to_char_respects_pending_focus_editor_flag_and_paints_unfo
                     language_diagnostics: &[],
                     compiler_diagnostics: &[],
                     intellisense: &mut state.intellisense,
+                    hover_hide_delay_ms: 400,
                 },
             );
         },

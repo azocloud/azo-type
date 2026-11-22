@@ -1,17 +1,67 @@
 //! Typst diagnostic hint underlines and non-colliding IntelliSense hover tooltips.
 
+use std::path::Path;
+use std::time::Duration;
+
+use egui::scroll_area::ScrollBarVisibility;
 use egui::text::CCursor;
 use egui::widgets::text_edit::TextEditOutput;
 use egui::{
-    Align2, Area, AreaState, Color32, Context, Frame, Id, Order, Pos2, Rect, RichText, Stroke, Ui,
-    UiKind, Vec2,
+    Align2, Area, AreaState, Color32, Context, Frame, Id, Order, Pos2, Rect, RichText, ScrollArea,
+    Stroke, Ui, UiKind, Vec2,
 };
 use rust_i18n::t;
 
 use crate::core::diff::normalize_rel_path;
-use crate::core::intellisense::{CompletionItem, CompletionKind, HoverInfo, TypstDiagnosticHint};
+use crate::core::intellisense::{
+    compute_hover_info, CompletionItem, CompletionKind, HoverInfo, TypstDiagnosticHint,
+};
 use crate::engine::DiagnosticItem;
 use crate::ui::theme::ThemePalette;
+
+/// State for an open, interactive, grace-delayed IntelliSense hover popup.
+#[derive(Debug, Clone)]
+pub struct ActiveHoverPopup {
+    /// Currently displayed hover information (symbol docs or diagnostic).
+    pub hover: HoverInfo,
+    /// Last `egui` timestamp (`ctx.input(|i| i.time)`) when pointer was on the token or popup.
+    pub last_token_hover_time: f64,
+    /// `true` once the pointer has entered the rendered popup rectangle.
+    pub entered_popup: bool,
+    /// Locked `(pivot, anchor)` placement so moving the pointer toward the popup never moves it.
+    pub locked_placement: Option<(Align2, Pos2)>,
+    /// Bounding rectangle of the rendered popup `Area` from the previous frame.
+    pub last_rect: Option<Rect>,
+}
+
+impl ActiveHoverPopup {
+    fn new(hover: HoverInfo, now: f64) -> Self {
+        Self {
+            hover,
+            last_token_hover_time: now,
+            entered_popup: false,
+            locked_placement: None,
+            last_rect: None,
+        }
+    }
+}
+
+fn error_accent_color(dark_mode: bool) -> Color32 {
+    if dark_mode {
+        Color32::from_rgb(244, 63, 94)
+    } else {
+        Color32::from_rgb(190, 18, 60)
+    }
+}
+
+/// Inputs for updating and rendering the interactive IntelliSense hover popup.
+pub struct HoverPopupParams<'a> {
+    pub active_text: &'a str,
+    pub source_refs: &'a [(&'a Path, &'a str)],
+    pub mapped_diags: &'a [(usize, usize, String, bool)],
+    pub dark_mode: bool,
+    pub hover_hide_delay_ms: u64,
+}
 
 /// Returns the compact badge text and accent color for a completion item kind.
 pub(super) fn completion_kind_badge(
@@ -118,11 +168,7 @@ fn line_col_to_char_span(
 
     for (idx, line) in text.split_inclusive('\n').enumerate() {
         if idx == target_idx {
-            let trimmed = line
-                .strip_suffix('\n')
-                .unwrap_or(line)
-                .strip_suffix('\r')
-                .unwrap_or_else(|| line.strip_suffix('\n').unwrap_or(line));
+            let trimmed = line.trim_end_matches(['\r', '\n']);
             let line_chars = trimmed.chars().count();
             let col_0 = col_1based.unwrap_or(1).saturating_sub(1).min(line_chars);
             let start = offset + col_0;
@@ -183,23 +229,18 @@ pub fn paint_typst_diagnostic_hints(
         }
         let h_start = hint.start_char;
         let h_end = hint.end_char.max(h_start + 1).min(total_chars);
-        let color = if hint.is_error {
-            if dark_mode {
-                Color32::from_rgb(244, 63, 94)
-            } else {
-                Color32::from_rgb(190, 18, 60)
-            }
-        } else if dark_mode {
-            Color32::from_rgb(168, 85, 247)
-        } else {
-            Color32::from_rgb(126, 34, 206)
+        let color = match (hint.is_error, dark_mode) {
+            (true, _) => error_accent_color(dark_mode),
+            (false, true) => Color32::from_rgb(168, 85, 247),
+            (false, false) => Color32::from_rgb(126, 34, 206),
         };
 
         for &(r_start, r_visible_end, r_rect) in &row_ranges {
-            if r_rect.max.y < clip_rect.min.y || r_rect.min.y > clip_rect.max.y {
-                continue;
-            }
-            if h_end <= r_start || h_start >= r_visible_end {
+            if r_rect.max.y < clip_rect.min.y
+                || r_rect.min.y > clip_rect.max.y
+                || h_end <= r_start
+                || h_start >= r_visible_end
+            {
                 continue;
             }
             let seg_start = h_start.max(r_start);
@@ -273,6 +314,83 @@ pub fn hovered_char_in_galley(
     Some(idx)
 }
 
+fn is_same_hover(a: &HoverInfo, b: &HoverInfo) -> bool {
+    a.start_char == b.start_char
+        && a.end_char == b.end_char
+        && a.title == b.title
+        && a.is_diagnostic == b.is_diagnostic
+}
+
+fn probe_hover_in_galley(
+    ctx: &Context,
+    ui: &Ui,
+    edit_output: &TextEditOutput,
+    params: &HoverPopupParams<'_>,
+) -> Option<HoverInfo> {
+    let ch = hovered_char_in_galley(ctx, ui, edit_output)?;
+    let hover = compute_hover_info(
+        params.active_text,
+        ch,
+        params.source_refs,
+        params.mapped_diags,
+    )?;
+    let in_span = ch >= hover.start_char && (ch < hover.end_char || ch == hover.start_char);
+    in_span.then_some(hover)
+}
+
+/// Updates the grace-delayed interactive hover popup state and renders the popup when active.
+pub fn update_and_render_intellisense_hover(
+    ui: &Ui,
+    edit_output: &TextEditOutput,
+    params: HoverPopupParams<'_>,
+    active_hover: &mut Option<ActiveHoverPopup>,
+) {
+    let ctx = ui.ctx();
+    let now = ctx.input(|i| i.time);
+    let pointer_pos = ctx.input(|i| i.pointer.hover_pos().or(i.pointer.interact_pos()));
+    let pointer_in_popup = active_hover.as_ref().is_some_and(|ah| {
+        let in_rect = ah
+            .last_rect
+            .is_some_and(|r| pointer_pos.is_some_and(|p| r.expand(4.0).contains(p)));
+        in_rect || (ah.entered_popup && ctx.is_using_pointer())
+    });
+
+    if pointer_in_popup {
+        if let Some(ah) = active_hover.as_mut() {
+            ah.entered_popup = true;
+            ah.last_token_hover_time = now;
+        }
+    } else {
+        let hovered_hover = probe_hover_in_galley(ctx, ui, edit_output, &params);
+        match active_hover.as_mut() {
+            Some(ah) if ah.entered_popup => {
+                *active_hover = hovered_hover.map(|h| ActiveHoverPopup::new(h, now));
+            }
+            Some(ah) => match hovered_hover {
+                Some(h) if is_same_hover(&ah.hover, &h) => {
+                    ah.hover = h;
+                    ah.last_token_hover_time = now;
+                }
+                next_hover => {
+                    let elapsed_ms = ((now - ah.last_token_hover_time) * 1000.0).max(0.0);
+                    if elapsed_ms < params.hover_hide_delay_ms as f64 {
+                        let rem =
+                            ((params.hover_hide_delay_ms as f64 - elapsed_ms).ceil() as u64).max(1);
+                        ctx.request_repaint_after(Duration::from_millis(rem));
+                    } else {
+                        *active_hover = next_hover.map(|h| ActiveHoverPopup::new(h, now));
+                    }
+                }
+            },
+            None => *active_hover = hovered_hover.map(|h| ActiveHoverPopup::new(h, now)),
+        }
+    }
+
+    if let Some(ah) = active_hover.as_mut() {
+        render_hover_area(ui, edit_output, ah, params.dark_mode);
+    }
+}
+
 /// Renders the IntelliSense hover popup near the hovered token without overlapping
 /// `editor_diagnostics::paint_language_diagnostics`'s `show_tooltip_at_pointer` tooltip.
 pub fn render_intellisense_hover(
@@ -281,17 +399,37 @@ pub fn render_intellisense_hover(
     hover: &HoverInfo,
     dark_mode: bool,
 ) {
+    let mut temp = ActiveHoverPopup::new(hover.clone(), 0.0);
+    render_hover_area(ui, edit_output, &mut temp, dark_mode);
+}
+
+fn candidate_rect_for_placement(pivot: Align2, anchor: Pos2, est_size: Vec2) -> Rect {
+    if pivot == Align2::LEFT_BOTTOM {
+        Rect::from_min_max(
+            Pos2::new(anchor.x, anchor.y - est_size.y),
+            Pos2::new(anchor.x + est_size.x, anchor.y),
+        )
+    } else {
+        Rect::from_min_size(anchor, est_size)
+    }
+}
+
+fn render_hover_area(
+    ui: &Ui,
+    edit_output: &TextEditOutput,
+    ah: &mut ActiveHoverPopup,
+    dark_mode: bool,
+) {
+    let hover = &ah.hover;
     let ctx = ui.ctx();
     let palette = ThemePalette::for_mode(dark_mode);
     let hover_area_id = Id::new("editor_intellisense_hover_popup");
-
+    let c = edit_output
+        .galley
+        .from_ccursor(CCursor::new(hover.start_char));
     let start_rect = edit_output
         .galley
-        .pos_from_cursor(
-            &edit_output
-                .galley
-                .from_ccursor(CCursor::new(hover.start_char)),
-        )
+        .pos_from_cursor(&c)
         .translate(edit_output.galley_pos.to_vec2());
     let token_rect = Rect::from_min_max(
         start_rect.min,
@@ -303,31 +441,43 @@ pub fn render_intellisense_hover(
 
     let diag_widget_id = Id::new("editor_language_diag_tooltip");
     let diag_area_id = egui::tooltip_id(diag_widget_id, 0);
-    let diag_active_this_frame = egui::next_tooltip_id(ctx, diag_widget_id) != diag_area_id;
-    let diag_rect =
-        if diag_active_this_frame || egui::was_tooltip_open_last_frame(ctx, diag_widget_id) {
-            AreaState::load(ctx, diag_area_id).map(|s| s.rect())
-        } else {
-            None
-        };
+    let diag_active = egui::next_tooltip_id(ctx, diag_widget_id) != diag_area_id
+        || egui::was_tooltip_open_last_frame(ctx, diag_widget_id);
+    let diag_rect = diag_active
+        .then(|| AreaState::load(ctx, diag_area_id).map(|s| s.rect()))
+        .flatten();
 
     let screen_rect = ctx.screen_rect();
-    let pointer_pos = ctx.input(|i| i.pointer.hover_pos());
+    let pointer_pos = ctx.input(|i| i.pointer.hover_pos().or(i.pointer.interact_pos()));
+    let fallback_h = if hover.documentation.len() > 200 || hover.documentation.lines().count() > 6 {
+        240.0
+    } else {
+        88.0
+    };
     let est_size = AreaState::load(ctx, hover_area_id)
         .and_then(|s| s.size)
         .map(|sz| Vec2::new(sz.x, sz.y.min(260.0)))
-        .unwrap_or(Vec2::new(260.0, 88.0));
+        .unwrap_or(Vec2::new(260.0, fallback_h));
 
-    let (pivot, anchor) =
-        compute_hover_popup_placement(screen_rect, token_rect, diag_rect, pointer_pos, est_size);
+    if ah.locked_placement.is_some_and(|(p, a)| {
+        diag_rect.is_some_and(|dr| {
+            ah.last_rect
+                .unwrap_or_else(|| candidate_rect_for_placement(p, a, est_size))
+                .intersects(dr)
+        })
+    }) {
+        ah.locked_placement = None;
+    }
+    let (pivot, anchor) = *ah.locked_placement.get_or_insert_with(|| {
+        compute_hover_popup_placement(screen_rect, token_rect, diag_rect, pointer_pos, est_size)
+    });
 
-    Area::new(hover_area_id)
+    let area_resp = Area::new(hover_area_id)
         .kind(UiKind::Popup)
         .order(Order::Tooltip)
         .pivot(pivot)
         .fixed_pos(anchor)
         .constrain(true)
-        .interactable(false)
         .show(ctx, |ui| {
             Frame::popup(&ctx.style())
                 .fill(palette.chrome_sidebar)
@@ -336,25 +486,18 @@ pub fn render_intellisense_hover(
                     ui.set_max_width(340.0);
                     ui.horizontal(|ui| {
                         if hover.is_diagnostic {
-                            let badge_col = if dark_mode {
-                                Color32::from_rgb(244, 63, 94)
-                            } else {
-                                Color32::from_rgb(190, 18, 60)
-                            };
-                            ui.label(
-                                RichText::new(t!("intellisense.diagnostic_badge"))
-                                    .strong()
-                                    .small()
-                                    .color(badge_col),
-                            );
-                        }
-                        ui.label(
-                            RichText::new(&hover.title)
-                                .monospace()
+                            let badge = RichText::new(t!("intellisense.diagnostic_badge"))
                                 .strong()
                                 .small()
-                                .color(palette.text_primary),
-                        );
+                                .color(error_accent_color(dark_mode));
+                            ui.label(badge);
+                        }
+                        let title = RichText::new(&hover.title)
+                            .monospace()
+                            .strong()
+                            .small()
+                            .color(palette.text_primary);
+                        ui.label(title);
                     });
                     if !hover.detail.is_empty() {
                         ui.label(
@@ -365,15 +508,16 @@ pub fn render_intellisense_hover(
                     }
                     if !hover.documentation.trim().is_empty() {
                         ui.separator();
-                        egui::ScrollArea::vertical()
+                        ScrollArea::vertical()
                             .id_salt("intellisense_hover_doc_scroll")
                             .max_height(200.0)
+                            .auto_shrink([false, true])
+                            .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
                             .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new(&hover.documentation)
-                                        .small()
-                                        .color(palette.text_primary),
-                                );
+                                let doc = RichText::new(&hover.documentation)
+                                    .small()
+                                    .color(palette.text_primary);
+                                ui.label(doc);
                             });
                     } else if hover.detail.is_empty() {
                         ui.label(
@@ -384,6 +528,7 @@ pub fn render_intellisense_hover(
                     }
                 });
         });
+    ah.last_rect = Some(area_resp.response.rect);
 }
 
 fn compute_hover_popup_placement(
@@ -401,65 +546,50 @@ fn compute_hover_popup_placement(
         let max_y = (screen_rect.bottom() - est_size.y - 4.0).max(screen_rect.top() + 4.0);
         y.clamp(screen_rect.top() + 4.0, max_y)
     };
-    let candidate_rect = |pivot: Align2, anchor: Pos2| -> Rect {
-        if pivot == Align2::LEFT_BOTTOM {
-            Rect::from_min_max(
-                Pos2::new(anchor.x, anchor.y - est_size.y),
-                Pos2::new(anchor.x + est_size.x, anchor.y),
-            )
-        } else {
-            Rect::from_min_size(anchor, est_size)
-        }
-    };
-    let is_clear = |rect: Rect| -> bool {
-        !rect.intersects(token_rect)
+    let try_place = |pivot: Align2, anchor: Pos2| -> bool {
+        let rect = candidate_rect_for_placement(pivot, anchor, est_size);
+        let in_bounds = rect.top() >= screen_rect.top() + 2.0
+            && rect.bottom() <= screen_rect.bottom() - 2.0
+            && rect.right() <= screen_rect.right() - 2.0;
+        in_bounds
+            && !rect.intersects(token_rect)
             && pointer_pos.is_none_or(|p| !rect.expand(2.0).contains(p))
             && diag_rect.is_none_or(|dr| !rect.intersects(dr))
     };
 
     let above_anchor = Pos2::new(clamp_x(token_rect.min.x), token_rect.min.y - 6.0);
-    let above_rect = candidate_rect(Align2::LEFT_BOTTOM, above_anchor);
-    if above_rect.top() >= screen_rect.top() + 2.0 && is_clear(above_rect) {
+    if try_place(Align2::LEFT_BOTTOM, above_anchor) {
         return (Align2::LEFT_BOTTOM, above_anchor);
     }
 
     if let Some(dr) = diag_rect {
-        let below_dr = Pos2::new(clamp_x(dr.min.x), dr.max.y + 6.0);
-        let below_dr_rect = candidate_rect(Align2::LEFT_TOP, below_dr);
-        if below_dr_rect.bottom() <= screen_rect.bottom() - 2.0 && is_clear(below_dr_rect) {
-            return (Align2::LEFT_TOP, below_dr);
-        }
-
-        let right_dr = Pos2::new(dr.max.x + 8.0, clamp_y_top(dr.min.y));
-        let right_dr_rect = candidate_rect(Align2::LEFT_TOP, right_dr);
-        if right_dr_rect.right() <= screen_rect.right() - 2.0 && is_clear(right_dr_rect) {
-            return (Align2::LEFT_TOP, right_dr);
-        }
-
-        let above_dr = Pos2::new(clamp_x(dr.min.x), dr.min.y - 6.0);
-        let above_dr_rect = candidate_rect(Align2::LEFT_BOTTOM, above_dr);
-        if above_dr_rect.top() >= screen_rect.top() + 2.0 && is_clear(above_dr_rect) {
-            return (Align2::LEFT_BOTTOM, above_dr);
-        }
-
-        return (Align2::LEFT_TOP, below_dr);
+        let below = (
+            Align2::LEFT_TOP,
+            Pos2::new(clamp_x(dr.min.x), dr.max.y + 6.0),
+        );
+        let right = (
+            Align2::LEFT_TOP,
+            Pos2::new(dr.max.x + 8.0, clamp_y_top(dr.min.y)),
+        );
+        let above = (
+            Align2::LEFT_BOTTOM,
+            Pos2::new(clamp_x(dr.min.x), dr.min.y - 6.0),
+        );
+        return [below, right, above]
+            .into_iter()
+            .find(|&(p, a)| try_place(p, a))
+            .unwrap_or(below);
     }
 
     let below_anchor = Pos2::new(clamp_x(token_rect.min.x), token_rect.max.y + 6.0);
-    let below_rect = candidate_rect(Align2::LEFT_TOP, below_anchor);
-    if below_rect.bottom() <= screen_rect.bottom() - 2.0 && is_clear(below_rect) {
+    let right_anchor = Pos2::new(token_rect.max.x + 12.0, clamp_y_top(token_rect.min.y));
+    if try_place(Align2::LEFT_TOP, below_anchor) {
         return (Align2::LEFT_TOP, below_anchor);
     }
-
-    let right_anchor = Pos2::new(token_rect.max.x + 12.0, clamp_y_top(token_rect.min.y));
-    let right_rect = candidate_rect(Align2::LEFT_TOP, right_anchor);
-    if right_rect.right() <= screen_rect.right() - 2.0 && is_clear(right_rect) {
+    if try_place(Align2::LEFT_TOP, right_anchor) {
         return (Align2::LEFT_TOP, right_anchor);
     }
-
-    let space_below = screen_rect.bottom() - token_rect.max.y;
-    let space_above = token_rect.min.y - screen_rect.top();
-    if space_below >= space_above {
+    if screen_rect.bottom() - token_rect.max.y >= token_rect.min.y - screen_rect.top() {
         (Align2::LEFT_TOP, below_anchor)
     } else {
         (Align2::LEFT_BOTTOM, above_anchor)

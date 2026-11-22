@@ -65,6 +65,7 @@ pub struct EditorPaneParams<'a> {
     pub language_diagnostics: &'a [LanguageCheckDiagnostic],
     pub compiler_diagnostics: &'a [DiagnosticItem],
     pub intellisense: &'a mut EditorIntellisenseState,
+    pub hover_hide_delay_ms: u64,
 }
 
 /// Quick Typst snippet definitions: `(label_key, tooltip_key, snippet_text)`.
@@ -229,6 +230,7 @@ pub fn render_editor_pane(
     params.intellisense.refresh_project_cache(params.project);
 
     let Some(file) = params.project.active_buffer_mut() else {
+        params.intellisense.active_hover = None;
         ui.centered_and_justified(|ui| {
             ui.label(t!("editor.no_file_selected"));
         });
@@ -236,6 +238,7 @@ pub fn render_editor_pane(
     };
 
     if file.text.is_none() || inspect_asset_mode {
+        params.intellisense.active_hover = None;
         let mut exit_inspect = false;
         Frame::new()
             .fill(palette.editor_canvas)
@@ -497,12 +500,15 @@ pub fn render_editor_pane(
                                             dark_mode: params.dark_mode,
                                             ime_in_progress,
                                             accepted_completion,
+                                            hover_hide_delay_ms: params.hover_hide_delay_ms,
                                         },
                                         text_ref,
                                         &mut edit_output,
                                         params.intellisense,
                                         &mut output,
                                     );
+                                } else {
+                                    params.intellisense.active_hover = None;
                                 }
 
                                 if let Some(range) =
