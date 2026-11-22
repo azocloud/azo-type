@@ -274,6 +274,10 @@ pub fn render_settings_body(
             {
                 output.rescan_needed = true;
             }
+            ui.checkbox(
+                &mut settings.open_last_project_on_startup,
+                t!("settings.open_last_project_label"),
+            );
             ui.add_space(8.0);
             if ui.button(t!("settings.choose_folder_btn")).clicked() {
                 output.open_folder_requested = true;
