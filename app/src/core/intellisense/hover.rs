@@ -211,10 +211,9 @@ fn hover_symbol_or_keyword(
         SyntaxKind::Ident | SyntaxKind::MathIdent
     ) {
         let catalog = builtin_catalog();
-        if let Some(access_node) = outermost_field_access(&target_leaf) {
-            let full = access_node.get().full_text();
+        if let Some(dotted) = field_access_prefix_for_leaf(&target_leaf) {
             let prefer_math = target_leaf.kind() == SyntaxKind::MathIdent;
-            if let Some(entry) = catalog.lookup_dotted(full.as_str(), prefer_math) {
+            if let Some(entry) = catalog.lookup_dotted(&dotted, prefer_math) {
                 return Some(HoverInfo {
                     start_char,
                     end_char,
@@ -272,19 +271,25 @@ fn hover_symbol_or_keyword(
     None
 }
 
-fn outermost_field_access<'a>(leaf: &LinkedNode<'a>) -> Option<LinkedNode<'a>> {
-    let mut best = None;
-    let mut cur = leaf.parent().cloned();
-    while let Some(node) = cur {
-        if matches!(
-            node.kind(),
-            SyntaxKind::FieldAccess | SyntaxKind::MathFieldAccess
-        ) {
-            best = Some(node.clone());
-            cur = node.parent().cloned();
-        } else {
-            break;
-        }
+fn field_access_prefix_for_leaf(leaf: &LinkedNode<'_>) -> Option<String> {
+    let parent = leaf.parent()?;
+    if !matches!(
+        parent.kind(),
+        SyntaxKind::FieldAccess | SyntaxKind::MathFieldAccess
+    ) {
+        return None;
     }
-    best
+    if leaf.offset() == parent.offset() {
+        return None;
+    }
+    let full = parent.get().full_text();
+    let rel_end = (leaf.offset() + leaf.len()).saturating_sub(parent.offset());
+    let prefix = full.get(..rel_end)?;
+    let normalized: String = prefix
+        .split('.')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(".");
+    normalized.contains('.').then_some(normalized)
 }

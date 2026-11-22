@@ -314,3 +314,48 @@ fn dotted_stdlib_completions_and_hover_and_arrow_closures_work() {
     assert_eq!(add_item.detail, "(a, b)");
     assert_eq!(add_item.documentation, "Computes sum");
 }
+
+#[test]
+fn heading_where_hover_and_doc_sanitization_produce_clean_docs() {
+    let show_src = "#show heading.where(level: 1): set text(blue)\n";
+
+    // Hovering over `heading` in `heading.where(...)` resolves `heading`.
+    let heading_idx = show_src.find("heading").unwrap() + 2;
+    let heading_hover =
+        compute_hover_info(show_src, heading_idx, &[], &[]).expect("expected hover for heading");
+    assert_eq!(heading_hover.title, "heading");
+    assert!(!heading_hover.documentation.contains("```example"));
+    assert!(!heading_hover.documentation.contains("@reference:"));
+    assert!(heading_hover.documentation.contains("show rule"));
+
+    // Hovering over `where` in `heading.where(...)` resolves `heading.where`.
+    let where_idx = show_src.find("where").unwrap() + 2;
+    let where_hover = compute_hover_info(show_src, where_idx, &[], &[])
+        .expect("expected hover for heading.where");
+    assert_eq!(where_hover.title, "heading.where");
+    assert!(!where_hover.documentation.is_empty());
+    assert!(!where_hover.documentation.contains("```example"));
+    assert!(where_hover
+        .documentation
+        .contains("Returns a selector that filters"));
+    assert!(where_hover.documentation.contains("Example:"));
+
+    // `#heading.w` and `#{ heading.` dotted completions include `where` / `with` with sanitized docs.
+    let dotted = compute_completions("#heading.w", 10, &[], &[])
+        .expect("expected dotted completions for #heading.w");
+    let where_item = dotted
+        .items
+        .iter()
+        .find(|i| i.label == "where")
+        .expect("expected heading.where completion");
+    assert!(!where_item.documentation.contains("```example"));
+    assert!(dotted.items.iter().any(|i| i.label == "with"));
+
+    // Pure sanitizer cleans doc links, code fences, `{code}` wrappers, and extra blank lines.
+    let raw = "See [show rules]($reference/styling) and @heading.body[`body`].\n\n\n\n```typ\n#set text(size: 10pt)\n```\n\n\nDone with `{false}`.";
+    let sanitized = stdlib::sanitize_typst_docs(raw);
+    assert_eq!(
+        sanitized,
+        "See show rules and `body`.\n\n  #set text(size: 10pt)\n\nDone with `false`."
+    );
+}
