@@ -1,6 +1,6 @@
 //! Platform-specific native OS application menu integration.
 //!
-//! On macOS, installs a native top menu bar via `muda` with File, View, and Project submenus.
+//! On macOS, installs a native top menu bar via `muda` with File, Edit, View, and Project submenus.
 //! On Linux and Windows, native menus are replaced by the in-window immediate-mode menu bar.
 
 /// User actions triggered from application menu items, keyboard shortcuts, or editor context actions.
@@ -16,6 +16,15 @@ pub enum MenuAction {
     ExportPdf,
     OpenSettings,
     OpenCollab,
+    Find,
+    FindAndReplace,
+    ToggleLineComment,
+    ToggleBlockComment,
+    IndentLines,
+    OutdentLines,
+    DuplicateLine,
+    MoveLineUp,
+    MoveLineDown,
     ToggleSidebar,
     ToggleBottomPanel,
     ToggleWordWrap,
@@ -71,6 +80,15 @@ mod macos {
         id_settings: MenuId,
         id_collab: MenuId,
         id_quit: MenuId,
+        id_find: MenuId,
+        id_find_replace: MenuId,
+        id_toggle_line_comment: MenuId,
+        id_toggle_block_comment: MenuId,
+        id_indent_lines: MenuId,
+        id_outdent_lines: MenuId,
+        id_duplicate_line: MenuId,
+        id_move_line_up: MenuId,
+        id_move_line_down: MenuId,
         id_toggle_sidebar: MenuId,
         id_toggle_bottom_panel: MenuId,
         id_toggle_theme: MenuId,
@@ -110,6 +128,31 @@ mod macos {
                 &item_quit,
             ]);
 
+            let edit_menu = Submenu::new("Edit", true);
+            let item_find = MenuItem::new("Find...", true, None);
+            let item_find_replace = MenuItem::new("Find & Replace...", true, None);
+            let item_toggle_line_comment = MenuItem::new("Toggle Line Comment", true, None);
+            let item_toggle_block_comment = MenuItem::new("Toggle Block Comment", true, None);
+            let item_indent_lines = MenuItem::new("Indent Lines", true, None);
+            let item_outdent_lines = MenuItem::new("Outdent Lines", true, None);
+            let item_duplicate_line = MenuItem::new("Duplicate Line", true, None);
+            let item_move_line_up = MenuItem::new("Move Line Up", true, None);
+            let item_move_line_down = MenuItem::new("Move Line Down", true, None);
+
+            let _ = edit_menu.append_items(&[
+                &item_find,
+                &item_find_replace,
+                &PredefinedMenuItem::separator(),
+                &item_toggle_line_comment,
+                &item_toggle_block_comment,
+                &PredefinedMenuItem::separator(),
+                &item_indent_lines,
+                &item_outdent_lines,
+                &item_duplicate_line,
+                &item_move_line_up,
+                &item_move_line_down,
+            ]);
+
             let view_menu = Submenu::new("View", true);
             let item_toggle_sidebar = MenuItem::new("Toggle Project File Tree", true, None);
             let item_toggle_bottom_panel = MenuItem::new("Toggle Bottom Panel", true, None);
@@ -136,7 +179,7 @@ mod macos {
                 &item_compile,
             ]);
 
-            let _ = menu.append_items(&[&file_menu, &view_menu, &project_menu]);
+            let _ = menu.append_items(&[&file_menu, &edit_menu, &view_menu, &project_menu]);
 
             let mut bar = Self {
                 _menu: menu,
@@ -152,6 +195,15 @@ mod macos {
                 id_settings: item_settings.id().clone(),
                 id_collab: item_collab.id().clone(),
                 id_quit: item_quit.id().clone(),
+                id_find: item_find.id().clone(),
+                id_find_replace: item_find_replace.id().clone(),
+                id_toggle_line_comment: item_toggle_line_comment.id().clone(),
+                id_toggle_block_comment: item_toggle_block_comment.id().clone(),
+                id_indent_lines: item_indent_lines.id().clone(),
+                id_outdent_lines: item_outdent_lines.id().clone(),
+                id_duplicate_line: item_duplicate_line.id().clone(),
+                id_move_line_up: item_move_line_up.id().clone(),
+                id_move_line_down: item_move_line_down.id().clone(),
                 id_toggle_sidebar: item_toggle_sidebar.id().clone(),
                 id_toggle_bottom_panel: item_toggle_bottom_panel.id().clone(),
                 id_toggle_theme: item_toggle_theme.id().clone(),
@@ -215,6 +267,24 @@ mod macos {
                 Some(MenuAction::OpenCollab)
             } else if *id == self.id_quit {
                 Some(MenuAction::Quit)
+            } else if *id == self.id_find {
+                Some(MenuAction::Find)
+            } else if *id == self.id_find_replace {
+                Some(MenuAction::FindAndReplace)
+            } else if *id == self.id_toggle_line_comment {
+                Some(MenuAction::ToggleLineComment)
+            } else if *id == self.id_toggle_block_comment {
+                Some(MenuAction::ToggleBlockComment)
+            } else if *id == self.id_indent_lines {
+                Some(MenuAction::IndentLines)
+            } else if *id == self.id_outdent_lines {
+                Some(MenuAction::OutdentLines)
+            } else if *id == self.id_duplicate_line {
+                Some(MenuAction::DuplicateLine)
+            } else if *id == self.id_move_line_up {
+                Some(MenuAction::MoveLineUp)
+            } else if *id == self.id_move_line_down {
+                Some(MenuAction::MoveLineDown)
             } else if *id == self.id_toggle_sidebar {
                 Some(MenuAction::ToggleSidebar)
             } else if *id == self.id_toggle_bottom_panel {

@@ -35,6 +35,8 @@ fn polls_all_global_menu_shortcuts() {
         (Modifiers::COMMAND, Key::S, MenuAction::SaveFile),
         (Modifiers::COMMAND, Key::O, MenuAction::OpenFolder),
         (Modifiers::COMMAND, Key::N, MenuAction::NewFile),
+        (Modifiers::COMMAND, Key::F, MenuAction::Find),
+        (Modifiers::COMMAND, Key::H, MenuAction::FindAndReplace),
         (Modifiers::COMMAND, Key::B, MenuAction::ToggleSidebar),
         (Modifiers::COMMAND, Key::J, MenuAction::ToggleBottomPanel),
         (Modifiers::COMMAND, Key::E, MenuAction::ExportPdf),
@@ -47,6 +49,24 @@ fn polls_all_global_menu_shortcuts() {
         assert!(!out.collab_undo);
         assert!(!out.collab_redo);
     }
+}
+
+fn press_editor_key(ctx: &Context, modifiers: Modifiers, key: Key) -> Option<MenuAction> {
+    let mut input = RawInput {
+        modifiers,
+        ..Default::default()
+    };
+    input.events.push(Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers,
+    });
+    ctx.begin_pass(input);
+    let action = poll_editor_shortcuts(ctx);
+    let _ = ctx.end_pass();
+    action
 }
 
 #[test]
@@ -69,4 +89,46 @@ fn polls_collab_undo_and_redo_only_when_collab_is_active() {
     let active_redo_y = press_key(&ctx, Modifiers::COMMAND, Key::Y, true);
     assert!(active_redo_y.collab_redo);
     assert!(!active_redo_y.collab_undo);
+}
+
+#[test]
+fn polls_all_editor_scoped_shortcuts() {
+    let ctx = Context::default();
+    let cases = [
+        (
+            Modifiers::COMMAND | Modifiers::SHIFT,
+            Key::Slash,
+            MenuAction::ToggleBlockComment,
+        ),
+        (
+            Modifiers::COMMAND,
+            Key::Slash,
+            MenuAction::ToggleLineComment,
+        ),
+        (
+            Modifiers::COMMAND,
+            Key::CloseBracket,
+            MenuAction::IndentLines,
+        ),
+        (
+            Modifiers::COMMAND,
+            Key::OpenBracket,
+            MenuAction::OutdentLines,
+        ),
+        (Modifiers::COMMAND, Key::D, MenuAction::DuplicateLine),
+        (Modifiers::ALT, Key::ArrowUp, MenuAction::MoveLineUp),
+        (Modifiers::ALT, Key::ArrowDown, MenuAction::MoveLineDown),
+    ];
+
+    for (mods, key, expected) in cases {
+        let action = press_editor_key(&ctx, mods, key);
+        assert_eq!(
+            action,
+            Some(expected),
+            "failed for mods {mods:?} + key {key:?}"
+        );
+    }
+
+    assert_eq!(press_editor_key(&ctx, Modifiers::COMMAND, Key::F), None);
+    assert_eq!(press_editor_key(&ctx, Modifiers::NONE, Key::A), None);
 }

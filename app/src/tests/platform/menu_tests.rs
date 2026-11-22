@@ -30,6 +30,34 @@ fn recent_menu_labels_reuse_core_entry_formatter() {
     assert_eq!(RecentProjects::format_entry_label(&root), "/");
 }
 
+#[test]
+fn edit_menu_actions_support_copy_and_equality() {
+    let actions = [
+        MenuAction::Find,
+        MenuAction::FindAndReplace,
+        MenuAction::ToggleLineComment,
+        MenuAction::ToggleBlockComment,
+        MenuAction::IndentLines,
+        MenuAction::OutdentLines,
+        MenuAction::DuplicateLine,
+        MenuAction::MoveLineUp,
+        MenuAction::MoveLineDown,
+    ];
+
+    for (i, &action) in actions.iter().enumerate() {
+        let copied = action;
+        assert_eq!(action, copied);
+        assert_eq!(action, action.clone());
+        for (j, &other) in actions.iter().enumerate() {
+            if i == j {
+                assert_eq!(action, other);
+            } else {
+                assert_ne!(action, other);
+            }
+        }
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 #[test]
 fn non_macos_menu_bar_stub_is_noop() {

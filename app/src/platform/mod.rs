@@ -21,5 +21,5 @@ pub use icon::{
     load_icon_from_png_bytes, APP_ID,
 };
 pub use menu::{MacOsMenuBar, MenuAction};
-pub use shortcuts::poll_keyboard_shortcuts;
+pub use shortcuts::{poll_editor_shortcuts, poll_keyboard_shortcuts};
 pub use theme::{detect_system_dark_mode, resolve_effective_dark_mode};
