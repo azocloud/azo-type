@@ -27,19 +27,6 @@ pub enum MenuAction {
     Quit,
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn format_recent_label(path: &std::path::Path) -> String {
-    let full = path.display().to_string();
-    match path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .filter(|s| !s.is_empty())
-    {
-        Some(name) => format!("{name} — {full}"),
-        None => full,
-    }
-}
-
 #[cfg(target_os = "macos")]
 pub use macos::MacOsMenuBar;
 
@@ -65,7 +52,8 @@ mod macos {
 
     use muda::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
-    use super::{format_recent_label, MenuAction};
+    use super::MenuAction;
+    use crate::core::recent_projects::RecentProjects;
 
     const MAX_RECENT_MENU_ITEMS: usize = 10;
 
@@ -194,7 +182,7 @@ mod macos {
             }
 
             for (idx, path) in recent.iter().take(MAX_RECENT_MENU_ITEMS).enumerate() {
-                let item = MenuItem::new(format_recent_label(path), true, None);
+                let item = MenuItem::new(RecentProjects::format_entry_label(path), true, None);
                 self.recent_items.push((item.id().clone(), idx));
                 let _ = self.recent_submenu.append(&item);
             }

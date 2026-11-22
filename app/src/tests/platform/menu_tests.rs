@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-use super::{format_recent_label, MacOsMenuBar, MenuAction};
+use super::{MacOsMenuBar, MenuAction};
+use crate::core::recent_projects::RecentProjects;
 
 #[test]
 fn recent_menu_actions_support_copy_and_equality() {
@@ -18,12 +19,15 @@ fn recent_menu_actions_support_copy_and_equality() {
 }
 
 #[test]
-fn format_recent_label_includes_folder_name_and_full_path() {
-    let path = PathBuf::from("/tmp/projects/thesis");
-    assert_eq!(format_recent_label(&path), "thesis — /tmp/projects/thesis");
+fn recent_menu_labels_reuse_core_entry_formatter() {
+    let path = PathBuf::from("/tmp/projects/thesis/");
+    assert_eq!(
+        RecentProjects::format_entry_label(&path),
+        "thesis — /tmp/projects/thesis"
+    );
 
     let root = PathBuf::from("/");
-    assert_eq!(format_recent_label(&root), "/");
+    assert_eq!(RecentProjects::format_entry_label(&root), "/");
 }
 
 #[cfg(not(target_os = "macos"))]
