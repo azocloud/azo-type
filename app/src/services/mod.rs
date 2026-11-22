@@ -17,8 +17,9 @@ pub use persistence::{
     PersistedAppState,
 };
 pub use project_actions::{
-    create_project_file, delete_project_file, dispatch_collab_window_actions, open_picked_folder,
-    poll_collab_session_events, rename_project_file, save_active_or_prompt, save_all_project_files,
-    spawn_project_folder_picker,
+    canonicalize_project_path, create_project_file, delete_project_file,
+    dispatch_collab_window_actions, open_folder_and_record, open_picked_folder,
+    poll_collab_session_events, rename_project_file, resolve_startup_project,
+    save_active_or_prompt, save_all_project_files, spawn_project_folder_picker,
 };
 pub use screenshot::handle_screenshot_lifecycle;
