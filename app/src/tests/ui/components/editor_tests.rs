@@ -101,6 +101,8 @@ fn editor_pane_renders_typst_toolbar_actions_and_tabs() {
                     project: &mut state.project,
                     pending_cursor_restore: None,
                     pending_scroll_to_char: None,
+                    pending_focus_editor: false,
+                    search_highlight_range: None,
                     last_editor_selection: None,
                     pending_editor_context_action: None,
                     peers_in_active_file: &[],
@@ -193,6 +195,8 @@ fn editor_pane_renders_svg_and_asset_inspector_mode() {
                     project: &mut state.project,
                     pending_cursor_restore: None,
                     pending_scroll_to_char: None,
+                    pending_focus_editor: false,
+                    search_highlight_range: None,
                     last_editor_selection: None,
                     pending_editor_context_action: None,
                     peers_in_active_file: &[],
@@ -246,6 +250,8 @@ fn editor_pane_handles_empty_buffer_without_panicking() {
                     project: &mut state.project,
                     pending_cursor_restore: None,
                     pending_scroll_to_char: None,
+                    pending_focus_editor: false,
+                    search_highlight_range: None,
                     last_editor_selection: None,
                     pending_editor_context_action: None,
                     peers_in_active_file: &[],
@@ -266,4 +272,87 @@ fn editor_pane_handles_empty_buffer_without_panicking() {
     );
 
     harness.run();
+}
+
+#[test]
+fn editor_pane_scroll_to_char_respects_pending_focus_editor_flag_and_paints_unfocused_highlight() {
+    struct ScrollState {
+        project: DiskProject,
+        font_size: f32,
+        word_wrap: bool,
+        inspect_asset_mode: bool,
+        clipboard_fallback: String,
+        intellisense: EditorIntellisenseState,
+        pending_cursor_restore: Option<CharSelection>,
+        pending_scroll_to_char: Option<usize>,
+        pending_focus_editor: bool,
+        search_highlight_range: Option<(usize, usize)>,
+    }
+
+    let mut project = DiskProject::blank();
+    if let Some(buf) = project.active_buffer_mut() {
+        buf.text = Some("alpha one alpha two\n".to_string());
+    }
+
+    let mut harness = Harness::new_ui_state(
+        |ui, state: &mut ScrollState| {
+            let ctx = ui.ctx().clone();
+            render_editor_pane(
+                &ctx,
+                ui,
+                EditorPaneParams {
+                    dark_mode: false,
+                    editor_font_size: &mut state.font_size,
+                    word_wrap: &mut state.word_wrap,
+                    show_line_numbers: true,
+                    syntax_highlighting: true,
+                    inspect_asset_mode: &mut state.inspect_asset_mode,
+                    clipboard_fallback: &mut state.clipboard_fallback,
+                    project: &mut state.project,
+                    pending_cursor_restore: state.pending_cursor_restore.take(),
+                    pending_scroll_to_char: state.pending_scroll_to_char.take(),
+                    pending_focus_editor: std::mem::take(&mut state.pending_focus_editor),
+                    search_highlight_range: state.search_highlight_range,
+                    last_editor_selection: None,
+                    pending_editor_context_action: None,
+                    peers_in_active_file: &[],
+                    language_diagnostics: &[],
+                    compiler_diagnostics: &[],
+                    intellisense: &mut state.intellisense,
+                },
+            );
+        },
+        ScrollState {
+            project,
+            font_size: 14.0,
+            word_wrap: true,
+            inspect_asset_mode: false,
+            clipboard_fallback: String::new(),
+            intellisense: EditorIntellisenseState::default(),
+            pending_cursor_restore: Some(CharSelection {
+                primary_char: 15,
+                secondary_char: 10,
+            }),
+            pending_scroll_to_char: Some(10),
+            pending_focus_editor: false,
+            search_highlight_range: Some((10, 15)),
+        },
+    );
+
+    harness.run();
+    assert!(!harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .is_focused());
+
+    // When pending_focus_editor is true (e.g. diagnostic/outline jump), focus moves to editor.
+    {
+        let st = harness.state_mut();
+        st.pending_cursor_restore = Some(CharSelection::caret(0));
+        st.pending_scroll_to_char = Some(0);
+        st.pending_focus_editor = true;
+    }
+    harness.run();
+    assert!(harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .is_focused());
 }

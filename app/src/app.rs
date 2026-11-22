@@ -20,6 +20,7 @@ use crate::engine::EngineHost;
 use crate::highlight::ThemePalette;
 use crate::language_check::LanguageCheckHost;
 use crate::project::{DiskProject, FileKind};
+use crate::services::{bottom_panel_actions, language_actions, project_actions};
 use crate::ui::components::{
     compute_horizontal_split, compute_vertical_split, diagnostic_char_offset, render_editor_pane,
     render_horizontal_split_divider, render_preview_pane, render_sidebar, render_status_bar,
@@ -68,6 +69,7 @@ pub struct AzoTypeApp {
     pub collab_session: CollabSessionHandle,
     pub pending_cursor_restore: Option<CharSelection>,
     pub pending_scroll_to_char: Option<usize>,
+    pub pending_focus_editor: bool,
     pub last_sent_cursor: Option<(PathBuf, CharSelection)>,
     pub last_compiled_revision: u64,
     pub last_compiled_dpi: f32,
@@ -200,6 +202,7 @@ impl AzoTypeApp {
             collab_session,
             pending_cursor_restore: None,
             pending_scroll_to_char: None,
+            pending_focus_editor: false,
             last_sent_cursor: None,
             show_new_file_input: false,
             new_file_name: "chapters/appendix.typ".to_string(),
@@ -421,14 +424,13 @@ impl AzoTypeApp {
                     self.finish_project_action(ctx, true, notice);
                 }
                 IoEvent::DictionaryPicked(res) => {
-                    self.status_notice =
-                        crate::services::language_actions::apply_picked_dictionary_result(
-                            res,
-                            &mut self.settings,
-                            &mut self.language_check,
-                            &self.project,
-                            &self.language,
-                        );
+                    self.status_notice = language_actions::apply_picked_dictionary_result(
+                        res,
+                        &mut self.settings,
+                        &mut self.language_check,
+                        &self.project,
+                        &self.language,
+                    );
                 }
                 IoEvent::StatusMessage(msg) => self.status_notice = msg,
                 IoEvent::PdfExportFinished { status, console } => {
@@ -482,10 +484,9 @@ impl AzoTypeApp {
             self.io_tx.clone(),
             |status, console| IoEvent::PdfExportFinished { status, console },
         );
-        outcome
-            .console_logs
-            .into_iter()
-            .for_each(|line| self.bottom_panel.push_console_log(line));
+        for line in outcome.console_logs {
+            self.bottom_panel.push_console_log(line);
+        }
         self.export_pdf_error = outcome.export_pdf_error;
         self.status_notice = outcome.status_notice;
         self.engine_host.fallback_notice = outcome.fallback_notice;
@@ -556,10 +557,8 @@ impl AzoTypeApp {
         }
 
         if let Some(snippet) = output.snippet_to_insert {
-            let updated = crate::services::bottom_panel_actions::append_snippet_to_active_buffer(
-                &mut self.project,
-                snippet,
-            );
+            let updated =
+                bottom_panel_actions::append_snippet_to_active_buffer(&mut self.project, snippet);
             self.on_active_text_modified(ctx, updated);
         }
 
@@ -627,7 +626,7 @@ impl AzoTypeApp {
         if output.rescan_needed {
             let _ = self.project.rescan_tree();
         }
-        crate::services::language_actions::handle_settings_language_actions(
+        language_actions::handle_settings_language_actions(
             ctx,
             &output,
             &mut self.settings,
@@ -778,6 +777,8 @@ impl AzoTypeApp {
                 project: &mut self.project,
                 pending_cursor_restore: self.pending_cursor_restore.take(),
                 pending_scroll_to_char: self.pending_scroll_to_char.take(),
+                pending_focus_editor: std::mem::take(&mut self.pending_focus_editor),
+                search_highlight_range: self.bottom_panel.active_search_match_range(),
                 last_editor_selection: self.last_editor_selection,
                 pending_editor_context_action: self.pending_editor_context_action.take(),
                 peers_in_active_file: &peers,
@@ -818,9 +819,7 @@ impl AzoTypeApp {
         if let Some(act) = output.context_action {
             match act {
                 EditorContextAction::Menu(menu_act)
-                    if !crate::services::bottom_panel_actions::is_inline_editor_menu_action(
-                        menu_act,
-                    ) =>
+                    if !bottom_panel_actions::is_inline_editor_menu_action(menu_act) =>
                 {
                     self.dispatch_menu_action(ctx, menu_act);
                 }
@@ -849,17 +848,16 @@ impl AzoTypeApp {
         selection: CharSelection,
         scroll_to_char: usize,
     ) {
-        if let Some((clamped_sel, clamped_scroll)) =
-            crate::services::project_actions::open_and_clamp_source(
-                &mut self.project,
-                file,
-                selection,
-                scroll_to_char,
-            )
-        {
+        if let Some((clamped_sel, clamped_scroll)) = project_actions::open_and_clamp_source(
+            &mut self.project,
+            file,
+            selection,
+            scroll_to_char,
+        ) {
             self.inspect_asset_mode = false;
             self.pending_cursor_restore = Some(clamped_sel);
             self.pending_scroll_to_char = Some(clamped_scroll);
+            self.pending_focus_editor = true;
             self.last_editor_selection = Some(clamped_sel);
             ctx.request_repaint();
         }
@@ -998,7 +996,7 @@ impl AzoTypeApp {
                             .layout(Layout::top_down(Align::Min)),
                     );
                     let (open_diag, edited_text) =
-                        crate::services::bottom_panel_actions::render_and_handle_bottom_panel(
+                        bottom_panel_actions::render_and_handle_bottom_panel(
                             ctx,
                             &mut bottom_ui,
                             &mut self.bottom_panel,

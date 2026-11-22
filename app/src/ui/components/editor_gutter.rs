@@ -2,7 +2,7 @@
 
 use egui::text::CCursor;
 use egui::widgets::text_edit::TextEditOutput;
-use egui::{Align2, CornerRadius, FontFamily, FontId, Pos2, Rect, Shape, Stroke, Ui};
+use egui::{Align2, CornerRadius, FontFamily, FontId, Pos2, Rect, Shape, Stroke, StrokeKind, Ui};
 
 use crate::ui::theme::ThemePalette;
 
@@ -111,4 +111,71 @@ pub fn paint_editor_gutter_and_active_line(
             palette.active_line_highlight,
         ),
     );
+}
+
+/// Paints a translucent highlight over `[start_char, end_char)` when the editor lacks focus.
+pub fn paint_unfocused_search_highlight(
+    ui: &Ui,
+    edit_output: &TextEditOutput,
+    shape_idx: egui::layers::ShapeIdx,
+    range: (usize, usize),
+    palette: &ThemePalette,
+) {
+    let (start_char, end_char) = range;
+    let galley = &edit_output.galley;
+    if start_char >= end_char || galley.rows.is_empty() {
+        return;
+    }
+
+    let min_cursor = galley.from_ccursor(CCursor::new(start_char)).rcursor;
+    let max_cursor = galley.from_ccursor(CCursor::new(end_char)).rcursor;
+    let min_row = min_cursor.row.min(galley.rows.len() - 1);
+    let max_row = max_cursor.row.min(galley.rows.len() - 1);
+    if min_row > max_row {
+        return;
+    }
+
+    let fill = palette.selection_bg.gamma_multiply(0.8);
+    let stroke = Stroke::new(1.0_f32, palette.selection_stroke.gamma_multiply(0.75));
+    let mut shapes = Vec::with_capacity((max_row - min_row + 1) * 2);
+
+    for (ri, row) in galley
+        .rows
+        .iter()
+        .enumerate()
+        .take(max_row + 1)
+        .skip(min_row)
+    {
+        let left = if ri == min_row {
+            row.x_offset(min_cursor.column)
+        } else {
+            row.rect.left()
+        };
+        let right = if ri == max_row {
+            row.x_offset(max_cursor.column)
+        } else {
+            let newline_size = if row.ends_with_newline {
+                row.height() / 2.0
+            } else {
+                0.0
+            };
+            row.rect.right() + newline_size
+        };
+        if right > left {
+            let rect =
+                Rect::from_min_max(Pos2::new(left, row.min_y()), Pos2::new(right, row.max_y()))
+                    .translate(edit_output.galley_pos.to_vec2());
+            shapes.push(Shape::rect_filled(rect, CornerRadius::same(2), fill));
+            shapes.push(Shape::rect_stroke(
+                rect,
+                CornerRadius::same(2),
+                stroke,
+                StrokeKind::Inside,
+            ));
+        }
+    }
+
+    if !shapes.is_empty() {
+        ui.painter().set(shape_idx, Shape::Vec(shapes));
+    }
 }

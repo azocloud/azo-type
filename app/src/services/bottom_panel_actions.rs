@@ -156,7 +156,8 @@ pub fn render_and_handle_bottom_panel(
         .active_buffer()
         .and_then(|b| b.text.as_deref())
         .unwrap_or("");
-    let active_cursor_char = last_editor_selection.map_or(0, |s| s.primary_char);
+    let active_cursor_char =
+        last_editor_selection.map_or(0, |s| s.primary_char.min(s.secondary_char));
     let is_active_typst = FileKind::from_path(&project.active_file) == FileKind::Typst;
     let panel_out = render_bottom_panel(
         ui,

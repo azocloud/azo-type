@@ -22,7 +22,9 @@ use crate::ui::components::editor_actions::{
 };
 use crate::ui::components::editor_diagnostics::paint_language_diagnostics;
 pub use crate::ui::components::editor_gutter::compute_gutter_width;
-use crate::ui::components::editor_gutter::paint_editor_gutter_and_active_line;
+use crate::ui::components::editor_gutter::{
+    paint_editor_gutter_and_active_line, paint_unfocused_search_highlight,
+};
 use crate::ui::components::editor_intellisense::{
     handle_intellisense_keys_before_text_edit, update_and_render_intellisense,
     EditorIntellisenseState, IntellisenseUpdateParams,
@@ -55,6 +57,8 @@ pub struct EditorPaneParams<'a> {
     pub project: &'a mut DiskProject,
     pub pending_cursor_restore: Option<CharSelection>,
     pub pending_scroll_to_char: Option<usize>,
+    pub pending_focus_editor: bool,
+    pub search_highlight_range: Option<(usize, usize)>,
     pub last_editor_selection: Option<CharSelection>,
     pub pending_editor_context_action: Option<EditorContextAction>,
     pub peers_in_active_file: &'a [PeerPresence],
@@ -323,6 +327,8 @@ pub fn render_editor_pane(
                                 };
 
                                 let active_line_shape_idx = ui.painter().add(egui::Shape::Noop);
+                                let search_highlight_shape_idx =
+                                    ui.painter().add(egui::Shape::Noop);
                                 let editor_id = ui.make_persistent_id(egui::Id::new((
                                     "typst_code_editor",
                                     &active_path,
@@ -385,7 +391,9 @@ pub fn render_editor_pane(
                                 }
 
                                 if let Some(target_char) = scroll_to_char {
-                                    edit_output.response.request_focus();
+                                    if params.pending_focus_editor {
+                                        edit_output.response.request_focus();
+                                    }
                                     let target_cursor =
                                         edit_output.galley.from_ccursor(CCursor::new(target_char));
                                     let local_rect =
@@ -417,6 +425,17 @@ pub fn render_editor_pane(
                                     word_wrap,
                                     &palette,
                                 );
+                                if !edit_output.response.has_focus() {
+                                    if let Some(hl_range) = params.search_highlight_range {
+                                        paint_unfocused_search_highlight(
+                                            ui,
+                                            &edit_output,
+                                            search_highlight_shape_idx,
+                                            hl_range,
+                                            &palette,
+                                        );
+                                    }
+                                }
                                 let has_selection = current_range
                                     .is_some_and(|r| r.primary.index != r.secondary.index);
                                 let cur_undo_state =

@@ -19,6 +19,7 @@ pub struct SearchAndReplaceState {
     pub replace_text: String,
     pub case_sensitive: bool,
     pub current_match_idx: usize,
+    pub active_match_range: Option<(usize, usize)>,
     pub focus_search_requested: bool,
     pub focus_replace_requested: bool,
     pub status_message: Option<String>,
@@ -61,9 +62,9 @@ pub fn render_search_and_replace_tab(
                 state.focus_search_requested = false;
             }
 
-            let enter_in_search =
-                search_resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
             let shift_held = ui.input(|i| i.modifiers.shift);
+            let enter_in_search = (search_resp.lost_focus() || search_resp.has_focus())
+                && ui.input(|i| i.key_pressed(Key::Enter));
             if enter_in_search {
                 search_resp.request_focus();
             }
@@ -179,6 +180,7 @@ pub fn render_search_and_replace_tab(
             state.status_message = None;
             state.current_match_idx = (state.current_match_idx + 1) % matches.len();
             let m = matches[state.current_match_idx];
+            state.active_match_range = Some((m.start_char, m.end_char));
             output.jump_to_selection = Some((m.start_char, m.end_char));
         } else if prev_triggered {
             state.status_message = None;
@@ -188,6 +190,7 @@ pub fn render_search_and_replace_tab(
                 state.current_match_idx - 1
             };
             let m = matches[state.current_match_idx];
+            state.active_match_range = Some((m.start_char, m.end_char));
             output.jump_to_selection = Some((m.start_char, m.end_char));
         } else if replace_clicked {
             state.status_message = None;
@@ -205,9 +208,11 @@ pub fn render_search_and_replace_tab(
             if let Some(next_idx) = find_next_match_index(&next_matches, replacement_end, true) {
                 state.current_match_idx = next_idx;
                 let m = next_matches[next_idx];
+                state.active_match_range = Some((m.start_char, m.end_char));
                 output.jump_to_selection = Some((m.start_char, m.end_char));
             } else {
                 state.current_match_idx = 0;
+                state.active_match_range = None;
                 output.jump_to_char = Some(replacement_end);
             }
         } else if replace_all_clicked {
@@ -221,10 +226,16 @@ pub fn render_search_and_replace_tab(
             ) {
                 output.replace_in_active_text = Some(updated);
                 state.current_match_idx = 0;
+                state.active_match_range = None;
                 state.status_message =
                     Some(t!("bottom_panel.replaced_all_status", count = count).to_string());
             }
+        } else {
+            let m = matches[state.current_match_idx];
+            state.active_match_range = Some((m.start_char, m.end_char));
         }
+    } else {
+        state.active_match_range = None;
     }
 }
 

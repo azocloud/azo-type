@@ -101,6 +101,13 @@ impl BottomPanelState {
         self.search.focus_replace_requested = true;
     }
 
+    /// Returns the active search match char range while the Search & Replace tab is visible.
+    pub fn active_search_match_range(&self) -> Option<(usize, usize)> {
+        (self.visible && self.active_tab == BottomPanelTab::SearchAndReplace)
+            .then_some(self.search.active_match_range)
+            .flatten()
+    }
+
     /// Toggles expand/collapse state for a single diagnostic card by fingerprint.
     pub fn toggle_diagnostic_expanded(&mut self, fingerprint: u64) {
         if !self.expanded_diagnostics.remove(&fingerprint) {

@@ -85,6 +85,8 @@ fn render_test_editor(ui: &mut Ui, host: &mut TestEditorHost) {
             project: &mut host.project,
             pending_cursor_restore,
             pending_scroll_to_char: None,
+            pending_focus_editor: false,
+            search_highlight_range: None,
             last_editor_selection: None,
             pending_editor_context_action: None,
             peers_in_active_file: &[],

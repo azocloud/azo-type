@@ -457,3 +457,134 @@ fn full_app_typst_intellisense_completes_label_reference_on_tab() {
     assert!(app.project.active_buffer().unwrap().dirty);
     assert!(app.editor_intellisense.active_completion.is_none());
 }
+
+#[test]
+fn full_app_search_find_input_retains_focus_on_incremental_typing_and_enter() {
+    struct AppHolder(Option<AzoTypeApp>);
+
+    let initial = "alpha one alpha two\n";
+    let mut harness = Harness::new_state(
+        |ctx, holder: &mut AppHolder| {
+            let app = holder.0.get_or_insert_with(|| {
+                let storage = english_storage();
+                let mut app = AzoTypeApp::new_headless(ctx, Some(&storage), None, None);
+                app.settings.auto_compile = false;
+                if let Some(buf) = app.project.active_buffer_mut() {
+                    buf.text = Some(initial.to_string());
+                    buf.dirty = false;
+                }
+                app
+            });
+            app.render_ui(ctx);
+        },
+        AppHolder(None),
+    );
+    harness.run();
+
+    // Open Search & Replace via Ctrl+F, which focuses `Find:`.
+    harness.press_key_modifiers(Modifiers::COMMAND, Key::F);
+    harness.run();
+    assert!(harness.get_by_label("Find:").is_focused());
+    assert!(!harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .is_focused());
+
+    // Type "alpha" one character at a time across multiple frames.
+    for (idx, ch) in ["a", "l", "p", "h", "a"].into_iter().enumerate() {
+        harness.input_mut().events.push(Event::Text(ch.into()));
+        harness.run();
+
+        assert!(
+            harness.get_by_label("Find:").is_focused(),
+            "Find input lost focus after typing character #{idx} ('{ch}')"
+        );
+        assert!(
+            !harness
+                .get_by_role(egui::accesskit::Role::MultilineTextInput)
+                .is_focused(),
+            "Editor stole focus after typing character #{idx} ('{ch}')"
+        );
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(
+            app.project.active_buffer().and_then(|b| b.text.as_deref()),
+            Some(initial)
+        );
+    }
+
+    {
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(app.bottom_panel.search.query, "alpha");
+        assert_eq!(app.bottom_panel.search.current_match_idx, 0);
+        assert_eq!(app.bottom_panel.active_search_match_range(), Some((0, 5)));
+        assert_eq!(
+            app.last_editor_selection,
+            Some(CharSelection {
+                primary_char: 5,
+                secondary_char: 0,
+            })
+        );
+    }
+
+    // Press Enter twice in Find:; focus must remain in Find: and no newline enters the editor.
+    harness.press_key(Key::Enter);
+    harness.run();
+    assert!(harness.get_by_label("Find:").is_focused());
+    assert!(!harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .is_focused());
+    {
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(app.bottom_panel.search.current_match_idx, 1);
+        assert_eq!(app.bottom_panel.active_search_match_range(), Some((10, 15)));
+        assert_eq!(
+            app.last_editor_selection,
+            Some(CharSelection {
+                primary_char: 15,
+                secondary_char: 10,
+            })
+        );
+        assert_eq!(
+            app.project.active_buffer().and_then(|b| b.text.as_deref()),
+            Some(initial)
+        );
+    }
+
+    harness.press_key(Key::Enter);
+    harness.run();
+    assert!(harness.get_by_label("Find:").is_focused());
+    assert!(!harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .is_focused());
+    {
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(app.bottom_panel.search.current_match_idx, 0);
+        assert_eq!(app.bottom_panel.active_search_match_range(), Some((0, 5)));
+        assert_eq!(
+            app.project.active_buffer().and_then(|b| b.text.as_deref()),
+            Some(initial)
+        );
+    }
+
+    // Shift+Enter moves backward while keeping Find: focused.
+    harness.press_key_modifiers(Modifiers::SHIFT, Key::Enter);
+    harness.run();
+    assert!(harness.get_by_label("Find:").is_focused());
+    assert_eq!(
+        harness
+            .state()
+            .0
+            .as_ref()
+            .unwrap()
+            .bottom_panel
+            .search
+            .current_match_idx,
+        1
+    );
+
+    // Clicking Next / Prev / Replace does not steal focus to the editor.
+    harness.get_by_label("Next").click();
+    harness.run();
+    assert!(!harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .is_focused());
+}
