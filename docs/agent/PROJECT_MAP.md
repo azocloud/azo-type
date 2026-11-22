@@ -32,6 +32,11 @@
 | `app/src/core/engine.rs` | Typst engine release catalog loaded from embedded JSON, target matching, and pure-Rust SHA-256 checks. | `BUILTIN_TYPST_VERSION`, `EngineArchiveKind`, `EngineReleaseAsset`, `TypstEngineRelease`, `available_typst_releases`, `is_builtin_version` | *(none)* | `app/src/tests/core/engine_tests.rs` | — |
 | `app/src/core/file_kind.rs` | File type identification and classification based on file extensions. | `FileKind`, `from_path`, `is_editable_text`, `icon`, `label` | *(none)* | `app/src/tests/core/file_kind_tests.rs`, `app/tests/project_tests.rs` | — |
 | `app/src/core/i18n.rs` | Cross-platform locale normalization, system language detection, and native display names. | `normalize_locale_tag`, `resolve_locale`, `detect_system_locale`, `locale_native_name`, `AppSavedState` | *(none)* | `app/src/tests/core/i18n_tests.rs` | — |
+| `app/src/core/intellisense/complete.rs` | Context-aware completion candidate generation for `@` references, `#`/math symbols, | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
+| `app/src/core/intellisense/hover.rs` | Hover tooltip and diagnostic hint resolution for Typst references, symbols, and diagnostics. | *(re-exports / entry)* | `core` | *(covered via integration/UI)* | — |
+| `app/src/core/intellisense/index.rs` | Pure in-memory project indexer for Typst `<label>` definitions, `#let` bindings, | *(re-exports / entry)* | `core` | *(covered via integration/UI)* | — |
+| `app/src/core/intellisense/stdlib.rs` | Built-in Typst standard library symbol catalog and keyword documentation. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
+| `app/src/core/intellisense.rs` | Pure Typst IntelliSense engine for reference completions, macro/stdlib documentation, | `CompletionKind`, `CompletionItem`, `CompletionRequestContext`, `HoverInfo`, `TypstDiagnosticHint`, `LabelDefinition` | `core` | `app/src/tests/core/intellisense_tests.rs` | — |
 | `app/src/core/mod.rs` | Core domain models, algorithms, and data types. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/core/outline.rs` | Pure document outline extraction, AST traversal, and hierarchical numbering. | `SourceResolver`, `CompiledOutlineItem`, `DocumentOutlineItem`, `OutlineTreeNode`, `extract_typst_markup_plain_text`, `extract_typst_ast_outline` | `core` | `app/src/tests/core/outline_tests.rs`, `app/tests/outline_tests.rs` | Uses `SourceResolver` trait to stay independent of filesystem I/O. |
 | `app/src/core/pdf.rs` | PDF export configuration, PDF versions, and PDF/A archival standards. | `PdfVersionChoice`, `ALL`, `label`, `short_label`, `to_standard`, `PdfArchivalStandard` | *(none)* | `app/src/tests/core/pdf_tests.rs`, `app/tests/pdf_config_tests.rs` | — |
@@ -105,6 +110,7 @@
 | `app/src/tests/core/engine_tests.rs` | Unit tests for the hardcoded Typst release catalog and pure-Rust SHA-256 verification. |
 | `app/src/tests/core/file_kind_tests.rs` | Unit tests for file kind extension classification and text editability. |
 | `app/src/tests/core/i18n_tests.rs` | Unit tests for locale normalization, system language detection, and native display names. |
+| `app/src/tests/core/intellisense_tests.rs` | Unit tests for the pure Typst IntelliSense engine (completions, hover, and hints). |
 | `app/src/tests/core/outline_tests.rs` | Unit tests for Typst AST heading extraction and outline hierarchy construction. |
 | `app/src/tests/core/pdf_tests.rs` | Unit tests for PDF export version choices and archival standard validation. |
 | `app/src/tests/core/recent_projects_tests.rs` | Unit tests for `RecentProjects` MRU tracking, lexical normalization, and formatting. |
