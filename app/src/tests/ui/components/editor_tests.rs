@@ -8,6 +8,7 @@ use rust_i18n::t;
 use super::*;
 use crate::core::spellcheck::DiagnosticCategory;
 use crate::project::buffer::OpenBuffer;
+use crate::ui::components::editor_intellisense::EditorIntellisenseState;
 
 #[test]
 fn adjust_editor_font_size_clamps_bounds() {
@@ -36,6 +37,7 @@ fn editor_pane_renders_typst_toolbar_actions_and_tabs() {
         selected_tab: Option<PathBuf>,
         closed_tab: Option<PathBuf>,
         text_changed: bool,
+        intellisense: EditorIntellisenseState,
     }
 
     let mut project = DiskProject::blank();
@@ -62,6 +64,7 @@ fn editor_pane_renders_typst_toolbar_actions_and_tabs() {
         selected_tab: None,
         closed_tab: None,
         text_changed: false,
+        intellisense: EditorIntellisenseState::default(),
     };
 
     let diag = LanguageCheckDiagnostic {
@@ -102,6 +105,8 @@ fn editor_pane_renders_typst_toolbar_actions_and_tabs() {
                     pending_editor_context_action: None,
                     peers_in_active_file: &[],
                     language_diagnostics: std::slice::from_ref(&diag),
+                    compiler_diagnostics: &[],
+                    intellisense: &mut state.intellisense,
                 },
             );
             state.text_changed |= out.text_changed;
@@ -140,6 +145,7 @@ fn editor_pane_renders_svg_and_asset_inspector_mode() {
         word_wrap: bool,
         inspect_asset_mode: bool,
         clipboard_fallback: String,
+        intellisense: EditorIntellisenseState,
     }
 
     let mut project = DiskProject::blank();
@@ -164,6 +170,7 @@ fn editor_pane_renders_svg_and_asset_inspector_mode() {
         word_wrap: true,
         inspect_asset_mode: false,
         clipboard_fallback: String::new(),
+        intellisense: EditorIntellisenseState::default(),
     };
 
     let inspect_btn = t!("editor.asset_metadata", locale = "en").to_string();
@@ -190,6 +197,8 @@ fn editor_pane_renders_svg_and_asset_inspector_mode() {
                     pending_editor_context_action: None,
                     peers_in_active_file: &[],
                     language_diagnostics: &[],
+                    compiler_diagnostics: &[],
+                    intellisense: &mut state.intellisense,
                 },
             );
         },
@@ -213,6 +222,7 @@ fn editor_pane_handles_empty_buffer_without_panicking() {
         word_wrap: bool,
         inspect_asset_mode: bool,
         clipboard_fallback: String,
+        intellisense: EditorIntellisenseState,
     }
 
     let mut project = DiskProject::blank();
@@ -240,6 +250,8 @@ fn editor_pane_handles_empty_buffer_without_panicking() {
                     pending_editor_context_action: None,
                     peers_in_active_file: &[],
                     language_diagnostics: &[],
+                    compiler_diagnostics: &[],
+                    intellisense: &mut state.intellisense,
                 },
             );
         },
@@ -249,6 +261,7 @@ fn editor_pane_handles_empty_buffer_without_panicking() {
             word_wrap: true,
             inspect_asset_mode: false,
             clipboard_fallback: String::new(),
+            intellisense: EditorIntellisenseState::default(),
         },
     );
 

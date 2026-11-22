@@ -5,6 +5,9 @@ pub mod bottom_panel_autocorrect;
 pub mod editor;
 pub mod editor_actions;
 pub mod editor_diagnostics;
+pub mod editor_gutter;
+pub mod editor_intellisense;
+pub mod editor_intellisense_hover;
 pub mod menu_bar;
 pub mod preview;
 pub mod preview_selection;
@@ -17,6 +20,7 @@ pub use bottom_panel::{
     BottomPanelState, BottomPanelTab,
 };
 pub use editor::{render_editor_pane, EditorPaneOutput, EditorPaneParams};
+pub use editor_intellisense::{AcceptedCompletion, EditorIntellisenseState};
 #[cfg(not(target_os = "macos"))]
 pub use menu_bar::render_desktop_menu_bar;
 pub use menu_bar::{EditorContextAction, MenuBarOutput, MenuBarParams};
