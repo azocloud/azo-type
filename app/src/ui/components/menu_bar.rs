@@ -119,7 +119,7 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
 
                 // EDIT MENU
                 ui.menu_button(RichText::new(t!("menu.edit")).strong(), |ui| {
-                    ui.set_min_width(210.0);
+                    ui.set_min_width(240.0);
                     if ui.button(t!("menu.undo")).clicked() {
                         output.editor_action = Some(EditorContextAction::Undo);
                         ui.close_menu();
@@ -145,6 +145,35 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                         output.editor_action = Some(EditorContextAction::SelectAll);
                         ui.close_menu();
                     }
+                    ui.separator();
+                    render_menu_action_items(
+                        ui,
+                        &mut output,
+                        &[
+                            (t!("menu.find").as_ref(), MenuAction::Find),
+                            (t!("menu.find_replace").as_ref(), MenuAction::FindAndReplace),
+                        ],
+                    );
+                    ui.separator();
+                    render_menu_action_items(
+                        ui,
+                        &mut output,
+                        &[
+                            (
+                                t!("menu.toggle_line_comment").as_ref(),
+                                MenuAction::ToggleLineComment,
+                            ),
+                            (
+                                t!("menu.toggle_block_comment").as_ref(),
+                                MenuAction::ToggleBlockComment,
+                            ),
+                            (t!("menu.indent_lines").as_ref(), MenuAction::IndentLines),
+                            (t!("menu.outdent_lines").as_ref(), MenuAction::OutdentLines),
+                            (t!("menu.duplicate_line").as_ref(), MenuAction::DuplicateLine),
+                            (t!("menu.move_line_up").as_ref(), MenuAction::MoveLineUp),
+                            (t!("menu.move_line_down").as_ref(), MenuAction::MoveLineDown),
+                        ],
+                    );
                     ui.separator();
                     if ui.button(t!("menu.insert_heading")).clicked() {
                         output.snippet_to_insert = Some("\n\n== New Section\n");
@@ -249,17 +278,6 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                 });
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui
-                        .selectable_label(
-                            params.show_bottom_panel,
-                            RichText::new(t!("menu.bottom_panel_toggle")).small().strong(),
-                        )
-                        .on_hover_text(t!("menu.bottom_panel_tooltip"))
-                        .clicked()
-                    {
-                        output.pending_action = Some(MenuAction::ToggleBottomPanel);
-                    }
-                    ui.separator();
                     ui.label(
                         RichText::new(format!(
                             "{}: {}",
@@ -275,6 +293,16 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
         });
 
     output
+}
+
+#[cfg(not(target_os = "macos"))]
+fn render_menu_action_items(ui: &mut Ui, output: &mut MenuBarOutput, items: &[(&str, MenuAction)]) {
+    for &(label, action) in items {
+        if ui.button(label).clicked() {
+            output.pending_action = Some(action);
+            ui.close_menu();
+        }
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

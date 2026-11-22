@@ -193,3 +193,69 @@ fn desktop_menu_bar_clear_recent_projects_emits_clear_action() {
 
     assert_eq!(*harness.state(), Some(MenuAction::ClearRecentProjects));
 }
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn desktop_menu_bar_does_not_render_top_right_panel_button() {
+    let panel_toggle_label = t!("menu.bottom_panel_toggle", locale = "en").to_string();
+    let folder_label = format!("{}: /tmp/project", t!("menu.folder_label", locale = "en"));
+
+    let harness = Harness::new(|ctx| {
+        render_desktop_menu_bar(
+            ctx,
+            MenuBarParams {
+                dark_mode: true,
+                show_sidebar: true,
+                show_bottom_panel: false,
+                word_wrap: true,
+                project_root: Path::new("/tmp/project"),
+                active_file: Path::new("main.typ"),
+                recent_projects: &[],
+            },
+        );
+    });
+
+    assert!(harness.query_by_label(&panel_toggle_label).is_none());
+    assert!(harness.query_by_label(&folder_label).is_some());
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn desktop_menu_bar_edit_menu_emits_find_and_toggle_line_comment_actions() {
+    let edit_menu = t!("menu.edit", locale = "en").to_string();
+    let find_item = t!("menu.find", locale = "en").to_string();
+    let toggle_line_comment_item = t!("menu.toggle_line_comment", locale = "en").to_string();
+
+    let mut harness = Harness::new_state(
+        |ctx, pending_action: &mut Option<MenuAction>| {
+            let out = render_desktop_menu_bar(
+                ctx,
+                MenuBarParams {
+                    dark_mode: true,
+                    show_sidebar: true,
+                    show_bottom_panel: false,
+                    word_wrap: true,
+                    project_root: Path::new("/tmp/project"),
+                    active_file: Path::new("main.typ"),
+                    recent_projects: &[],
+                },
+            );
+            if out.pending_action.is_some() {
+                *pending_action = out.pending_action;
+            }
+        },
+        None,
+    );
+
+    harness.get_by_label(&edit_menu).click();
+    harness.run();
+    harness.get_by_label(&find_item).click();
+    harness.run();
+    assert_eq!(*harness.state(), Some(MenuAction::Find));
+
+    harness.get_by_label(&edit_menu).click();
+    harness.run();
+    harness.get_by_label(&toggle_line_comment_item).click();
+    harness.run();
+    assert_eq!(*harness.state(), Some(MenuAction::ToggleLineComment));
+}
