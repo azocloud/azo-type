@@ -198,3 +198,64 @@ fn format_entry_label_formats_folders_and_root_fallbacks_cleanly() {
     );
     assert_eq!(RecentProjects::format_entry_label(Path::new(".")), ".");
 }
+
+#[test]
+fn windows_verbatim_drive_and_unc_prefixes_normalize_and_deduplicate() {
+    let mut recent = RecentProjects::from_paths([
+        PathBuf::from(r"\\?\C:\Users\Alice\paper\"),
+        PathBuf::from(r"C:\Users\Alice\drafts\..\paper"),
+        PathBuf::from(r"\\?\UNC\server\share\report\"),
+        PathBuf::from(r"\\server\share\report"),
+    ]);
+
+    assert_eq!(
+        recent.entries(),
+        &[
+            PathBuf::from(r"C:\Users\Alice\paper"),
+            PathBuf::from(r"\\server\share\report"),
+        ]
+    );
+
+    // Case-insensitive `unc\` and drive letters deduplicate and preserve clean normalized paths.
+    recent.record(PathBuf::from(r"\\?\unc\server\share\other\..\report\"));
+    assert_eq!(recent.entries().len(), 2);
+    assert_eq!(
+        recent.most_recent(),
+        Some(Path::new(r"\\server\share\report"))
+    );
+
+    recent.record(PathBuf::from(r"\\?\c:\Users\Alice\paper\"));
+    assert_eq!(recent.entries().len(), 2);
+    assert_eq!(
+        recent.most_recent(),
+        Some(Path::new(r"c:\Users\Alice\paper"))
+    );
+
+    // Root verbatim paths strip `\\?\` / `\\?\UNC\` cleanly and format without verbatim prefix.
+    assert_eq!(
+        RecentProjects::format_entry_label(Path::new(r"\\?\C:\")),
+        r"C:\"
+    );
+    assert_eq!(
+        RecentProjects::format_entry_label(Path::new(r"\\?\C:\foo\")),
+        r"foo — C:\foo"
+    );
+    assert_eq!(
+        RecentProjects::format_entry_label(Path::new(r"\\?\UNC\server\share")),
+        r"\\server\share"
+    );
+    assert_eq!(
+        RecentProjects::format_entry_label(Path::new(r"\\?\UNC\server\share\")),
+        r"\\server\share"
+    );
+    assert_eq!(
+        RecentProjects::format_entry_label(Path::new(r"\\?\UNC\server\share\thesis\")),
+        r"thesis — \\server\share\thesis"
+    );
+
+    // Removal works across verbatim and non-verbatim representations.
+    recent.remove(Path::new(r"C:\Users\Alice\paper"));
+    assert_eq!(recent.entries(), &[PathBuf::from(r"\\server\share\report")]);
+    recent.remove(Path::new(r"\\?\UNC\server\share\report"));
+    assert!(recent.is_empty());
+}

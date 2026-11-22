@@ -62,9 +62,10 @@ impl RecentProjects {
 
     /// Records `path` as the most recently opened project.
     ///
-    /// Empty paths are ignored. Trailing separators and lexical dot segments (`.` / `..`) are
-    /// normalized cross-platform without filesystem I/O, any existing matching entry is moved to
-    /// index `0`, and the list is truncated to [`MAX_RECENT_PROJECTS`].
+    /// Empty paths are ignored. Trailing separators, lexical dot segments (`.` / `..`), and
+    /// Windows verbatim prefixes (`\\?\`, `\\?\UNC\`) are normalized cross-platform without
+    /// filesystem I/O, any existing matching entry is moved to index `0`, and the list is truncated
+    /// to [`MAX_RECENT_PROJECTS`].
     pub fn record(&mut self, path: PathBuf) {
         let Some(normalized) = normalize_lexical_path(&path) else {
             return;
@@ -171,14 +172,29 @@ fn parse_utf8_lexical_path(raw: &str) -> ParsedUtf8Path<'_> {
 }
 
 fn split_prefix_and_root(raw: &str) -> (Option<String>, bool, &str) {
-    // Windows UNC paths: `\\server\share\...` or `\\?\C:\...`
+    // Windows UNC paths (`\\server\share\...`), verbatim prefixes (`\\?\C:\...`,
+    // `\\?\UNC\server\share\...`), and device namespace paths (`\\.\C:\...`).
     if let Some(after_unc) = raw.strip_prefix(r"\\") {
+        if let Some(after_verbatim) = after_unc
+            .strip_prefix(r"?\")
+            .or_else(|| after_unc.strip_prefix("?/"))
+        {
+            if let Some(head) = after_verbatim.as_bytes().get(..4) {
+                if head[..3].eq_ignore_ascii_case(b"UNC") && matches!(head[3], b'\\' | b'/') {
+                    return split_unc_prefix_and_root(&after_verbatim[4..]);
+                }
+            }
+            if let Some(drive_split) = split_drive_prefix_and_root(after_verbatim) {
+                return drive_split;
+            }
+        }
+
         let mut parts = after_unc.splitn(3, ['\\', '/']);
         let first = parts.next().unwrap_or("");
         let second = parts.next().unwrap_or("");
         let tail = parts.next().unwrap_or("");
 
-        if (first == "?" || first == ".")
+        if first == "."
             && second.len() == 2
             && second.as_bytes()[0].is_ascii_alphabetic()
             && second.as_bytes()[1] == b':'
@@ -190,22 +206,12 @@ fn split_prefix_and_root(raw: &str) -> (Option<String>, bool, &str) {
             );
         }
 
-        if !first.is_empty() && !second.is_empty() {
-            return (Some(format!(r"\\{first}\{second}")), true, tail);
-        }
-        if !first.is_empty() {
-            return (Some(format!(r"\\{first}")), true, second);
-        }
-        return (Some(r"\\".to_string()), true, after_unc);
+        return split_unc_prefix_and_root(after_unc);
     }
 
     // Windows drive prefix: `C:\...`, `C:/...`, or `C:...`
-    let bytes = raw.as_bytes();
-    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
-        let drive = &raw[..2];
-        let rest = &raw[2..];
-        let has_root = rest.starts_with('/') || rest.starts_with('\\');
-        return (Some(drive.to_string()), has_root, rest);
+    if let Some(drive_split) = split_drive_prefix_and_root(raw) {
+        return drive_split;
     }
 
     // POSIX root `/...`
@@ -219,6 +225,32 @@ fn split_prefix_and_root(raw: &str) -> (Option<String>, bool, &str) {
     }
 
     (None, false, raw)
+}
+
+fn split_unc_prefix_and_root(after_unc: &str) -> (Option<String>, bool, &str) {
+    let mut parts = after_unc.splitn(3, ['\\', '/']);
+    let first = parts.next().unwrap_or("");
+    let second = parts.next().unwrap_or("");
+    let tail = parts.next().unwrap_or("");
+
+    if !first.is_empty() && !second.is_empty() {
+        return (Some(format!(r"\\{first}\{second}")), true, tail);
+    }
+    if !first.is_empty() {
+        return (Some(format!(r"\\{first}")), true, second);
+    }
+    (Some(r"\\".to_string()), true, after_unc)
+}
+
+fn split_drive_prefix_and_root(raw: &str) -> Option<(Option<String>, bool, &str)> {
+    let bytes = raw.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        let drive = &raw[..2];
+        let rest = &raw[2..];
+        let has_root = rest.starts_with('/') || rest.starts_with('\\');
+        return Some((Some(drive.to_string()), has_root, rest));
+    }
+    None
 }
 
 fn normalize_lexical_path(path: &Path) -> Option<PathBuf> {
