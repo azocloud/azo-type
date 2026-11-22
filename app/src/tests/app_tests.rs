@@ -396,3 +396,117 @@ fn folder_picked_and_open_recent_project_update_mru_and_clear_resets_list() {
 
     let _ = std::fs::remove_dir_all(&dir_a);
 }
+
+#[test]
+fn dispatch_menu_action_find_replace_and_edit_tools_sets_expected_state() {
+    let ctx = Context::default();
+    let storage = english_storage();
+    let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
+
+    app.dispatch_menu_action(&ctx, MenuAction::Find);
+    assert!(app.bottom_panel.visible);
+    assert_eq!(
+        app.bottom_panel.active_tab,
+        crate::ui::components::BottomPanelTab::SearchAndReplace
+    );
+    assert!(app.bottom_panel.search.focus_search_requested);
+    assert!(!app.bottom_panel.search.focus_replace_requested);
+
+    app.dispatch_menu_action(&ctx, MenuAction::FindAndReplace);
+    assert!(app.bottom_panel.visible);
+    assert_eq!(
+        app.bottom_panel.active_tab,
+        crate::ui::components::BottomPanelTab::SearchAndReplace
+    );
+    assert!(!app.bottom_panel.search.focus_search_requested);
+    assert!(app.bottom_panel.search.focus_replace_requested);
+
+    for act in [
+        MenuAction::ToggleLineComment,
+        MenuAction::ToggleBlockComment,
+        MenuAction::IndentLines,
+        MenuAction::OutdentLines,
+        MenuAction::DuplicateLine,
+        MenuAction::MoveLineUp,
+        MenuAction::MoveLineDown,
+    ] {
+        app.dispatch_menu_action(&ctx, act);
+        assert_eq!(
+            app.pending_editor_context_action,
+            Some(EditorContextAction::Menu(act))
+        );
+    }
+}
+
+#[test]
+fn bottom_panel_output_search_replace_updates_buffer_selection_and_dirty_state() {
+    let ctx = Context::default();
+    let storage = english_storage();
+    let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
+    if let Some(buf) = app.project.active_buffer_mut() {
+        buf.text = Some("= Heading\nalpha beta alpha\n".to_string());
+        buf.dirty = false;
+    }
+    app.bottom_panel.visible = true;
+    app.inspect_asset_mode = true;
+    app.pending_compile = false;
+
+    let output = crate::ui::components::BottomPanelOutput {
+        replace_in_active_text: Some("= Heading\ngamma beta alpha\n".to_string()),
+        jump_to_selection: Some((21, 999)),
+        ..Default::default()
+    };
+
+    let (open_diag, edited_text) = crate::services::bottom_panel_actions::apply_bottom_panel_output(
+        &ctx,
+        &output,
+        &mut app.bottom_panel.visible,
+        &mut app.settings,
+        &mut app.language_check,
+        &mut app.project,
+        &app.language,
+        &mut app.inspect_asset_mode,
+        &mut app.pending_cursor_restore,
+        &mut app.pending_scroll_to_char,
+        &mut app.show_settings_window,
+        &mut app.settings_tab,
+    );
+    assert!(open_diag.is_none());
+    let edited = edited_text.expect("search/replace must emit updated snapshot");
+    app.on_active_text_modified(&ctx, Some(edited));
+
+    let buf = app.project.active_buffer().expect("active buffer");
+    assert_eq!(buf.text.as_deref(), Some("= Heading\ngamma beta alpha\n"));
+    assert!(buf.dirty);
+    assert!(app.pending_compile);
+    assert!(!app.inspect_asset_mode);
+    // Updated text has 27 chars; end 999 clamps to 27.
+    assert_eq!(
+        app.pending_cursor_restore,
+        Some(CharSelection {
+            primary_char: 27,
+            secondary_char: 21,
+        })
+    );
+    assert_eq!(app.pending_scroll_to_char, Some(21));
+
+    let close_out = crate::ui::components::BottomPanelOutput {
+        close_requested: true,
+        ..Default::default()
+    };
+    let _ = crate::services::bottom_panel_actions::apply_bottom_panel_output(
+        &ctx,
+        &close_out,
+        &mut app.bottom_panel.visible,
+        &mut app.settings,
+        &mut app.language_check,
+        &mut app.project,
+        &app.language,
+        &mut app.inspect_asset_mode,
+        &mut app.pending_cursor_restore,
+        &mut app.pending_scroll_to_char,
+        &mut app.show_settings_window,
+        &mut app.settings_tab,
+    );
+    assert!(!app.bottom_panel.visible);
+}

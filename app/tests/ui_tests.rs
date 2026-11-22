@@ -4,10 +4,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use azo_type::app::{AzoTypeApp, MenuAction, SettingsTab};
+use azo_type::core::diff::CharSelection;
 use azo_type::core::i18n::AppSavedState;
 use azo_type::core::recent_projects::RecentProjects;
 use azo_type::services::canonicalize_project_path;
 use azo_type::services::persistence::RECENT_PROJECTS_STORAGE_KEY;
+use azo_type::ui::components::BottomPanelTab;
+use egui::{Event, Key, Modifiers};
 use egui_kittest::{kittest::Queryable, Harness};
 
 #[derive(Default)]
@@ -232,4 +235,225 @@ fn full_app_toggles_open_last_project_setting_and_opens_recent_project_via_menu(
 
     let _ = std::fs::remove_dir_all(&dir_a);
     let _ = std::fs::remove_dir_all(&dir_b);
+}
+
+#[test]
+fn full_app_edit_tools_menu_and_shortcuts_execute_once_without_double_toggle() {
+    struct AppHolder(Option<AzoTypeApp>);
+
+    let mut harness = Harness::new_state(
+        |ctx, holder: &mut AppHolder| {
+            let app = holder.0.get_or_insert_with(|| {
+                let storage = english_storage();
+                let mut app = AzoTypeApp::new_headless(ctx, Some(&storage), None, None);
+                app.settings.auto_compile = false;
+                if let Some(buf) = app.project.active_buffer_mut() {
+                    buf.text = Some("Hello Typst\nSecond line\n".to_string());
+                    buf.dirty = false;
+                }
+                app.pending_cursor_restore = Some(CharSelection::caret(0));
+                app
+            });
+            app.render_ui(ctx);
+        },
+        AppHolder(None),
+    );
+    harness.run();
+
+    // Focus editor and place caret on line 1.
+    harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .focus();
+    harness
+        .state_mut()
+        .0
+        .as_mut()
+        .unwrap()
+        .pending_cursor_restore = Some(CharSelection::caret(0));
+    harness.run();
+
+    // 1. Trigger ToggleLineComment via menu dispatch and run multiple frames to prove no double-toggle.
+    {
+        let ctx = harness.ctx.clone();
+        let app = harness.state_mut().0.as_mut().unwrap();
+        app.dispatch_menu_action(&ctx, MenuAction::ToggleLineComment);
+    }
+    harness.run();
+    harness.run();
+    {
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(
+            app.project.active_buffer().and_then(|b| b.text.as_deref()),
+            Some("// Hello Typst\nSecond line\n")
+        );
+        assert!(app.pending_editor_context_action.is_none());
+        assert!(app.project.active_buffer().unwrap().dirty);
+    }
+
+    // 2. Trigger Ctrl+/ shortcut directly while editor has focus and verify single toggle back.
+    harness.press_key_modifiers(Modifiers::COMMAND, Key::Slash);
+    harness.run();
+    harness.run();
+    {
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(
+            app.project.active_buffer().and_then(|b| b.text.as_deref()),
+            Some("Hello Typst\nSecond line\n")
+        );
+        assert!(app.pending_editor_context_action.is_none());
+    }
+
+    // 3. Trigger DuplicateLine and IndentLines via menu dispatch.
+    {
+        let ctx = harness.ctx.clone();
+        let app = harness.state_mut().0.as_mut().unwrap();
+        app.pending_cursor_restore = Some(CharSelection::caret(0));
+        app.dispatch_menu_action(&ctx, MenuAction::DuplicateLine);
+    }
+    harness.run();
+    harness.run();
+    assert_eq!(
+        harness
+            .state()
+            .0
+            .as_ref()
+            .unwrap()
+            .project
+            .active_buffer()
+            .and_then(|b| b.text.as_deref()),
+        Some("Hello Typst\nHello Typst\nSecond line\n")
+    );
+}
+
+#[test]
+fn full_app_search_and_replace_bottom_panel_navigates_and_replaces_buffer() {
+    struct AppHolder(Option<AzoTypeApp>);
+
+    let mut harness = Harness::new_state(
+        |ctx, holder: &mut AppHolder| {
+            let app = holder.0.get_or_insert_with(|| {
+                let storage = english_storage();
+                let mut app = AzoTypeApp::new_headless(ctx, Some(&storage), None, None);
+                app.settings.auto_compile = false;
+                if let Some(buf) = app.project.active_buffer_mut() {
+                    buf.text = Some("alpha one alpha two\n".to_string());
+                    buf.dirty = false;
+                }
+                app
+            });
+            app.render_ui(ctx);
+        },
+        AppHolder(None),
+    );
+    harness.run();
+
+    // Open Search & Replace tab via Ctrl+F shortcut.
+    harness.press_key_modifiers(Modifiers::COMMAND, Key::F);
+    harness.run();
+    {
+        let app = harness.state().0.as_ref().unwrap();
+        assert!(app.bottom_panel.visible);
+        assert_eq!(
+            app.bottom_panel.active_tab,
+            BottomPanelTab::SearchAndReplace
+        );
+    }
+
+    // Type query into Search input and advance to the second match via Next button.
+    harness.get_by_label("Find:").focus();
+    harness.input_mut().events.push(Event::Text("alpha".into()));
+    harness.run();
+    harness.get_by_label("1 of 2");
+
+    harness.get_by_label("Next").click();
+    harness.run();
+    {
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(app.bottom_panel.search.current_match_idx, 1);
+        assert_eq!(
+            app.last_editor_selection,
+            Some(CharSelection {
+                primary_char: 15,
+                secondary_char: 10,
+            })
+        );
+    }
+
+    // Open Replace via MenuAction::FindAndReplace and click Replace All.
+    {
+        let ctx = harness.ctx.clone();
+        let app = harness.state_mut().0.as_mut().unwrap();
+        app.dispatch_menu_action(&ctx, MenuAction::FindAndReplace);
+    }
+    harness.run();
+    harness.get_by_label("Replace:").focus();
+    harness.input_mut().events.push(Event::Text("omega".into()));
+    harness.run();
+
+    harness.get_by_label("Replace All").click();
+    harness.run();
+    {
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(
+            app.project.active_buffer().and_then(|b| b.text.as_deref()),
+            Some("omega one omega two\n")
+        );
+        assert!(app.project.active_buffer().unwrap().dirty);
+    }
+}
+
+#[test]
+fn full_app_typst_intellisense_completes_label_reference_on_tab() {
+    struct AppHolder(Option<AzoTypeApp>);
+
+    let initial = "= Intro <sec-intro>\nSee ";
+    let mut harness = Harness::new_state(
+        |ctx, holder: &mut AppHolder| {
+            let app = holder.0.get_or_insert_with(|| {
+                let storage = english_storage();
+                let mut app = AzoTypeApp::new_headless(ctx, Some(&storage), None, None);
+                app.settings.auto_compile = false;
+                if let Some(buf) = app.project.active_buffer_mut() {
+                    buf.text = Some(initial.to_string());
+                    buf.dirty = false;
+                }
+                app.pending_cursor_restore = Some(CharSelection::caret(initial.chars().count()));
+                app
+            });
+            app.render_ui(ctx);
+        },
+        AppHolder(None),
+    );
+    harness.run();
+
+    // Focus the editor with caret at the end of "See ".
+    harness
+        .get_by_role(egui::accesskit::Role::MultilineTextInput)
+        .focus();
+    harness
+        .state_mut()
+        .0
+        .as_mut()
+        .unwrap()
+        .pending_cursor_restore = Some(CharSelection::caret(initial.chars().count()));
+    harness.run();
+
+    // Type "@sec-" to trigger Typst reference completion popup.
+    harness.input_mut().events.push(Event::Text("@sec-".into()));
+    harness.run_steps(2);
+
+    assert!(harness.query_all_by_label("sec-intro").next().is_some());
+
+    // Accept the completion via Tab and verify active buffer + dirty state update.
+    harness.press_key(Key::Tab);
+    harness.run_steps(2);
+    let app = harness.state().0.as_ref().unwrap();
+    let text = app
+        .project
+        .active_buffer()
+        .and_then(|b| b.text.as_deref())
+        .unwrap_or("");
+    assert!(text.ends_with("See @sec-intro"));
+    assert!(app.project.active_buffer().unwrap().dirty);
+    assert!(app.editor_intellisense.active_completion.is_none());
 }
