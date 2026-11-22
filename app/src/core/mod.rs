@@ -5,6 +5,7 @@
 //! - [`engine`]: Hardcoded Typst release catalog, target matching, and pure-Rust SHA-256 verification.
 //! - [`file_kind`]: Semantic file type classification.
 //! - [`i18n`]: Cross-platform locale normalization, language detection, and native display names.
+//! - [`intellisense`]: Pure Typst IntelliSense engine for completions, hover tooltips, and hints.
 //! - [`outline`]: Document outline extraction, AST traversal, and hierarchical numbering.
 //! - [`pdf`]: PDF versions, archival (PDF/A) standards, and export configurations.
 //! - [`recent_projects`]: Recently opened project folder MRU history and display formatting.
@@ -20,6 +21,7 @@ pub mod diff;
 pub mod engine;
 pub mod file_kind;
 pub mod i18n;
+pub mod intellisense;
 pub mod outline;
 pub mod pdf;
 pub mod recent_projects;
@@ -42,6 +44,11 @@ pub use engine::{
 pub use file_kind::FileKind;
 pub use i18n::{
     detect_system_locale, locale_native_name, normalize_locale_tag, resolve_locale, AppSavedState,
+};
+pub use intellisense::{
+    compute_completions, compute_hover_info, compute_typst_hints, CompletionItem, CompletionKind,
+    CompletionRequestContext, HoverInfo, LabelDefinition, TypstDiagnosticHint,
+    UserSymbolDefinition,
 };
 pub use outline::{
     assign_hierarchical_numbers, build_outline_tree, extract_document_outline,
