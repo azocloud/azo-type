@@ -1,10 +1,12 @@
 //! Application background services and runners.
 //!
+//! - [`bottom_panel_actions`]: Bottom panel search, replace, and output wiring helpers.
 //! - [`pdf_export`]: PDF compilation and asynchronous OS save-dialog workflow orchestration.
 //! - [`persistence`]: Persistent settings, language, and zoom state via `eframe::Storage`.
 //! - [`project_actions`]: Project file creation, renaming, and deletion workflows with collab sync.
 //! - [`screenshot`]: Headless screenshot automation lifecycle runner.
 
+pub mod bottom_panel_actions;
 pub mod language_actions;
 pub mod pdf_export;
 pub mod persistence;

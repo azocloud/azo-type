@@ -68,6 +68,7 @@
 | `app/src/platform/theme.rs` | Cross-platform OS dark/light theme detection (`System-Default`) with safe Dark fallback. | `resolve_effective_dark_mode`, `detect_system_dark_mode`, `parse_portal_color_scheme`, `parse_gsettings_color_scheme`, `parse_gtk_theme_name_is_dark`, `parse_gtk_settings_ini` | `core` | `app/src/tests/platform/theme_tests.rs` | — |
 | `app/src/project/buffer.rs` | Open buffer and file tree node types for workspace and in-memory documents. | `FsTreeNode`, `OpenBuffer`, `load_from_disk`, `save_to_disk`, `line_count` | `core` | *(covered via integration/UI)* | — |
 | `app/src/project.rs` | Workspace management (`DiskProject`), on-disk and in-memory projects, file tree scanning, and buffer caching. | `DiskProject`, `blank`, `has_disk_backing`, `open_folder`, `rescan_tree`, `collect_typ_files` | `core` | `app/tests/project_tests.rs` | — |
+| `app/src/services/bottom_panel_actions.rs` | Orchestration helpers wiring Bottom Panel search, replace, and output actions to app state. | `is_inline_editor_menu_action`, `append_snippet_to_active_buffer`, `handle_bottom_panel_search_actions`, `apply_bottom_panel_output`, `render_and_handle_bottom_panel` | `core`, `engine`, `language_check`, `platform`, `project`, `services`, `ui` | `app/src/tests/services/bottom_panel_actions_tests.rs` | — |
 | `app/src/services/language_actions.rs` | Orchestration helpers wiring Settings/Bottom-Panel spell & grammar actions to the app state. | `apply_language_suggestion`, `register_user_dictionary`, `apply_picked_dictionary_result`, `handle_settings_language_actions`, `handle_bottom_panel_language_actions` | `core`, `language_check`, `project`, `ui` | `app/src/tests/services/language_actions_tests.rs` | — |
 | `app/src/services/mod.rs` | Application background services and runners. | *(re-exports / entry)* | *(none)* | *(covered via integration/UI)* | — |
 | `app/src/services/pdf_export.rs` | PDF compilation and asynchronous OS save-dialog workflow orchestration. | `PdfExportFlowOutcome`, `CompiledPdfExport`, `compile_pdf_for_export`, `run_pdf_export_flow` | `core`, `engine`, `platform`, `project` | `app/src/tests/services/pdf_export_tests.rs` | — |
@@ -137,6 +138,7 @@
 | `app/src/tests/platform/menu_tests.rs` | Unit tests for cross-platform `MenuAction` variants and recent-project menu formatting. |
 | `app/src/tests/platform/shortcuts_tests.rs` | Unit tests for global keyboard shortcut polling across editor and collab modes. |
 | `app/src/tests/platform/theme_tests.rs` | Unit tests for OS theme detection parsers and System-Default fallback behavior. |
+| `app/src/tests/services/bottom_panel_actions_tests.rs` | Unit tests for bottom panel search, replace, and output orchestration helpers. |
 | `app/src/tests/services/language_actions_tests.rs` | Unit tests for spell/grammar suggestion application and Tier-2 dictionary registration. |
 | `app/src/tests/services/pdf_export_tests.rs` | Unit tests for PDF export compilation preparation and failure diagnostics. |
 | `app/src/tests/services/persistence_tests.rs` | Unit tests for `eframe::Storage` settings persistence and reload behavior. |

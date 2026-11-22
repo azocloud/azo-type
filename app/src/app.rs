@@ -20,7 +20,14 @@ use crate::engine::EngineHost;
 use crate::highlight::ThemePalette;
 use crate::language_check::LanguageCheckHost;
 use crate::project::{DiskProject, FileKind};
-use crate::ui::components::PreviewSelectionState;
+use crate::ui::components::{
+    compute_horizontal_split, compute_vertical_split, diagnostic_char_offset, render_editor_pane,
+    render_horizontal_split_divider, render_preview_pane, render_sidebar, render_status_bar,
+    render_vertical_split_divider, BottomPanelState, EditorIntellisenseState, EditorPaneParams,
+    PreviewPaneParams, PreviewSelectionState, SidebarParams, StatusBarBufferInfo, StatusBarParams,
+};
+#[cfg(not(target_os = "macos"))]
+use crate::ui::components::{render_desktop_menu_bar, MenuBarParams};
 use crate::ui::theme::apply_theme;
 use crate::world::SharedWorldResources;
 
@@ -50,7 +57,7 @@ pub struct AzoTypeApp {
     pub show_sidebar: bool,
     pub sidebar_split_ratio: f32,
     pub editor_split_ratio: f32,
-    pub bottom_panel: crate::ui::components::BottomPanelState,
+    pub bottom_panel: BottomPanelState,
     pub zoom: PreviewZoom,
     pub show_settings_window: bool,
     pub settings_tab: SettingsTab,
@@ -81,6 +88,7 @@ pub struct AzoTypeApp {
     pub preview_selection: PreviewSelectionState,
     pub clipboard_fallback: String,
     pub pending_editor_context_action: Option<EditorContextAction>,
+    pub editor_intellisense: EditorIntellisenseState,
     pub status_notice: String,
 
     // Channels for native file dialogs & background compilation
@@ -181,7 +189,7 @@ impl AzoTypeApp {
             show_sidebar: true,
             sidebar_split_ratio: 0.42,
             editor_split_ratio: 0.5,
-            bottom_panel: crate::ui::components::BottomPanelState::default(),
+            bottom_panel: BottomPanelState::default(),
             zoom: persisted.zoom,
             show_settings_window: false,
             settings_tab: SettingsTab::Appearance,
@@ -202,6 +210,7 @@ impl AzoTypeApp {
             preview_selection: PreviewSelectionState::default(),
             clipboard_fallback: String::new(),
             pending_editor_context_action: None,
+            editor_intellisense: EditorIntellisenseState::default(),
             status_notice,
             io_tx,
             io_rx,
@@ -312,6 +321,17 @@ impl AzoTypeApp {
             }
             MenuAction::OpenSettings => self.show_settings_window = true,
             MenuAction::OpenCollab => self.collab_ui.show_window = true,
+            MenuAction::Find => self.bottom_panel.open_search(),
+            MenuAction::FindAndReplace => self.bottom_panel.open_replace(),
+            act @ (MenuAction::ToggleLineComment
+            | MenuAction::ToggleBlockComment
+            | MenuAction::IndentLines
+            | MenuAction::OutdentLines
+            | MenuAction::DuplicateLine
+            | MenuAction::MoveLineUp
+            | MenuAction::MoveLineDown) => {
+                self.pending_editor_context_action = Some(EditorContextAction::Menu(act));
+            }
             MenuAction::ToggleSidebar => self.show_sidebar = !self.show_sidebar,
             MenuAction::ToggleBottomPanel => self.bottom_panel.toggle_visible(),
             MenuAction::ToggleWordWrap => self.settings.word_wrap = !self.settings.word_wrap,
@@ -518,9 +538,9 @@ impl AzoTypeApp {
     /// On macOS, the menu bar is part of the OS at the top of the screen via `muda` and is NOT rendered in-window.
     #[cfg(not(target_os = "macos"))]
     fn render_desktop_menu_bar(&mut self, ctx: &Context) {
-        let output = crate::ui::components::render_desktop_menu_bar(
+        let output = render_desktop_menu_bar(
             ctx,
-            crate::ui::components::MenuBarParams {
+            MenuBarParams {
                 dark_mode: self.settings.dark_mode,
                 show_sidebar: self.show_sidebar,
                 show_bottom_panel: self.bottom_panel.visible,
@@ -536,12 +556,10 @@ impl AzoTypeApp {
         }
 
         if let Some(snippet) = output.snippet_to_insert {
-            let updated = self.project.active_buffer_mut().and_then(|buf| {
-                buf.text.as_mut().map(|text| {
-                    text.push_str(snippet);
-                    text.clone()
-                })
-            });
+            let updated = crate::services::bottom_panel_actions::append_snippet_to_active_buffer(
+                &mut self.project,
+                snippet,
+            );
             self.on_active_text_modified(ctx, updated);
         }
 
@@ -637,15 +655,12 @@ impl AzoTypeApp {
     }
 
     fn render_bottom_status_bar(&mut self, ctx: &Context) {
-        let active_buf_info =
-            self.project
-                .active_buffer()
-                .map(|b| crate::ui::components::StatusBarBufferInfo {
-                    rel_path: &b.rel_path,
-                    dirty: b.dirty,
-                    line_count: b.text.as_ref().map(|t| t.lines().count()).unwrap_or(0),
-                    size_bytes: b.size_bytes,
-                });
+        let active_buf_info = self.project.active_buffer().map(|b| StatusBarBufferInfo {
+            rel_path: &b.rel_path,
+            dirty: b.dirty,
+            line_count: b.text.as_ref().map(|t| t.lines().count()).unwrap_or(0),
+            size_bytes: b.size_bytes,
+        });
 
         let error_count = self.diagnostics.iter().filter(|d| d.is_error).count();
         let warn_count = self.diagnostics.iter().filter(|d| !d.is_error).count();
@@ -660,9 +675,9 @@ impl AzoTypeApp {
             .as_deref()
             .unwrap_or(&self.status_notice);
 
-        let status_out = crate::ui::components::render_status_bar(
+        let status_out = render_status_bar(
             ctx,
-            crate::ui::components::StatusBarParams {
+            StatusBarParams {
                 dark_mode: self.settings.dark_mode,
                 compile_in_progress: self.compile_in_progress,
                 pending_compile: self.pending_compile,
@@ -688,9 +703,9 @@ impl AzoTypeApp {
     }
 
     fn render_left_file_panel(&mut self, ctx: &Context) {
-        let output = crate::ui::components::render_sidebar(
+        let output = render_sidebar(
             ctx,
-            crate::ui::components::SidebarParams {
+            SidebarParams {
                 dark_mode: self.settings.dark_mode,
                 show_sidebar: self.show_sidebar,
                 sidebar_split_ratio: &mut self.sidebar_split_ratio,
@@ -749,10 +764,10 @@ impl AzoTypeApp {
             .cloned()
             .collect();
 
-        let output = crate::ui::components::render_editor_pane(
+        let output = render_editor_pane(
             ctx,
             ui,
-            crate::ui::components::EditorPaneParams {
+            EditorPaneParams {
                 dark_mode: self.settings.dark_mode,
                 editor_font_size: &mut self.settings.editor_font_size,
                 word_wrap: &mut self.settings.word_wrap,
@@ -773,6 +788,8 @@ impl AzoTypeApp {
                 } else {
                     &[]
                 },
+                compiler_diagnostics: &self.diagnostics,
+                intellisense: &mut self.editor_intellisense,
             },
         );
 
@@ -800,10 +817,14 @@ impl AzoTypeApp {
 
         if let Some(act) = output.context_action {
             match act {
-                crate::ui::components::EditorContextAction::Menu(menu_act) => {
+                EditorContextAction::Menu(menu_act)
+                    if !crate::services::bottom_panel_actions::is_inline_editor_menu_action(
+                        menu_act,
+                    ) =>
+                {
                     self.dispatch_menu_action(ctx, menu_act);
                 }
-                crate::ui::components::EditorContextAction::SetActiveAsMain
+                EditorContextAction::SetActiveAsMain
                     if FileKind::from_path(&active_path) == FileKind::Typst =>
                 {
                     self.set_main_file_and_compile(ctx, active_path.clone());
@@ -845,9 +866,9 @@ impl AzoTypeApp {
     }
 
     fn render_preview_pane(&mut self, ctx: &Context, ui: &mut Ui) {
-        let output = crate::ui::components::render_preview_pane(
+        let output = render_preview_pane(
             ui,
-            crate::ui::components::PreviewPaneParams {
+            PreviewPaneParams {
                 dark_mode: self.settings.dark_mode,
                 zoom: &mut self.zoom,
                 sync_selection: &mut self.settings.preview_sync_selection,
@@ -872,13 +893,7 @@ impl AzoTypeApp {
     }
     fn render_editor_preview_split(&mut self, ctx: &Context, ui: &mut Ui) {
         let total_rect = ui.available_rect_before_wrap();
-        let split = crate::ui::components::compute_vertical_split(
-            total_rect,
-            4.0,
-            220.0,
-            340.0,
-            self.editor_split_ratio,
-        );
+        let split = compute_vertical_split(total_rect, 4.0, 220.0, 340.0, self.editor_split_ratio);
 
         let mut left_ui = ui.new_child(
             egui::UiBuilder::new()
@@ -894,7 +909,7 @@ impl AzoTypeApp {
         );
         self.render_preview_pane(ctx, &mut right_ui);
 
-        crate::ui::components::render_vertical_split_divider(
+        render_vertical_split_divider(
             ctx,
             ui,
             &ThemePalette::for_mode(self.settings.dark_mode),
@@ -904,8 +919,8 @@ impl AzoTypeApp {
         );
     }
 
-    fn jump_to_diagnostic(&mut self, ctx: &Context, diag: crate::engine::DiagnosticItem) {
-        let char_offset = crate::ui::components::diagnostic_char_offset(&self.project, &diag);
+    fn jump_to_diagnostic(&mut self, ctx: &Context, diag: DiagnosticItem) {
+        let char_offset = diagnostic_char_offset(&self.project, &diag);
         self.navigate_editor_to_source(
             ctx,
             &diag.file,
@@ -962,7 +977,7 @@ impl AzoTypeApp {
                     self.render_editor_preview_split(ctx, ui);
                 } else {
                     let total_rect = ui.available_rect_before_wrap();
-                    let content_split = crate::ui::components::compute_horizontal_split(
+                    let content_split = compute_horizontal_split(
                         total_rect,
                         6.0,
                         160.0,
@@ -982,45 +997,31 @@ impl AzoTypeApp {
                             .max_rect(content_split.second_rect)
                             .layout(Layout::top_down(Align::Min)),
                     );
-                    let panel_out = crate::ui::components::render_bottom_panel(
-                        &mut bottom_ui,
-                        crate::ui::components::BottomPanelParams {
-                            dark_mode: self.settings.dark_mode,
-                            state: &mut self.bottom_panel,
-                            diagnostics: &self.diagnostics,
-                            active_file: &self.project.active_file,
-                            is_active_typst: FileKind::from_path(&self.project.active_file)
-                                == FileKind::Typst,
-                            language: &self.language,
-                            spell_check_enabled: &mut self.settings.spell_check_enabled,
-                            auto_spell_check: &mut self.settings.auto_spell_check,
-                            language_check: &self.language_check,
-                        },
-                    );
-                    if panel_out.close_requested {
-                        self.bottom_panel.visible = false;
-                    }
-                    if let Some(diag) = panel_out.open_diagnostic.clone() {
-                        self.jump_to_diagnostic(ctx, diag);
-                    }
-                    if let Some(edited) =
-                        crate::services::language_actions::handle_bottom_panel_language_actions(
+                    let (open_diag, edited_text) =
+                        crate::services::bottom_panel_actions::render_and_handle_bottom_panel(
                             ctx,
-                            &panel_out,
+                            &mut bottom_ui,
+                            &mut self.bottom_panel,
+                            &self.diagnostics,
                             &mut self.settings,
                             &mut self.language_check,
                             &mut self.project,
                             &self.language,
+                            self.last_editor_selection,
+                            &mut self.inspect_asset_mode,
                             &mut self.pending_cursor_restore,
                             &mut self.pending_scroll_to_char,
                             &mut self.show_settings_window,
                             &mut self.settings_tab,
-                        )
-                    {
+                        );
+                    if let Some(diag) = open_diag {
+                        self.jump_to_diagnostic(ctx, diag);
+                    }
+                    if let Some(edited) = edited_text {
                         self.on_active_text_modified(ctx, Some(edited));
                     }
 
-                    crate::ui::components::render_horizontal_split_divider(
+                    render_horizontal_split_divider(
                         ctx,
                         ui,
                         &palette,
