@@ -10,6 +10,7 @@
 //! - [`recent_projects`]: Recently opened project folder MRU history and display formatting.
 //! - [`settings`]: User preferences model and default configuration.
 //! - [`spellcheck`]: Dictionary manifest, Hunspell transcoding, and language diagnostic types.
+//! - [`text_edit`]: Pure line, indentation, and comment editing transformations.
 //! - [`typst_prose`]: Typst AST prose masking, `#set text(lang: ...)` detection, and byte/char spans.
 
 #![warn(missing_docs)]
@@ -23,6 +24,7 @@ pub mod pdf;
 pub mod recent_projects;
 pub mod settings;
 pub mod spellcheck;
+pub mod text_edit;
 pub mod typst_prose;
 
 pub use diff::{
@@ -54,6 +56,10 @@ pub use spellcheck::{
     dictionary_catalog, find_tier1_pack, transcode_hunspell_to_utf8, AssetCompression,
     DiagnosticCategory, DictionaryCatalog, DictionaryFileAsset, DictionaryFileRole,
     LanguageCheckDiagnostic, Tier1LanguagePack, UserDictionaryEntry, TIER1_LANGUAGES,
+};
+pub use text_edit::{
+    duplicate_lines, indent_lines, move_lines, outdent_lines, toggle_block_comment,
+    toggle_line_comment,
 };
 pub use typst_prose::{
     byte_span_to_char_range, detect_typst_document_language, extract_typst_prose_mask,
