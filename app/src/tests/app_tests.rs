@@ -315,7 +315,7 @@ fn new_headless_falls_back_to_blank_when_startup_auto_open_disabled_or_missing()
     assert!(!app_disabled.project.has_disk_backing());
     assert_eq!(
         app_disabled.recent_projects.entries(),
-        &[canon_last.clone()]
+        std::slice::from_ref(&canon_last)
     );
 
     // Enabled but last folder missing -> falls back to blank cleanly.
@@ -349,7 +349,10 @@ fn folder_picked_and_open_recent_project_update_mru_and_clear_resets_list() {
         .unwrap();
     app.poll_channels(&ctx);
     assert_eq!(app.project.root_dir, canon_a);
-    assert_eq!(app.recent_projects.entries(), &[canon_a.clone()]);
+    assert_eq!(
+        app.recent_projects.entries(),
+        std::slice::from_ref(&canon_a)
+    );
 
     app.io_tx
         .send(IoEvent::FolderPicked(dir_b.clone()))
@@ -377,7 +380,10 @@ fn folder_picked_and_open_recent_project_update_mru_and_clear_resets_list() {
     std::fs::remove_dir_all(&dir_b).unwrap();
     app.dispatch_menu_action(&ctx, MenuAction::OpenRecentProject(1));
     assert_eq!(app.project.root_dir, canon_a);
-    assert_eq!(app.recent_projects.entries(), &[canon_a.clone()]);
+    assert_eq!(
+        app.recent_projects.entries(),
+        std::slice::from_ref(&canon_a)
+    );
     assert!(!app.status_notice.is_empty());
 
     // Persistence saves recent projects; ClearRecentProjects empties list.
