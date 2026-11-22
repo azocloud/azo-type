@@ -9,7 +9,6 @@ use crate::core::diff::CharSelection;
 #[path = "../tests/core/text_edit_tests.rs"]
 mod tests;
 
-/// A single parsed line with char-indexed boundaries and preserved line ending.
 struct LineInfo<'a> {
     content: &'a str,
     newline: &'a str,
@@ -20,7 +19,6 @@ struct LineInfo<'a> {
     nl_chars: usize,
 }
 
-/// A single char-indexed edit applied to the original text.
 #[derive(Clone, Copy)]
 enum CharEdit {
     Insert { pos: usize, len: usize },
@@ -29,72 +27,39 @@ enum CharEdit {
 
 fn parse_lines(text: &str) -> (Vec<LineInfo<'_>>, usize) {
     let mut lines = Vec::new();
-    let mut byte_pos = 0usize;
     let mut char_pos = 0usize;
-    let bytes = text.as_bytes();
 
-    while byte_pos < bytes.len() {
-        let content_start_byte = byte_pos;
-        let content_start_char = char_pos;
-
-        while byte_pos < bytes.len() && bytes[byte_pos] != b'\n' && bytes[byte_pos] != b'\r' {
-            let ch = text[byte_pos..]
-                .chars()
-                .next()
-                .expect("valid utf-8 boundary");
-            byte_pos += ch.len_utf8();
-            char_pos += 1;
-        }
-
-        let content_end_byte = byte_pos;
-        let content_end_char = char_pos;
-
-        let nl_start_byte = byte_pos;
-        if byte_pos < bytes.len() && bytes[byte_pos] == b'\r' {
-            byte_pos += 1;
-            char_pos += 1;
-            if byte_pos < bytes.len() && bytes[byte_pos] == b'\n' {
-                byte_pos += 1;
-                char_pos += 1;
-            }
-        } else if byte_pos < bytes.len() && bytes[byte_pos] == b'\n' {
-            byte_pos += 1;
-            char_pos += 1;
-        }
-
-        let content = &text[content_start_byte..content_end_byte];
-        let newline = &text[nl_start_byte..byte_pos];
+    for raw in text.split_inclusive('\n') {
+        let (content, newline) = if let Some(c) = raw.strip_suffix("\r\n") {
+            (c, "\r\n")
+        } else if let Some(c) = raw.strip_suffix('\n') {
+            (c, "\n")
+        } else {
+            (raw, "")
+        };
+        let content_chars = content.chars().count();
+        let nl_chars = newline.chars().count();
+        let content_end_char = char_pos + content_chars;
+        let line_end_char = content_end_char + nl_chars;
         lines.push(LineInfo {
             content,
             newline,
-            content_start_char,
+            content_start_char: char_pos,
             content_end_char,
-            line_end_char: char_pos,
-            content_chars: content_end_char - content_start_char,
-            nl_chars: char_pos - content_end_char,
+            line_end_char,
+            content_chars,
+            nl_chars,
         });
-
-        // If the document ends with a newline, add the trailing empty line.
-        if byte_pos == bytes.len() && !newline.is_empty() {
-            lines.push(LineInfo {
-                content: "",
-                newline: "",
-                content_start_char: char_pos,
-                content_end_char: char_pos,
-                line_end_char: char_pos,
-                content_chars: 0,
-                nl_chars: 0,
-            });
-        }
+        char_pos = line_end_char;
     }
 
-    if lines.is_empty() {
+    if lines.is_empty() || text.ends_with('\n') {
         lines.push(LineInfo {
             content: "",
             newline: "",
-            content_start_char: 0,
-            content_end_char: 0,
-            line_end_char: 0,
+            content_start_char: char_pos,
+            content_end_char: char_pos,
+            line_end_char: char_pos,
             content_chars: 0,
             nl_chars: 0,
         });
@@ -110,7 +75,6 @@ fn clamp_selection(sel: CharSelection, total_chars: usize) -> CharSelection {
     }
 }
 
-/// Returns the inclusive `(first_line, last_line)` range overlapped by `sel`.
 fn touched_line_range(lines: &[LineInfo<'_>], sel: CharSelection) -> (usize, usize) {
     let start = sel.primary_char.min(sel.secondary_char);
     let end = sel.primary_char.max(sel.secondary_char);
@@ -125,43 +89,29 @@ fn touched_line_range(lines: &[LineInfo<'_>], sel: CharSelection) -> (usize, usi
         return (last, last);
     }
 
-    let mut first = None;
-    let mut last = 0;
+    let mut range: Option<(usize, usize)> = None;
     for (idx, line) in lines.iter().enumerate() {
         if line.content_start_char < end && start < line.line_end_char {
-            if first.is_none() {
-                first = Some(idx);
-            }
-            last = idx;
+            range = Some(match range {
+                Some((first, _)) => (first, idx),
+                None => (idx, idx),
+            });
         }
     }
-
-    match first {
-        Some(f) => (f, last),
-        None => {
-            let last_idx = lines.len().saturating_sub(1);
-            (last_idx, last_idx)
-        }
-    }
+    range.unwrap_or_else(|| {
+        let last = lines.len().saturating_sub(1);
+        (last, last)
+    })
 }
 
-/// Maps an original char position through a sorted sequence of non-overlapping edits.
 fn map_pos_through_edits(pos: usize, edits: &[CharEdit]) -> usize {
     let mut delta: isize = 0;
     for &edit in edits {
         match edit {
-            CharEdit::Insert { pos: edit_pos, len } => {
-                if pos >= edit_pos {
-                    delta += len as isize;
-                }
-            }
-            CharEdit::Delete { start, end } => {
-                if pos >= end {
-                    delta -= (end - start) as isize;
-                } else if pos > start {
-                    delta -= (pos - start) as isize;
-                }
-            }
+            CharEdit::Insert { pos: edit_pos, len } if pos >= edit_pos => delta += len as isize,
+            CharEdit::Delete { start, end } if pos >= end => delta -= (end - start) as isize,
+            CharEdit::Delete { start, .. } if pos > start => delta -= (pos - start) as isize,
+            _ => {}
         }
     }
     pos.saturating_add_signed(delta)
@@ -175,13 +125,18 @@ fn map_selection_through_edits(sel: CharSelection, edits: &[CharEdit]) -> CharSe
 }
 
 fn char_to_byte_idx(s: &str, char_idx: usize) -> usize {
-    s.char_indices()
-        .nth(char_idx)
-        .map_or(s.len(), |(byte_idx, _)| byte_idx)
+    s.char_indices().nth(char_idx).map_or(s.len(), |(b, _)| b)
 }
 
 fn leading_whitespace_chars(line: &str) -> usize {
     line.chars().take_while(|c| c.is_whitespace()).count()
+}
+
+fn push_lines(out: &mut String, slice: &[LineInfo<'_>]) {
+    for line in slice {
+        out.push_str(line.content);
+        out.push_str(line.newline);
+    }
 }
 
 /// Toggles a line comment prefix (such as `"//"`) across all lines overlapped by `sel`.
@@ -203,7 +158,6 @@ pub fn toggle_line_comment(
 
     let (first, last) = touched_line_range(&lines, clamped);
     let prefix_chars = prefix.chars().count();
-
     let mut has_non_empty = false;
     let mut all_commented = true;
     let mut min_indent = usize::MAX;
@@ -225,7 +179,6 @@ pub fn toggle_line_comment(
     let insert_col = if has_non_empty { min_indent } else { 0 };
     let insert_str = format!("{prefix} ");
     let insert_len = prefix_chars + 1;
-
     let mut out = String::with_capacity(text.len() + (last - first + 1) * insert_len);
     let mut edits = Vec::with_capacity(last - first + 1);
 
@@ -235,16 +188,12 @@ pub fn toggle_line_comment(
             out.push_str(line.newline);
             continue;
         }
-
         if uncomment {
             let ws_chars = leading_whitespace_chars(line.content);
             let ws_bytes = char_to_byte_idx(line.content, ws_chars);
-            let after_ws = &line.content[ws_bytes..];
-            if let Some(rest) = after_ws.strip_prefix(prefix) {
-                let (stripped, space_char) = match rest.strip_prefix(' ') {
-                    Some(after_space) => (after_space, 1usize),
-                    None => (rest, 0usize),
-                };
+            if let Some(rest) = line.content[ws_bytes..].strip_prefix(prefix) {
+                let (stripped, space_char) =
+                    rest.strip_prefix(' ').map_or((rest, 0), |after| (after, 1));
                 out.push_str(&line.content[..ws_bytes]);
                 out.push_str(stripped);
                 let del_start = line.content_start_char + ws_chars;
@@ -284,11 +233,11 @@ fn find_enclosing_block_comment(chars: &[char], pos: usize) -> Option<(usize, us
         } else if chars[i] == '*' && chars[i + 1] == '/' {
             if let Some(open) = stack.pop() {
                 let close = i + 2;
-                if pos >= open + 2 && pos <= close - 2 {
-                    let span = close - open;
-                    if best.is_none_or(|(b_open, b_close)| span < b_close - b_open) {
-                        best = Some((open, close));
-                    }
+                if pos >= open + 2
+                    && pos <= close - 2
+                    && best.is_none_or(|(b_open, b_close)| close - open < b_close - b_open)
+                {
+                    best = Some((open, close));
                 }
             }
             i += 2;
@@ -296,11 +245,15 @@ fn find_enclosing_block_comment(chars: &[char], pos: usize) -> Option<(usize, us
             i += 1;
         }
     }
-
     best
 }
 
-fn unwrap_comment_bounds(chars: &[char], open: usize, close: usize) -> (usize, usize) {
+fn unwrap_comment_range(
+    chars: &[char],
+    open: usize,
+    close: usize,
+    sel: CharSelection,
+) -> (String, CharSelection) {
     let mut body_start = open + 2;
     let mut body_end = close - 2;
     if body_start < body_end && chars[body_start] == ' ' {
@@ -309,7 +262,21 @@ fn unwrap_comment_bounds(chars: &[char], open: usize, close: usize) -> (usize, u
     if body_start < body_end && chars[body_end - 1] == ' ' {
         body_end -= 1;
     }
-    (body_start, body_end)
+    let edits = [
+        CharEdit::Delete {
+            start: open,
+            end: body_start,
+        },
+        CharEdit::Delete {
+            start: body_end,
+            end: close,
+        },
+    ];
+    let mut out = String::with_capacity(chars.len());
+    out.extend(&chars[..open]);
+    out.extend(&chars[body_start..body_end]);
+    out.extend(&chars[close..]);
+    (out, map_selection_through_edits(sel, &edits))
 }
 
 /// Toggles a `/* ... */` block comment around the active selection or enclosing caret block.
@@ -325,7 +292,6 @@ pub fn toggle_block_comment(text: &str, sel: CharSelection) -> (String, CharSele
     let clamped = clamp_selection(sel, chars.len());
     let start = clamped.primary_char.min(clamped.secondary_char);
     let end = clamped.primary_char.max(clamped.secondary_char);
-    let forward = clamped.primary_char >= clamped.secondary_char;
 
     if start < end {
         let lead_ws = chars[start..end]
@@ -346,22 +312,7 @@ pub fn toggle_block_comment(text: &str, sel: CharSelection) -> (String, CharSele
             && chars[inner_end - 2] == '*'
             && chars[inner_end - 1] == '/'
         {
-            let (body_start, body_end) = unwrap_comment_bounds(&chars, inner_start, inner_end);
-            let edits = [
-                CharEdit::Delete {
-                    start: inner_start,
-                    end: body_start,
-                },
-                CharEdit::Delete {
-                    start: body_end,
-                    end: inner_end,
-                },
-            ];
-            let mut out = String::with_capacity(text.len());
-            out.extend(&chars[..inner_start]);
-            out.extend(&chars[body_start..body_end]);
-            out.extend(&chars[inner_end..]);
-            return (out, map_selection_through_edits(clamped, &edits));
+            return unwrap_comment_range(&chars, inner_start, inner_end, clamped);
         }
 
         let start_byte = char_to_byte_idx(text, start);
@@ -374,7 +325,7 @@ pub fn toggle_block_comment(text: &str, sel: CharSelection) -> (String, CharSele
         out.push_str(&text[end_byte..]);
 
         let new_end = end + 6;
-        let new_sel = if forward {
+        let new_sel = if clamped.primary_char >= clamped.secondary_char {
             CharSelection {
                 primary_char: new_end,
                 secondary_char: start,
@@ -389,22 +340,7 @@ pub fn toggle_block_comment(text: &str, sel: CharSelection) -> (String, CharSele
     }
 
     if let Some((open, close)) = find_enclosing_block_comment(&chars, start) {
-        let (body_start, body_end) = unwrap_comment_bounds(&chars, open, close);
-        let edits = [
-            CharEdit::Delete {
-                start: open,
-                end: body_start,
-            },
-            CharEdit::Delete {
-                start: body_end,
-                end: close,
-            },
-        ];
-        let mut out = String::with_capacity(text.len());
-        out.extend(&chars[..open]);
-        out.extend(&chars[body_start..body_end]);
-        out.extend(&chars[close..]);
-        return (out, map_selection_through_edits(clamped, &edits));
+        return unwrap_comment_range(&chars, open, close, clamped);
     }
 
     let start_byte = char_to_byte_idx(text, start);
@@ -466,15 +402,13 @@ pub fn outdent_lines(text: &str, sel: CharSelection, spaces: usize) -> (String, 
                     .count()
                     .min(spaces)
             };
+            let remove_bytes = char_to_byte_idx(line.content, remove_chars);
+            out.push_str(&line.content[remove_bytes..]);
             if remove_chars > 0 {
-                let remove_bytes = char_to_byte_idx(line.content, remove_chars);
-                out.push_str(&line.content[remove_bytes..]);
                 edits.push(CharEdit::Delete {
                     start: line.content_start_char,
                     end: line.content_start_char + remove_chars,
                 });
-            } else {
-                out.push_str(line.content);
             }
         } else {
             out.push_str(line.content);
@@ -490,42 +424,31 @@ pub fn duplicate_lines(text: &str, sel: CharSelection) -> (String, CharSelection
     let (lines, total_chars) = parse_lines(text);
     let clamped = clamp_selection(sel, total_chars);
     let (first, last) = touched_line_range(&lines, clamped);
-
     let default_nl = lines
         .iter()
         .find(|l| !l.newline.is_empty())
         .map_or("\n", |l| l.newline);
 
     let mut out = String::with_capacity(text.len() * 2);
-    for line in &lines[..=last] {
-        out.push_str(line.content);
-        out.push_str(line.newline);
-    }
-
+    push_lines(&mut out, &lines[..=last]);
     let sep_nl = if lines[last].newline.is_empty() {
         out.push_str(default_nl);
         default_nl
     } else {
         ""
     };
+    push_lines(&mut out, &lines[first..=last]);
+    push_lines(&mut out, &lines[(last + 1)..]);
 
-    for line in &lines[first..=last] {
-        out.push_str(line.content);
-        out.push_str(line.newline);
-    }
-    for line in &lines[(last + 1)..] {
-        out.push_str(line.content);
-        out.push_str(line.newline);
-    }
-
-    let orig_block_chars = lines[last].line_end_char - lines[first].content_start_char;
-    let shift = orig_block_chars + sep_nl.chars().count();
-    let new_sel = CharSelection {
-        primary_char: clamped.primary_char + shift,
-        secondary_char: clamped.secondary_char + shift,
-    };
-
-    (out, new_sel)
+    let shift =
+        (lines[last].line_end_char - lines[first].content_start_char) + sep_nl.chars().count();
+    (
+        out,
+        CharSelection {
+            primary_char: clamped.primary_char + shift,
+            secondary_char: clamped.secondary_char + shift,
+        },
+    )
 }
 
 /// Swaps the touched line block one line up (`move_up = true`) or down (`move_up = false`).
@@ -539,93 +462,60 @@ pub fn move_lines(
     let (lines, total_chars) = parse_lines(text);
     let clamped = clamp_selection(sel, total_chars);
     let (first, last) = touched_line_range(&lines, clamped);
+    let block_end_old = lines[last].content_end_char;
+    let mut out = String::with_capacity(text.len());
 
     if move_up {
-        if first == 0 {
-            return None;
-        }
-        let above = &lines[first - 1];
-        let nl_above = above.newline;
-        let nl_last = lines[last].newline;
-
-        let mut out = String::with_capacity(text.len());
-        for line in &lines[..first - 1] {
-            out.push_str(line.content);
-            out.push_str(line.newline);
-        }
-        for line in &lines[first..last] {
-            out.push_str(line.content);
-            out.push_str(line.newline);
-        }
+        let above = lines.get(first.checked_sub(1)?)?;
+        push_lines(&mut out, &lines[..first - 1]);
+        push_lines(&mut out, &lines[first..last]);
         out.push_str(lines[last].content);
-        out.push_str(nl_above);
+        out.push_str(above.newline);
         out.push_str(above.content);
-        out.push_str(nl_last);
-        for line in &lines[(last + 1)..] {
-            out.push_str(line.content);
-            out.push_str(line.newline);
-        }
+        out.push_str(lines[last].newline);
+        push_lines(&mut out, &lines[(last + 1)..]);
 
         let shift_back = above.content_chars + above.nl_chars;
-        let block_end_old = lines[last].content_end_char;
         let new_block_end = block_end_old - shift_back + above.nl_chars;
-        let map_pos = |pos: usize| {
-            if pos > block_end_old {
+        let map = |p: usize| {
+            if p > block_end_old {
                 new_block_end
             } else {
-                pos.saturating_sub(shift_back)
+                p.saturating_sub(shift_back)
             }
         };
         return Some((
             out,
             CharSelection {
-                primary_char: map_pos(clamped.primary_char),
-                secondary_char: map_pos(clamped.secondary_char),
+                primary_char: map(clamped.primary_char),
+                secondary_char: map(clamped.secondary_char),
             },
         ));
     }
 
-    if last + 1 >= lines.len() {
-        return None;
-    }
-
-    let below = &lines[last + 1];
-    let nl_last = lines[last].newline;
-    let nl_below = below.newline;
-
-    let mut out = String::with_capacity(text.len());
-    for line in &lines[..first] {
-        out.push_str(line.content);
-        out.push_str(line.newline);
-    }
+    let below = lines.get(last + 1)?;
+    push_lines(&mut out, &lines[..first]);
     out.push_str(below.content);
-    out.push_str(nl_last);
-    for line in &lines[first..last] {
-        out.push_str(line.content);
-        out.push_str(line.newline);
-    }
+    out.push_str(lines[last].newline);
+    push_lines(&mut out, &lines[first..last]);
     out.push_str(lines[last].content);
-    out.push_str(nl_below);
-    for line in &lines[(last + 2)..] {
-        out.push_str(line.content);
-        out.push_str(line.newline);
-    }
+    out.push_str(below.newline);
+    push_lines(&mut out, &lines[(last + 2)..]);
 
-    let shift_forward = below.content_chars + lines[last].nl_chars;
-    let block_end_old = lines[last].content_end_char;
-    let new_block_end = block_end_old + shift_forward + below.nl_chars;
-    let map_pos = |pos: usize| {
-        if pos > block_end_old {
+    let shift_fwd = below.content_chars + lines[last].nl_chars;
+    let new_block_end = block_end_old + shift_fwd + below.nl_chars;
+    let map = |p: usize| {
+        if p > block_end_old {
             new_block_end
         } else {
-            pos + shift_forward
+            p + shift_fwd
         }
     };
     Some((
         out,
         CharSelection {
-            primary_char: map_pos(clamped.primary_char),
-            secondary_char: map_pos(clamped.secondary_char),
+            primary_char: map(clamped.primary_char),
+            secondary_char: map(clamped.secondary_char),
         },
     ))
 }
