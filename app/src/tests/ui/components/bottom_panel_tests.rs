@@ -27,6 +27,23 @@ fn test_bottom_panel_starts_invisible_by_default() {
     assert!(!state.visible);
     assert_eq!(state.active_tab, BottomPanelTab::WarningsAndErrors);
     assert!(state.console_logs.is_empty());
+    assert_eq!(BottomPanelTab::ALL.len(), 4);
+}
+
+#[test]
+fn test_bottom_panel_open_search_and_replace_set_focus_flags() {
+    let mut state = BottomPanelState::default();
+    state.open_search();
+    assert!(state.visible);
+    assert_eq!(state.active_tab, BottomPanelTab::SearchAndReplace);
+    assert!(state.search.focus_search_requested);
+    assert!(!state.search.focus_replace_requested);
+
+    state.open_replace();
+    assert!(state.visible);
+    assert_eq!(state.active_tab, BottomPanelTab::SearchAndReplace);
+    assert!(!state.search.focus_search_requested);
+    assert!(state.search.focus_replace_requested);
 }
 
 #[test]
@@ -142,6 +159,7 @@ fn bottom_panel_switches_tabs_clears_console_and_closes_on_click() {
 
     let console_tab = BottomPanelTab::Console.label(1);
     let autocorrect_tab = BottomPanelTab::AutoCorrection.label(1);
+    let search_tab = BottomPanelTab::SearchAndReplace.label(1);
     let clear_console = t!("bottom_panel.clear_console", locale = "en").to_string();
 
     let mut harness = Harness::new_ui_state(
@@ -158,6 +176,8 @@ fn bottom_panel_switches_tabs_clears_console_and_closes_on_click() {
                     spell_check_enabled: &mut s.spell_check_enabled,
                     auto_spell_check: &mut s.auto_spell_check,
                     language_check: &s.lc,
+                    active_text: "",
+                    active_cursor_char: 0,
                 },
             );
             s.close_requested |= out.close_requested;
@@ -185,6 +205,13 @@ fn bottom_panel_switches_tabs_clears_console_and_closes_on_click() {
     assert_eq!(
         harness.state().panel.active_tab,
         BottomPanelTab::AutoCorrection
+    );
+
+    harness.get_by_label(&search_tab).click();
+    harness.run();
+    assert_eq!(
+        harness.state().panel.active_tab,
+        BottomPanelTab::SearchAndReplace
     );
 
     harness.get_by_label("✕").click();

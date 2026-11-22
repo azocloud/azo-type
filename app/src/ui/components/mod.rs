@@ -2,6 +2,7 @@
 
 pub mod bottom_panel;
 pub mod bottom_panel_autocorrect;
+pub mod bottom_panel_search;
 pub mod editor;
 pub mod editor_actions;
 pub mod editor_diagnostics;
@@ -16,6 +17,7 @@ pub use bottom_panel::{
     diagnostic_char_offset, render_bottom_panel, BottomPanelOutput, BottomPanelParams,
     BottomPanelState, BottomPanelTab,
 };
+pub use bottom_panel_search::SearchAndReplaceState;
 pub use editor::{render_editor_pane, EditorPaneOutput, EditorPaneParams};
 #[cfg(not(target_os = "macos"))]
 pub use menu_bar::render_desktop_menu_bar;
