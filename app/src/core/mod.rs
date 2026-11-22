@@ -8,6 +8,7 @@
 //! - [`outline`]: Document outline extraction, AST traversal, and hierarchical numbering.
 //! - [`pdf`]: PDF versions, archival (PDF/A) standards, and export configurations.
 //! - [`recent_projects`]: Recently opened project folder MRU history and display formatting.
+//! - [`search`]: Pure char-indexed search and replace utilities.
 //! - [`settings`]: User preferences model and default configuration.
 //! - [`spellcheck`]: Dictionary manifest, Hunspell transcoding, and language diagnostic types.
 //! - [`text_edit`]: Pure line, indentation, and comment editing transformations.
@@ -22,6 +23,7 @@ pub mod i18n;
 pub mod outline;
 pub mod pdf;
 pub mod recent_projects;
+pub mod search;
 pub mod settings;
 pub mod spellcheck;
 pub mod text_edit;
@@ -48,6 +50,10 @@ pub use outline::{
 };
 pub use pdf::{PdfArchivalStandard, PdfExportConfig, PdfVersionChoice};
 pub use recent_projects::{RecentProjects, MAX_RECENT_PROJECTS};
+pub use search::{
+    find_all_matches, find_next_match_index, replace_all_matches, replace_match_at, SearchMatch,
+    SearchOptions,
+};
 pub use settings::{
     IdeSettings, PreviewZoom, SettingsTab, ThemePreference, MAX_PREVIEW_ZOOM, MIN_PREVIEW_ZOOM,
     PREVIEW_ZOOM_PRESETS,
