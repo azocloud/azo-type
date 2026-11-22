@@ -151,6 +151,51 @@ fn editor_and_disk_open_last_project_checkbox_toggles_setting() {
 }
 
 #[test]
+fn editor_and_disk_hover_hide_delay_renders_and_resets_to_400() {
+    let (engine_manager, dict_manager) = make_managers();
+    let state = SettingsHarnessState {
+        settings: IdeSettings {
+            hover_hide_delay_ms: 1200,
+            ..Default::default()
+        },
+        active_tab: SettingsTab::EditorAndDisk,
+        project_root: PathBuf::from("/tmp/example-project"),
+        engine_manager,
+        dict_manager,
+        open_folder_triggered: false,
+        reset_engine_seen: false,
+    };
+
+    let delay_label = t!("settings.hover_hide_delay_label", locale = "en").to_string();
+    let reset_btn = t!("settings.reset_defaults", locale = "en").to_string();
+
+    let mut harness = Harness::new_ui_state(
+        |ui, state: &mut SettingsHarnessState| {
+            let ctx = ui.ctx().clone();
+            render_settings_body(
+                &ctx,
+                ui,
+                &mut state.settings,
+                "en",
+                &mut state.active_tab,
+                &state.project_root,
+                &state.engine_manager,
+                &state.dict_manager,
+            );
+        },
+        state,
+    );
+
+    harness.get_by_label(&delay_label);
+    harness.get_by_value("1200 ms");
+
+    harness.get_by_label(&reset_btn).click();
+    harness.run();
+    assert_eq!(harness.state().settings.hover_hide_delay_ms, 400);
+    harness.get_by_value("400 ms");
+}
+
+#[test]
 fn settings_body_switches_tabs_and_triggers_actions() {
     let (engine_manager, dict_manager) = make_managers();
     let state = SettingsHarnessState {

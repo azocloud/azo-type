@@ -278,6 +278,20 @@ pub fn render_settings_body(
                 &mut settings.open_last_project_on_startup,
                 t!("settings.open_last_project_label"),
             );
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let delay_label = ui
+                    .label(t!("settings.hover_hide_delay_label"))
+                    .on_hover_text(t!("settings.hover_hide_delay_tooltip"));
+                ui.add(
+                    DragValue::new(&mut settings.hover_hide_delay_ms)
+                        .range(0..=3000)
+                        .speed(10.0)
+                        .suffix(" ms"),
+                )
+                .labelled_by(delay_label.id)
+                .on_hover_text(t!("settings.hover_hide_delay_tooltip"));
+            });
             ui.add_space(8.0);
             if ui.button(t!("settings.choose_folder_btn")).clicked() {
                 output.open_folder_requested = true;

@@ -18,6 +18,7 @@ fn test_default_settings_values() {
     assert!(settings.dark_mode);
     assert!(settings.show_line_numbers);
     assert!(settings.syntax_highlighting);
+    assert_eq!(settings.hover_hide_delay_ms, 400);
     assert!(settings.auto_save_on_edit);
     assert!(!settings.show_hidden_files);
     assert!(!settings.open_last_project_on_startup);
@@ -114,6 +115,7 @@ fn test_ide_settings_serde_roundtrip_and_partial_defaults() {
         word_wrap: false,
         show_line_numbers: false,
         syntax_highlighting: false,
+        hover_hide_delay_ms: 750,
         auto_save_on_edit: false,
         show_hidden_files: true,
         open_last_project_on_startup: true,
@@ -149,4 +151,27 @@ fn test_ide_settings_serde_roundtrip_and_partial_defaults() {
     assert!(sanitized.preview_sync_selection);
     assert!(!sanitized.preview_pan_mode);
     assert!(!sanitized.open_last_project_on_startup);
+    assert_eq!(sanitized.hover_hide_delay_ms, 400);
+}
+
+#[test]
+fn test_hover_hide_delay_default_sanitized_and_serde_fallback() {
+    assert_eq!(IdeSettings::default().hover_hide_delay_ms, 400);
+
+    let clamped = IdeSettings {
+        hover_hide_delay_ms: 5000,
+        ..Default::default()
+    }
+    .sanitized();
+    assert_eq!(clamped.hover_hide_delay_ms, 3000);
+
+    let zero = IdeSettings {
+        hover_hide_delay_ms: 0,
+        ..Default::default()
+    }
+    .sanitized();
+    assert_eq!(zero.hover_hide_delay_ms, 0);
+
+    let omitted: IdeSettings = serde_json::from_str("{}").expect("deserialize empty object");
+    assert_eq!(omitted.hover_hide_delay_ms, 400);
 }

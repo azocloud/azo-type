@@ -40,6 +40,7 @@ fn test_settings_persist_and_reload_roundtrip_across_restart() {
         word_wrap: false,
         show_line_numbers: false,
         syntax_highlighting: false,
+        hover_hide_delay_ms: 750,
         auto_save_on_edit: false,
         show_hidden_files: true,
         open_last_project_on_startup: true,

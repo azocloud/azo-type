@@ -229,6 +229,8 @@ settings:
   syntax_highlighting_label: "Enable real-time Typst syntax highlighting"
   heading_editor: "Editor Behavior & Filesystem Sync"
   open_last_project_label: "Open last opened project on startup"
+  hover_hide_delay_label: "IntelliSense hover hide delay:"
+  hover_hide_delay_tooltip: "Time before the IntelliSense hover popup hides when moving the cursor off a token toward the popup"
   auto_save_label: "Auto-save modified files to disk as you type"
   show_hidden_label: "Show hidden dotfiles and directories (.git, .vscode) in project tree"
   project_folder_label: "Active Project Folder on Disk:"
