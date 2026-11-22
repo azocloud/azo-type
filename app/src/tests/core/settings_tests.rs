@@ -20,6 +20,7 @@ fn test_default_settings_values() {
     assert!(settings.syntax_highlighting);
     assert!(settings.auto_save_on_edit);
     assert!(!settings.show_hidden_files);
+    assert!(!settings.open_last_project_on_startup);
     assert!(settings.auto_compile);
     assert_eq!(settings.debounce_ms, 120);
     assert_eq!(settings.render_dpi_scale, 2.0);
@@ -115,6 +116,7 @@ fn test_ide_settings_serde_roundtrip_and_partial_defaults() {
         syntax_highlighting: false,
         auto_save_on_edit: false,
         show_hidden_files: true,
+        open_last_project_on_startup: true,
         auto_compile: false,
         debounce_ms: 350,
         render_dpi_scale: 3.0,
@@ -146,4 +148,5 @@ fn test_ide_settings_serde_roundtrip_and_partial_defaults() {
     assert_eq!(sanitized.theme_preference, ThemePreference::SystemDefault);
     assert!(sanitized.preview_sync_selection);
     assert!(!sanitized.preview_pan_mode);
+    assert!(!sanitized.open_last_project_on_startup);
 }

@@ -84,6 +84,9 @@ pub struct IdeSettings {
     pub auto_save_on_edit: bool,
     /// Whether dotfiles and hidden directories are shown in the file tree.
     pub show_hidden_files: bool,
+    /// Whether to automatically reopen the most recent project folder on startup.
+    #[serde(default)]
+    pub open_last_project_on_startup: bool,
     /// Whether edits automatically trigger incremental compilation.
     pub auto_compile: bool,
     /// Debounce interval (in milliseconds) before auto-compilation runs.
@@ -136,6 +139,7 @@ impl Default for IdeSettings {
             syntax_highlighting: true,
             auto_save_on_edit: true,
             show_hidden_files: false,
+            open_last_project_on_startup: false,
             auto_compile: true,
             debounce_ms: 120,
             render_dpi_scale: 2.0,

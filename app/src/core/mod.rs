@@ -7,6 +7,7 @@
 //! - [`i18n`]: Cross-platform locale normalization, language detection, and native display names.
 //! - [`outline`]: Document outline extraction, AST traversal, and hierarchical numbering.
 //! - [`pdf`]: PDF versions, archival (PDF/A) standards, and export configurations.
+//! - [`recent_projects`]: Recently opened project folder MRU history and display formatting.
 //! - [`settings`]: User preferences model and default configuration.
 //! - [`spellcheck`]: Dictionary manifest, Hunspell transcoding, and language diagnostic types.
 //! - [`typst_prose`]: Typst AST prose masking, `#set text(lang: ...)` detection, and byte/char spans.
@@ -19,6 +20,7 @@ pub mod file_kind;
 pub mod i18n;
 pub mod outline;
 pub mod pdf;
+pub mod recent_projects;
 pub mod settings;
 pub mod spellcheck;
 pub mod typst_prose;
@@ -43,6 +45,7 @@ pub use outline::{
     DocumentOutlineItem, OutlineTreeNode, SourceResolver,
 };
 pub use pdf::{PdfArchivalStandard, PdfExportConfig, PdfVersionChoice};
+pub use recent_projects::{RecentProjects, MAX_RECENT_PROJECTS};
 pub use settings::{
     IdeSettings, PreviewZoom, SettingsTab, ThemePreference, MAX_PREVIEW_ZOOM, MIN_PREVIEW_ZOOM,
     PREVIEW_ZOOM_PRESETS,
