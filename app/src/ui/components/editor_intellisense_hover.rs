@@ -3,8 +3,8 @@
 use egui::text::CCursor;
 use egui::widgets::text_edit::TextEditOutput;
 use egui::{
-    Align2, Area, AreaState, Color32, Context, Frame, Id, Order, Pos2, Rect, RichText, Sense,
-    Stroke, Ui, UiKind, Vec2,
+    Align2, Area, AreaState, Color32, Context, Frame, Id, Order, Pos2, Rect, RichText, Stroke, Ui,
+    UiKind, Vec2,
 };
 use rust_i18n::t;
 
@@ -34,7 +34,9 @@ pub(super) fn render_completion_doc_pane(
     ui: &mut Ui,
     item: &CompletionItem,
     palette: &ThemePalette,
+    body_h: f32,
 ) {
+    let start_top = ui.cursor().top();
     ui.label(
         RichText::new(&item.label)
             .monospace()
@@ -62,9 +64,11 @@ pub(super) fn render_completion_doc_pane(
     } else {
         item.documentation.clone()
     };
+    let used_h = (ui.cursor().top() - start_top).max(0.0);
+    let doc_max_h = (body_h - used_h).clamp(40.0, (body_h - 44.0).max(48.0));
     egui::ScrollArea::vertical()
         .id_salt("intellisense_doc_scroll")
-        .max_height(130.0)
+        .max_height(doc_max_h)
         .show(ui, |ui| {
             ui.label(RichText::new(doc_text).small().color(palette.text_primary));
         });
@@ -308,12 +312,14 @@ pub fn render_intellisense_hover(
         };
 
     let screen_rect = ctx.screen_rect();
+    let pointer_pos = ctx.input(|i| i.pointer.hover_pos());
     let est_size = AreaState::load(ctx, hover_area_id)
         .and_then(|s| s.size)
+        .map(|sz| Vec2::new(sz.x, sz.y.min(260.0)))
         .unwrap_or(Vec2::new(260.0, 88.0));
 
     let (pivot, anchor) =
-        compute_hover_popup_placement(screen_rect, token_rect, diag_rect, est_size);
+        compute_hover_popup_placement(screen_rect, token_rect, diag_rect, pointer_pos, est_size);
 
     Area::new(hover_area_id)
         .kind(UiKind::Popup)
@@ -321,7 +327,7 @@ pub fn render_intellisense_hover(
         .pivot(pivot)
         .fixed_pos(anchor)
         .constrain(true)
-        .sense(Sense::hover())
+        .interactable(false)
         .show(ctx, |ui| {
             Frame::popup(&ctx.style())
                 .fill(palette.chrome_sidebar)
@@ -359,11 +365,16 @@ pub fn render_intellisense_hover(
                     }
                     if !hover.documentation.trim().is_empty() {
                         ui.separator();
-                        ui.label(
-                            RichText::new(&hover.documentation)
-                                .small()
-                                .color(palette.text_primary),
-                        );
+                        egui::ScrollArea::vertical()
+                            .id_salt("intellisense_hover_doc_scroll")
+                            .max_height(200.0)
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(&hover.documentation)
+                                        .small()
+                                        .color(palette.text_primary),
+                                );
+                            });
                     } else if hover.detail.is_empty() {
                         ui.label(
                             RichText::new(t!("intellisense.no_docs"))
@@ -379,29 +390,78 @@ fn compute_hover_popup_placement(
     screen_rect: Rect,
     token_rect: Rect,
     diag_rect: Option<Rect>,
+    pointer_pos: Option<Pos2>,
     est_size: Vec2,
 ) -> (Align2, Pos2) {
-    let fits_above_token = token_rect.min.y - screen_rect.top() >= est_size.y + 8.0
-        && diag_rect.is_none_or(|dr| dr.min.y >= token_rect.min.y);
-    if fits_above_token {
-        return (
-            Align2::LEFT_BOTTOM,
-            Pos2::new(token_rect.min.x, token_rect.min.y - 6.0),
-        );
+    let clamp_x = |x: f32| {
+        let max_x = (screen_rect.right() - est_size.x - 4.0).max(screen_rect.left() + 4.0);
+        x.clamp(screen_rect.left() + 4.0, max_x)
+    };
+    let clamp_y_top = |y: f32| {
+        let max_y = (screen_rect.bottom() - est_size.y - 4.0).max(screen_rect.top() + 4.0);
+        y.clamp(screen_rect.top() + 4.0, max_y)
+    };
+    let candidate_rect = |pivot: Align2, anchor: Pos2| -> Rect {
+        if pivot == Align2::LEFT_BOTTOM {
+            Rect::from_min_max(
+                Pos2::new(anchor.x, anchor.y - est_size.y),
+                Pos2::new(anchor.x + est_size.x, anchor.y),
+            )
+        } else {
+            Rect::from_min_size(anchor, est_size)
+        }
+    };
+    let is_clear = |rect: Rect| -> bool {
+        !rect.intersects(token_rect)
+            && pointer_pos.is_none_or(|p| !rect.expand(2.0).contains(p))
+            && diag_rect.is_none_or(|dr| !rect.intersects(dr))
+    };
+
+    let above_anchor = Pos2::new(clamp_x(token_rect.min.x), token_rect.min.y - 6.0);
+    let above_rect = candidate_rect(Align2::LEFT_BOTTOM, above_anchor);
+    if above_rect.top() >= screen_rect.top() + 2.0 && is_clear(above_rect) {
+        return (Align2::LEFT_BOTTOM, above_anchor);
     }
 
     if let Some(dr) = diag_rect {
-        if dr.max.y + 6.0 + est_size.y <= screen_rect.bottom() {
-            return (Align2::LEFT_TOP, Pos2::new(dr.min.x, dr.max.y + 6.0));
+        let below_dr = Pos2::new(clamp_x(dr.min.x), dr.max.y + 6.0);
+        let below_dr_rect = candidate_rect(Align2::LEFT_TOP, below_dr);
+        if below_dr_rect.bottom() <= screen_rect.bottom() - 2.0 && is_clear(below_dr_rect) {
+            return (Align2::LEFT_TOP, below_dr);
         }
-        if dr.max.x + 8.0 + est_size.x <= screen_rect.right() {
-            return (Align2::LEFT_TOP, Pos2::new(dr.max.x + 8.0, dr.min.y));
+
+        let right_dr = Pos2::new(dr.max.x + 8.0, clamp_y_top(dr.min.y));
+        let right_dr_rect = candidate_rect(Align2::LEFT_TOP, right_dr);
+        if right_dr_rect.right() <= screen_rect.right() - 2.0 && is_clear(right_dr_rect) {
+            return (Align2::LEFT_TOP, right_dr);
         }
-        return (Align2::LEFT_BOTTOM, Pos2::new(dr.min.x, dr.min.y - 6.0));
+
+        let above_dr = Pos2::new(clamp_x(dr.min.x), dr.min.y - 6.0);
+        let above_dr_rect = candidate_rect(Align2::LEFT_BOTTOM, above_dr);
+        if above_dr_rect.top() >= screen_rect.top() + 2.0 && is_clear(above_dr_rect) {
+            return (Align2::LEFT_BOTTOM, above_dr);
+        }
+
+        return (Align2::LEFT_TOP, below_dr);
     }
 
-    (
-        Align2::LEFT_TOP,
-        Pos2::new(token_rect.min.x, token_rect.max.y + 6.0),
-    )
+    let below_anchor = Pos2::new(clamp_x(token_rect.min.x), token_rect.max.y + 6.0);
+    let below_rect = candidate_rect(Align2::LEFT_TOP, below_anchor);
+    if below_rect.bottom() <= screen_rect.bottom() - 2.0 && is_clear(below_rect) {
+        return (Align2::LEFT_TOP, below_anchor);
+    }
+
+    let right_anchor = Pos2::new(token_rect.max.x + 12.0, clamp_y_top(token_rect.min.y));
+    let right_rect = candidate_rect(Align2::LEFT_TOP, right_anchor);
+    if right_rect.right() <= screen_rect.right() - 2.0 && is_clear(right_rect) {
+        return (Align2::LEFT_TOP, right_anchor);
+    }
+
+    let space_below = screen_rect.bottom() - token_rect.max.y;
+    let space_above = token_rect.min.y - screen_rect.top();
+    if space_below >= space_above {
+        (Align2::LEFT_TOP, below_anchor)
+    } else {
+        (Align2::LEFT_BOTTOM, above_anchor)
+    }
 }

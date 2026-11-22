@@ -519,3 +519,252 @@ fn spell_diagnostic_tooltip_and_intellisense_hover_coexist_simultaneously() {
         "Expected non-overlapping popups, got diag={dr:?}, hover={hr:?}"
     );
 }
+
+#[test]
+fn completion_popup_height_is_compact_and_anchored_near_caret_on_900px_viewport() {
+    let mut doc = String::from("= Section One <sec-one>\n= Section Two <sec-two>\n");
+    for i in 0..22 {
+        doc.push_str(&format!("#let cand_{i:02} = {i}\n"));
+    }
+    doc.push_str("See ");
+
+    let host = TestEditorHost::new(&doc);
+    let mut harness = Harness::builder()
+        .with_size(egui::Vec2::new(1000.0, 900.0))
+        .build_ui_state(render_test_editor, host);
+    focus_editor_text_edit(&mut harness);
+
+    // Small list (2 items): `@sec-`.
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text("@sec-".into()));
+    harness.run();
+    harness.run();
+
+    let popup_id = Id::new("editor_intellisense_completion_popup");
+    let small_rect = AreaState::load(&harness.ctx, popup_id)
+        .map(|s| s.rect())
+        .expect("small completion popup rect");
+    assert!(
+        small_rect.height() <= 280.0,
+        "Expected compact small popup height <= 280px on 900px viewport, got {small_rect:?}"
+    );
+
+    // Accept or clear `@sec-`, then open a 22-item list (`#cand_`) near the bottom of the 900px viewport.
+    harness.press_key(Key::Escape);
+    harness.run();
+    let filler_lines = "\n".repeat(42);
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text(format!("{filler_lines}#cand_")));
+    harness.run();
+    harness.run();
+
+    let large_rect = AreaState::load(&harness.ctx, popup_id)
+        .map(|s| s.rect())
+        .expect("22-item completion popup rect");
+    assert!(
+        large_rect.height() <= 280.0,
+        "Expected compact 22-item popup height <= 280px on 900px viewport, got {large_rect:?}"
+    );
+    assert!(
+        large_rect.bottom() <= 900.0 && large_rect.right() <= 1000.0 && large_rect.left() >= 0.0,
+        "Expected popup constrained near caret within viewport, got {large_rect:?}"
+    );
+
+    // Verify exact caret-adjacent anchoring both below (top of viewport) and above (bottom of viewport).
+    struct CaretAnchorState {
+        text: String,
+        intel: EditorIntellisenseState,
+        caret_screen: Option<egui::Rect>,
+        move_end_once: bool,
+    }
+    let mut seed = String::new();
+    for i in 0..20 {
+        seed.push_str(&format!("#let cand_{i:02} = {i}\n"));
+    }
+
+    let run_caret_anchor_case = |initial_text: String| -> (egui::Rect, egui::Rect) {
+        let mut h = Harness::builder()
+            .with_size(egui::Vec2::new(1000.0, 900.0))
+            .build_ui_state(
+                |ui, st: &mut CaretAnchorState| {
+                    let mut edit_out = egui::TextEdit::multiline(&mut st.text).show(ui);
+                    if std::mem::take(&mut st.move_end_once) {
+                        let end = CCursor::new(st.text.chars().count());
+                        edit_out
+                            .state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::one(end)));
+                        edit_out.state.clone().store(ui.ctx(), edit_out.response.id);
+                    }
+                    let cursor_idx = edit_out
+                        .state
+                        .cursor
+                        .char_range()
+                        .map(|r| r.primary.index)
+                        .unwrap_or(0);
+                    let c = edit_out.galley.from_ccursor(CCursor::new(cursor_idx));
+                    st.caret_screen = Some(
+                        edit_out
+                            .galley
+                            .pos_from_cursor(&c)
+                            .translate(edit_out.galley_pos.to_vec2()),
+                    );
+                    let mut pane_out = EditorPaneOutput::default();
+                    let ctx_clone = ui.ctx().clone();
+                    update_and_render_intellisense(
+                        &ctx_clone,
+                        ui,
+                        IntellisenseUpdateParams {
+                            active_file: Path::new("main.typ"),
+                            compiler_diagnostics: &[],
+                            dark_mode: true,
+                            ime_in_progress: false,
+                            accepted_completion: None,
+                        },
+                        &mut st.text,
+                        &mut edit_out,
+                        &mut st.intel,
+                        &mut pane_out,
+                    );
+                },
+                CaretAnchorState {
+                    text: initial_text,
+                    intel: EditorIntellisenseState::default(),
+                    caret_screen: None,
+                    move_end_once: true,
+                },
+            );
+        h.get_by_role(egui::accesskit::Role::MultilineTextInput)
+            .focus();
+        h.state_mut().move_end_once = true;
+        h.run();
+        h.input_mut().events.push(egui::Event::Text("#cand".into()));
+        h.run();
+        h.run();
+        assert!(
+            h.state().intel.active_completion.is_some(),
+            "expected active completion after typing #cand"
+        );
+        let caret = h.state().caret_screen.unwrap();
+        let popup = AreaState::load(&h.ctx, popup_id).map(|s| s.rect()).unwrap();
+        (caret, popup)
+    };
+
+    // 1) Caret near top -> placed directly below caret (`caret_screen.max.y + 4.0`).
+    let (top_caret, top_popup) = run_caret_anchor_case(seed.clone());
+    assert!(top_popup.height() <= 280.0);
+    assert!(
+        (top_popup.top() - (top_caret.max.y + 4.0)).abs() <= 4.0,
+        "Expected popup anchored below caret ({top_caret:?}), got {top_popup:?}"
+    );
+
+    // 2) Caret near bottom of 900px viewport -> placed directly above caret (`caret_screen.min.y - 4.0`).
+    let (bot_caret, bot_popup) = run_caret_anchor_case(format!("{seed}{}", "\n".repeat(38)));
+    assert!(bot_popup.height() <= 280.0);
+    assert!(
+        (bot_popup.bottom() - (bot_caret.min.y - 4.0)).abs() <= 4.0,
+        "Expected popup anchored above bottom caret ({bot_caret:?}), got {bot_popup:?}"
+    );
+}
+
+#[test]
+fn hover_popup_stays_continuously_open_without_flicker_and_has_bounded_height() {
+    struct HoverStabilityState {
+        text: String,
+        where_pos: Option<Pos2>,
+        figure_pos: Option<Pos2>,
+    }
+
+    let padding = "\n".repeat(22);
+    let text = format!(
+        "#show heading.where(level: 1): set text(blue){padding}#figure(rect(), caption: [Cap])\n"
+    );
+    let where_char = text.find("where").unwrap() + 2;
+    let figure_char = text.find("figure").unwrap() + 2;
+
+    let mut harness = Harness::builder()
+        .with_size(egui::Vec2::new(800.0, 500.0))
+        .build_ui_state(
+            |ui, state: &mut HoverStabilityState| {
+                let ctx_clone = ui.ctx().clone();
+                let edit_output = egui::TextEdit::multiline(&mut state.text).show(ui);
+                state.where_pos = Some(
+                    edit_output
+                        .galley
+                        .pos_from_cursor(&edit_output.galley.from_ccursor(CCursor::new(where_char)))
+                        .translate(edit_output.galley_pos.to_vec2())
+                        .center(),
+                );
+                state.figure_pos = Some(
+                    edit_output
+                        .galley
+                        .pos_from_cursor(
+                            &edit_output.galley.from_ccursor(CCursor::new(figure_char)),
+                        )
+                        .translate(edit_output.galley_pos.to_vec2())
+                        .center(),
+                );
+
+                if let Some(hover_char) = hovered_char_in_galley(&ctx_clone, ui, &edit_output) {
+                    if let Some(hover) = compute_hover_info(&state.text, hover_char, &[], &[]) {
+                        render_intellisense_hover(ui, &edit_output, &hover, true);
+                    }
+                }
+            },
+            HoverStabilityState {
+                text,
+                where_pos: None,
+                figure_pos: None,
+            },
+        );
+
+    harness.run();
+    let where_target = harness.state().where_pos.expect("where target pos");
+    let figure_target = harness.state().figure_pos.expect("figure target pos");
+    let hover_area_id = Id::new("editor_intellisense_hover_popup");
+
+    // Hovering `heading.where` near the top edge must remain continuously visible for 6 frames.
+    for frame in 0..6 {
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::PointerMoved(where_target));
+        harness.run();
+        assert!(
+            harness.query_by_label("heading.where").is_some(),
+            "hover popup flickered off on frame {frame} for heading.where"
+        );
+        let hr = AreaState::load(&harness.ctx, hover_area_id)
+            .map(|s| s.rect())
+            .expect("hover area state on heading.where");
+        assert!(
+            hr.height() <= 280.0,
+            "Expected bounded hover height <= 280px on frame {frame}, got {hr:?}"
+        );
+        assert!(harness.query_by_label_contains("```example").is_none());
+    }
+
+    // Hovering `#figure` near the bottom edge with long docs must also stay open across 6 frames.
+    for frame in 0..6 {
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::PointerMoved(figure_target));
+        harness.run();
+        assert!(
+            harness.query_by_label("figure").is_some(),
+            "hover popup flickered off on frame {frame} for #figure"
+        );
+        let hr = AreaState::load(&harness.ctx, hover_area_id)
+            .map(|s| s.rect())
+            .expect("hover area state on #figure");
+        assert!(
+            hr.height() <= 280.0,
+            "Expected bounded hover height <= 280px on frame {frame}, got {hr:?}"
+        );
+    }
+}

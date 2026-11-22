@@ -7,7 +7,7 @@ use egui::text::{CCursor, CCursorRange};
 use egui::widgets::text_edit::TextEditOutput;
 use egui::{
     Align, Align2, Area, AreaState, Context, Frame, Id, Key, Margin, Modifiers, Order, Pos2,
-    RichText, ScrollArea, Stroke, Ui, UiKind, Vec2,
+    RichText, ScrollArea, Sense, Stroke, Ui, UiKind, Vec2,
 };
 use rust_i18n::t;
 
@@ -432,28 +432,45 @@ fn render_completion_popup(
     let palette = ThemePalette::for_mode(dark_mode);
     let popup_id = Id::new("editor_intellisense_completion_popup");
 
+    let visible_rows = req.items.len().clamp(1, 8);
+    let list_h = (visible_rows as f32 * 22.0 + 4.0).clamp(32.0, 184.0);
+    let body_h = list_h.max(96.0);
+    let fallback_h = (body_h + 64.0).min(260.0);
+
     let caret_cursor = edit_output.galley.from_ccursor(CCursor::new(cursor_char));
     let caret_screen = edit_output
         .galley
         .pos_from_cursor(&caret_cursor)
         .translate(edit_output.galley_pos.to_vec2());
     let screen_rect = ctx.screen_rect();
+    let max_total_w = (screen_rect.width() - 24.0).clamp(280.0, 540.0);
+    let est_width = AreaState::load(ctx, popup_id)
+        .and_then(|s| s.size)
+        .map(|sz| sz.x)
+        .unwrap_or(max_total_w)
+        .min((screen_rect.width() - 8.0).max(120.0));
     let est_height = AreaState::load(ctx, popup_id)
         .and_then(|s| s.size)
-        .map(|sz| sz.y)
-        .unwrap_or(240.0);
+        .map(|sz| sz.y.min(280.0))
+        .unwrap_or(fallback_h);
+
+    let max_anchor_x = (screen_rect.right() - est_width - 4.0).max(screen_rect.left() + 4.0);
+    let anchor_x = caret_screen
+        .min
+        .x
+        .clamp(screen_rect.left() + 4.0, max_anchor_x);
 
     let place_below = caret_screen.max.y + 4.0 + est_height <= screen_rect.bottom()
         || caret_screen.min.y - screen_rect.top() < est_height + 4.0;
     let (pivot, anchor) = if place_below {
         (
             Align2::LEFT_TOP,
-            Pos2::new(caret_screen.min.x, caret_screen.max.y + 4.0),
+            Pos2::new(anchor_x, caret_screen.max.y + 4.0),
         )
     } else {
         (
             Align2::LEFT_BOTTOM,
-            Pos2::new(caret_screen.min.x, caret_screen.min.y - 4.0),
+            Pos2::new(anchor_x, caret_screen.min.y - 4.0),
         )
     };
 
@@ -468,7 +485,6 @@ fn render_completion_popup(
         .fixed_pos(anchor)
         .constrain(true)
         .show(ctx, |ui| {
-            let max_total_w = (screen_rect.width() - 24.0).clamp(280.0, 540.0);
             Frame::popup(&ctx.style())
                 .fill(palette.chrome_sidebar)
                 .stroke(Stroke::new(1.0_f32, palette.panel_border))
@@ -488,12 +504,13 @@ fn render_completion_popup(
 
                     ui.horizontal_top(|ui| {
                         ui.allocate_ui_with_layout(
-                            Vec2::new(list_w, 180.0),
+                            Vec2::new(list_w, body_h),
                             egui::Layout::top_down(Align::Min),
                             |ui| {
+                                ui.set_max_height(body_h);
                                 ScrollArea::vertical()
                                     .id_salt("intellisense_candidates_scroll")
-                                    .max_height(180.0)
+                                    .max_height(body_h)
                                     .show(ui, |ui| {
                                         for (idx, item) in req.items.iter().enumerate() {
                                             let is_sel = idx == selected_idx;
@@ -535,13 +552,27 @@ fn render_completion_popup(
                             },
                         );
 
-                        ui.separator();
+                        let (sep_rect, _) =
+                            ui.allocate_exact_size(Vec2::new(1.0, body_h), Sense::hover());
+                        ui.painter().line_segment(
+                            [
+                                Pos2::new(sep_rect.center().x, sep_rect.top() + 2.0),
+                                Pos2::new(sep_rect.center().x, sep_rect.bottom() - 2.0),
+                            ],
+                            Stroke::new(1.0_f32, palette.panel_border),
+                        );
 
                         ui.allocate_ui_with_layout(
-                            Vec2::new(doc_w, 180.0),
+                            Vec2::new(doc_w, body_h),
                             egui::Layout::top_down(Align::Min),
                             |ui| {
-                                render_completion_doc_pane(ui, &req.items[selected_idx], &palette);
+                                ui.set_max_height(body_h);
+                                render_completion_doc_pane(
+                                    ui,
+                                    &req.items[selected_idx],
+                                    &palette,
+                                    body_h,
+                                );
                             },
                         );
                     });
