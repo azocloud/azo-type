@@ -1,9 +1,13 @@
 //! End-to-end headless `egui_kittest` cross-panel UI integration tests for `AzoTypeApp`.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use azo_type::app::{AzoTypeApp, MenuAction, SettingsTab};
 use azo_type::core::i18n::AppSavedState;
+use azo_type::core::recent_projects::RecentProjects;
+use azo_type::services::canonicalize_project_path;
+use azo_type::services::persistence::RECENT_PROJECTS_STORAGE_KEY;
 use egui_kittest::{kittest::Queryable, Harness};
 
 #[derive(Default)]
@@ -125,4 +129,107 @@ fn full_app_opens_settings_and_new_file_and_export_dialogs_across_frames() {
         app.set_language(&ctx, "en".to_string());
         assert_eq!(app.language, "en");
     }
+}
+
+fn temp_ui_project_dir(label: &str) -> PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("azo_type_ui_recent_{label}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.typ"), format!("= {label}\n")).unwrap();
+    dir
+}
+
+#[test]
+fn full_app_toggles_open_last_project_setting_and_opens_recent_project_via_menu() {
+    struct AppHolder(Option<AzoTypeApp>);
+
+    let dir_a = temp_ui_project_dir("alpha");
+    let dir_b = temp_ui_project_dir("beta");
+    let canon_a = canonicalize_project_path(&dir_a);
+    let canon_b = canonicalize_project_path(&dir_b);
+
+    let mut storage = english_storage();
+    eframe::set_value(
+        &mut storage,
+        RECENT_PROJECTS_STORAGE_KEY,
+        &RecentProjects::from_paths([canon_b.clone(), canon_a.clone()]),
+    );
+
+    let mut harness = Harness::new_state(
+        |ctx, holder: &mut AppHolder| {
+            let app = holder
+                .0
+                .get_or_insert_with(|| AzoTypeApp::new_headless(ctx, Some(&storage), None, None));
+            app.render_ui(ctx);
+        },
+        AppHolder(None),
+    );
+    harness.run();
+
+    // 1. Settings -> Editor & Filesystem -> toggle "Open last opened project on startup".
+    {
+        let ctx = harness.ctx.clone();
+        let app = harness.state_mut().0.as_mut().unwrap();
+        assert!(!app.settings.open_last_project_on_startup);
+        app.dispatch_menu_action(&ctx, MenuAction::OpenSettings);
+    }
+    harness.run();
+    harness.get_by_label("Editor & Filesystem").click();
+    harness.run();
+    harness
+        .get_by_label("Open last opened project on startup")
+        .click();
+    harness.run();
+    assert!(
+        harness
+            .state()
+            .0
+            .as_ref()
+            .unwrap()
+            .settings
+            .open_last_project_on_startup
+    );
+    harness.state_mut().0.as_mut().unwrap().show_settings_window = false;
+    harness.run();
+
+    // 2. File -> Recently Opened -> click second entry (dir_a) and verify MRU + project switch,
+    //    then clear recent projects via File -> Recently Opened -> Clear Recently Opened.
+    #[cfg(not(target_os = "macos"))]
+    {
+        let target_label = RecentProjects::format_entry_label(&canon_a);
+        harness.get_by_label("File").click();
+        harness.run();
+        harness.get_by_label("Recently Opened").hover();
+        harness.run();
+        harness.get_by_label(&target_label).click();
+        harness.run();
+
+        let app = harness.state().0.as_ref().unwrap();
+        assert_eq!(app.project.root_dir, canon_a);
+        assert_eq!(app.recent_projects.entries(), &[canon_a.clone(), canon_b]);
+
+        // Save state and verify a new headless instance auto-opens canon_a on startup.
+        let mut saved_storage = english_storage();
+        eframe::App::save(harness.state_mut().0.as_mut().unwrap(), &mut saved_storage);
+        let restarted = AzoTypeApp::new_headless(&harness.ctx, Some(&saved_storage), None, None);
+        assert_eq!(restarted.project.root_dir, canon_a);
+
+        harness.get_by_label("File").click();
+        harness.run();
+        harness.get_by_label("Recently Opened").hover();
+        harness.run();
+        harness.get_by_label("Clear Recently Opened").click();
+        harness.run();
+        assert!(harness
+            .state()
+            .0
+            .as_ref()
+            .unwrap()
+            .recent_projects
+            .is_empty());
+    }
+
+    let _ = std::fs::remove_dir_all(&dir_a);
+    let _ = std::fs::remove_dir_all(&dir_b);
 }

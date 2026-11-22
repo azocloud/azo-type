@@ -325,3 +325,64 @@ fn open_folder_and_record_updates_recent_on_success_and_prunes_missing_on_failur
 
     let _ = std::fs::remove_dir_all(&dir_b);
 }
+
+#[test]
+fn rescan_sidebar_save_and_collab_helpers_work_cleanly() {
+    let dir = temp_dir("helpers");
+    std::fs::write(dir.join("main.typ"), "= Helpers\n").unwrap();
+    std::fs::write(dir.join("logo.png"), [0u8, 1, 2, 3]).unwrap();
+
+    let mut project = DiskProject::open_folder(&dir, false).unwrap();
+    let (ok_rescan, rescan_notice) = rescan_project_folder(&mut project);
+    assert!(ok_rescan);
+    assert!(!rescan_notice.is_empty());
+
+    assert_eq!(
+        open_sidebar_file(&mut project, Path::new("logo.png")),
+        Ok(true)
+    );
+    assert_eq!(
+        open_sidebar_file(&mut project, Path::new("main.typ")),
+        Ok(false)
+    );
+    assert!(open_sidebar_file(&mut project, Path::new("missing.typ")).is_err());
+
+    let save_as = dir.join("copy.typ");
+    let saved_notice = save_active_to_path_notice(&mut project, &save_as);
+    assert!(!saved_notice.is_empty());
+    assert!(save_as.exists());
+
+    let outline_notice = format_outline_nav_notice(&crate::core::outline::DocumentOutlineItem {
+        level: 1,
+        number_label: "1".to_string(),
+        title: "Intro".to_string(),
+        file: PathBuf::from("main.typ"),
+        line_number: 3,
+        char_offset: 0,
+    });
+    assert!(outline_notice.contains("Intro"));
+
+    let collab = CollabSessionHandle::spawn(None);
+    let mut last_cursor = None;
+    let sel = crate::collab::doc::CharSelection::caret(4);
+    sync_collab_cursor(
+        false,
+        &collab,
+        &mut last_cursor,
+        PathBuf::from("main.typ"),
+        Some(sel),
+    );
+    assert!(last_cursor.is_none());
+    sync_collab_cursor(
+        true,
+        &collab,
+        &mut last_cursor,
+        PathBuf::from("main.typ"),
+        Some(sel),
+    );
+    assert_eq!(last_cursor, Some((PathBuf::from("main.typ"), sel)));
+    send_collab_undo_redo(&collab, Path::new("main.typ"), true, false);
+    send_collab_undo_redo(&collab, Path::new("main.typ"), false, true);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

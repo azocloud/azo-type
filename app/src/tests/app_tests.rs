@@ -242,3 +242,151 @@ fn handle_keyboard_shortcuts_toggles_sidebar_on_ctrl_b() {
 
     assert_ne!(app.show_sidebar, was_visible);
 }
+
+fn temp_project_dir(label: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "azo_type_app_recent_{label}_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("main.typ"), format!("= {label}\n")).unwrap();
+    dir
+}
+
+#[test]
+fn new_headless_opens_last_project_on_startup_when_enabled() {
+    let dir_last = temp_project_dir("startup_last");
+    let dir_cli = temp_project_dir("startup_cli");
+    let canon_last = crate::services::canonicalize_project_path(&dir_last);
+    let canon_cli = crate::services::canonicalize_project_path(&dir_cli);
+
+    let ctx = Context::default();
+    let mut storage = english_storage();
+    let settings = IdeSettings {
+        open_last_project_on_startup: true,
+        ..IdeSettings::default()
+    };
+    let recent = RecentProjects::from_paths([canon_last.clone()]);
+    eframe::set_value(
+        &mut storage,
+        crate::services::persistence::SETTINGS_STORAGE_KEY,
+        &settings,
+    );
+    eframe::set_value(
+        &mut storage,
+        crate::services::persistence::RECENT_PROJECTS_STORAGE_KEY,
+        &recent,
+    );
+
+    let app = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
+    assert!(app.project.has_disk_backing());
+    assert_eq!(app.project.root_dir, canon_last);
+    assert_eq!(
+        app.recent_projects.most_recent(),
+        Some(canon_last.as_path())
+    );
+
+    // Explicit CLI folder takes precedence and moves to front of MRU.
+    let app_cli = AzoTypeApp::new_headless(&ctx, Some(&storage), Some(dir_cli.clone()), None);
+    assert!(app_cli.project.has_disk_backing());
+    assert_eq!(app_cli.project.root_dir, canon_cli);
+    assert_eq!(app_cli.recent_projects.entries(), &[canon_cli, canon_last]);
+
+    let _ = std::fs::remove_dir_all(&dir_last);
+    let _ = std::fs::remove_dir_all(&dir_cli);
+}
+
+#[test]
+fn new_headless_falls_back_to_blank_when_startup_auto_open_disabled_or_missing() {
+    let dir_last = temp_project_dir("startup_disabled");
+    let canon_last = crate::services::canonicalize_project_path(&dir_last);
+
+    let ctx = Context::default();
+    let mut storage = english_storage();
+    eframe::set_value(
+        &mut storage,
+        crate::services::persistence::RECENT_PROJECTS_STORAGE_KEY,
+        &RecentProjects::from_paths([canon_last.clone()]),
+    );
+
+    // Disabled by default -> blank project, while preserving recent history.
+    let app_disabled = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
+    assert!(!app_disabled.project.has_disk_backing());
+    assert_eq!(
+        app_disabled.recent_projects.entries(),
+        &[canon_last.clone()]
+    );
+
+    // Enabled but last folder missing -> falls back to blank cleanly.
+    std::fs::remove_dir_all(&dir_last).unwrap();
+    eframe::set_value(
+        &mut storage,
+        crate::services::persistence::SETTINGS_STORAGE_KEY,
+        &IdeSettings {
+            open_last_project_on_startup: true,
+            ..IdeSettings::default()
+        },
+    );
+    let app_missing = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
+    assert!(!app_missing.project.has_disk_backing());
+}
+
+#[test]
+fn folder_picked_and_open_recent_project_update_mru_and_clear_resets_list() {
+    let dir_a = temp_project_dir("mru_a");
+    let dir_b = temp_project_dir("mru_b");
+    let canon_a = crate::services::canonicalize_project_path(&dir_a);
+    let canon_b = crate::services::canonicalize_project_path(&dir_b);
+
+    let ctx = Context::default();
+    let mut storage = english_storage();
+    let mut app = AzoTypeApp::new_headless(&ctx, Some(&storage), None, None);
+    assert!(app.recent_projects.is_empty());
+
+    app.io_tx
+        .send(IoEvent::FolderPicked(dir_a.clone()))
+        .unwrap();
+    app.poll_channels(&ctx);
+    assert_eq!(app.project.root_dir, canon_a);
+    assert_eq!(app.recent_projects.entries(), &[canon_a.clone()]);
+
+    app.io_tx
+        .send(IoEvent::FolderPicked(dir_b.clone()))
+        .unwrap();
+    app.poll_channels(&ctx);
+    assert_eq!(app.project.root_dir, canon_b);
+    assert_eq!(
+        app.recent_projects.entries(),
+        &[canon_b.clone(), canon_a.clone()]
+    );
+
+    // Selecting index 1 (dir_a) moves it to front of MRU.
+    app.dispatch_menu_action(&ctx, MenuAction::OpenRecentProject(1));
+    assert_eq!(app.project.root_dir, canon_a);
+    assert_eq!(
+        app.recent_projects.entries(),
+        &[canon_a.clone(), canon_b.clone()]
+    );
+
+    // Out-of-bounds index is a safe no-op.
+    app.dispatch_menu_action(&ctx, MenuAction::OpenRecentProject(99));
+    assert_eq!(app.project.root_dir, canon_a);
+
+    // Removing dir_b from disk and selecting it prunes missing entry while keeping dir_a open.
+    std::fs::remove_dir_all(&dir_b).unwrap();
+    app.dispatch_menu_action(&ctx, MenuAction::OpenRecentProject(1));
+    assert_eq!(app.project.root_dir, canon_a);
+    assert_eq!(app.recent_projects.entries(), &[canon_a.clone()]);
+    assert!(!app.status_notice.is_empty());
+
+    // Persistence saves recent projects; ClearRecentProjects empties list.
+    eframe::App::save(&mut app, &mut storage);
+    let persisted = crate::services::load_persisted_state(Some(&storage), &["en"]);
+    assert_eq!(persisted.recent_projects.entries(), &[canon_a]);
+
+    app.dispatch_menu_action(&ctx, MenuAction::ClearRecentProjects);
+    assert!(app.recent_projects.is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir_a);
+}
