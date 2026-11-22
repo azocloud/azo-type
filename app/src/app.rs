@@ -791,6 +791,7 @@ impl AzoTypeApp {
                 },
                 compiler_diagnostics: &self.diagnostics,
                 intellisense: &mut self.editor_intellisense,
+                hover_hide_delay_ms: self.settings.hover_hide_delay_ms,
             },
         );
 
