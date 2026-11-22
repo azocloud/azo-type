@@ -13,17 +13,24 @@ use rust_i18n::t;
 
 use crate::core::diff::CharSelection;
 use crate::core::file_kind::FileKind;
+#[cfg(test)]
+use crate::core::intellisense::compute_hover_info;
 use crate::core::intellisense::{
-    compute_completions, compute_hover_info, compute_typst_hints, CompletionRequestContext,
+    compute_completions, compute_typst_hints, CompletionRequestContext,
 };
 use crate::engine::DiagnosticItem;
 use crate::project::{DiskProject, FsTreeNode};
 use crate::ui::components::editor::EditorPaneOutput;
 use crate::ui::components::editor_intellisense_hover::{
-    completion_kind_badge, hovered_char_in_galley, render_completion_doc_pane,
+    completion_kind_badge, render_completion_doc_pane,
+};
+#[cfg(test)]
+use crate::ui::components::editor_intellisense_hover::{
+    hovered_char_in_galley, render_intellisense_hover,
 };
 pub use crate::ui::components::editor_intellisense_hover::{
-    map_diagnostics_to_char_spans, paint_typst_diagnostic_hints, render_intellisense_hover,
+    map_diagnostics_to_char_spans, paint_typst_diagnostic_hints,
+    update_and_render_intellisense_hover, ActiveHoverPopup, HoverPopupParams,
 };
 use crate::ui::theme::ThemePalette;
 
@@ -45,6 +52,7 @@ pub struct EditorIntellisenseState {
     pub active_completion: Option<CompletionRequestContext>,
     pub selected_index: usize,
     pub dismissed_at_cursor: Option<usize>,
+    pub active_hover: Option<ActiveHoverPopup>,
     cached_revision: u64,
     cached_active_file: PathBuf,
     cached_buffer_count: usize,
@@ -104,6 +112,7 @@ impl EditorIntellisenseState {
         self.cached_revision = project.revision;
         self.cached_active_file = project.active_file.clone();
         self.cached_buffer_count = project.buffers.len();
+        self.active_hover = None;
     }
 
     /// Returns cached project-relative file paths for path completion.
@@ -227,6 +236,7 @@ pub struct IntellisenseUpdateParams<'a> {
     pub dark_mode: bool,
     pub ime_in_progress: bool,
     pub accepted_completion: Option<AcceptedCompletion>,
+    pub hover_hide_delay_ms: u64,
 }
 
 /// Updates completion state, renders the completion popup, paints Typst diagnostic hints,
@@ -242,12 +252,16 @@ pub fn update_and_render_intellisense(
 ) {
     if let Some(accepted) = params.accepted_completion {
         apply_accepted_completion(ctx, text_ref, edit_output, &accepted, state, output);
+        state.active_hover = None;
     }
 
     let cursor_char = current_cursor_char(edit_output).unwrap_or(0);
     let cursor_moved = state.last_cursor_char != Some(cursor_char);
     let text_was_edited = edit_output.response.changed() && !params.ime_in_progress;
 
+    if text_was_edited {
+        state.active_hover = None;
+    }
     if text_was_edited || (cursor_moved && state.dismissed_at_cursor != Some(cursor_char)) {
         state.dismissed_at_cursor = None;
     }
@@ -262,8 +276,7 @@ pub fn update_and_render_intellisense(
         let prev_prefix = state
             .active_completion
             .as_ref()
-            .map(|c| c.prefix.as_str())
-            .unwrap_or("");
+            .map_or("", |c| c.prefix.as_str());
         let prefix_changed = next.as_ref().is_some_and(|c| c.prefix != prev_prefix);
         state.active_completion = next;
         if prefix_changed {
@@ -295,30 +308,15 @@ pub fn update_and_render_intellisense(
         }
     }
 
+    let accepted_by_click = popup_clicked_item.is_some();
     if let Some(accepted) = popup_clicked_item {
         apply_accepted_completion(ctx, text_ref, edit_output, &accepted, state, output);
         state.active_completion = None;
         state.selected_index = 0;
         state.dismissed_at_cursor = None;
+        state.active_hover = None;
         state.editor_had_focus = true;
-        let updated_refs = build_source_refs(&state.cached_sources, params.active_file, text_ref);
-        let mapped_diags = map_diagnostics_to_char_spans(
-            text_ref,
-            params.active_file,
-            params.compiler_diagnostics,
-        );
-        let hints = compute_typst_hints(text_ref, &updated_refs, &mapped_diags);
-        paint_typst_diagnostic_hints(
-            ui,
-            edit_output,
-            &hints,
-            params.dark_mode,
-            text_ref.chars().count(),
-        );
-        return;
-    }
-
-    if state.active_completion.is_some()
+    } else if state.active_completion.is_some()
         && !edit_output.response.has_focus()
         && !edit_output.response.gained_focus()
         && !popup_interacted
@@ -338,24 +336,29 @@ pub fn update_and_render_intellisense(
         params.dark_mode,
         text_ref.chars().count(),
     );
+    if accepted_by_click {
+        return;
+    }
 
     state.editor_had_focus = edit_output.response.has_focus()
         || edit_output.response.gained_focus()
         || ctx.memory(|m| m.has_focus(edit_output.response.id));
 
-    if state.active_completion.is_none() {
-        if let Some(hover_char) = hovered_char_in_galley(ctx, ui, edit_output) {
-            if let Some(hover) =
-                compute_hover_info(text_ref, hover_char, &source_refs, &mapped_diags)
-            {
-                if hover_char >= hover.start_char
-                    && (hover_char < hover.end_char
-                        || (hover.start_char == hover.end_char && hover_char == hover.start_char))
-                {
-                    render_intellisense_hover(ui, edit_output, &hover, params.dark_mode);
-                }
-            }
-        }
+    if state.active_completion.is_some() || text_was_edited || output.text_changed {
+        state.active_hover = None;
+    } else {
+        update_and_render_intellisense_hover(
+            ui,
+            edit_output,
+            HoverPopupParams {
+                active_text: text_ref,
+                source_refs: &source_refs,
+                mapped_diags: &mapped_diags,
+                dark_mode: params.dark_mode,
+                hover_hide_delay_ms: params.hover_hide_delay_ms,
+            },
+            &mut state.active_hover,
+        );
     }
 }
 
@@ -444,16 +447,11 @@ fn render_completion_popup(
         .translate(edit_output.galley_pos.to_vec2());
     let screen_rect = ctx.screen_rect();
     let max_total_w = (screen_rect.width() - 24.0).clamp(280.0, 540.0);
-    let est_width = AreaState::load(ctx, popup_id)
-        .and_then(|s| s.size)
-        .map(|sz| sz.x)
-        .unwrap_or(max_total_w)
+    let area_size = AreaState::load(ctx, popup_id).and_then(|s| s.size);
+    let est_width = area_size
+        .map_or(max_total_w, |sz| sz.x)
         .min((screen_rect.width() - 8.0).max(120.0));
-    let est_height = AreaState::load(ctx, popup_id)
-        .and_then(|s| s.size)
-        .map(|sz| sz.y.min(280.0))
-        .unwrap_or(fallback_h);
-
+    let est_height = area_size.map_or(fallback_h, |sz| sz.y.min(280.0));
     let max_anchor_x = (screen_rect.right() - est_width - 4.0).max(screen_rect.left() + 4.0);
     let anchor_x = caret_screen
         .min
