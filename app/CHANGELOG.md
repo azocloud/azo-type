@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0](https://github.com/azocloud/azo-type/compare/v0.0.0...v0.1.0) - 2026-11-23
+
+### Added
+
+- *(app)* pass hover_hide_delay_ms setting to editor pane
+- *(ui)* make IntelliSense hover popup scrollable with grace delay
+- *(settings)* add configurable IntelliSense hover hide delay setting
+- *(app)* wire edit tools, search panel, and Typst IntelliSense into AzoTypeApp
+- *(ui)* add Typst IntelliSense popup, hover docs, and editor shortcuts
+- *(ui)* add Search & Replace tab to bottom workspace panel
+- *(ui)* wire comment, indent, duplicate, and move-line actions in editor_actions
+- *(ui)* add edit tools to Edit menu and remove top-right Panel button
+- *(core)* add Typst IntelliSense engine for refs, macros, docs, and hints
+- *(core)* add char-indexed search and replace helpers
+- *(core)* add text_edit line/comment helpers
+- *(i18n)* add translations for edit tools, search panel, and intellisense
+- *(platform)* add edit tools menu actions and shortcuts
+- *(app)* wire recent projects and startup auto-open into AzoTypeApp
+- *(services)* persist recent projects and resolve startup project
+- *(ui)* add recently opened submenu to desktop menu bar
+- *(ui)* add open last project on startup setting toggle
+- *(core)* add recent projects model and startup setting
+- *(platform)* add recent projects actions and macOS submenu
+
+### Build
+
+- *(license)* configure cargo-deny for GPL-3.0-or-later compatibility
+
+### Changed
+
+- *(core)* compact text_edit helpers under structural size limit
+- *(platform)* reuse RecentProjects::format_entry_label in menu
+
+### Fixed
+
+- *(project)* strip Windows verbatim prefix in open_folder and align cross-platform path tests
+- *(ui)* bound IntelliSense popup height and stop hover flicker
+- *(core)* sanitize Typst stdlib docs and support heading.where hover
+- *(ui)* widen Find and Replace text inputs in bottom panel
+- *(ui)* prevent search-and-replace from stealing focus from find input
+- *(core)* normalize Windows verbatim prefixes in RecentProjects
+
+### Other
+
+- Merge branch 'swarm-hover-scroll-grace-9c01a10f' into feat/edit-tools-and-intellisense
+- Merge branch 'swarm-fix-intellisense-popups-77b77ac2' into feat/edit-tools-and-intellisense
+- Merge branch 'swarm-ui-intellisense-3a1940a0' into feat/edit-tools-and-intellisense
+- Merge branch 'swarm-ui-search-panel-8c276cf9' into feat/edit-tools-and-intellisense
+- Merge branch 'swarm-ui-editor-actions-53297dcb' into feat/edit-tools-and-intellisense
+- Merge branch 'swarm-ui-menu-bar-2e286294' into feat/edit-tools-and-intellisense
+- Merge branch 'swarm-core-intellisense-41e2be37' into feat/edit-tools-and-intellisense
+- Merge branch 'swarm-core-edit-search-268cffa2' into feat/edit-tools-and-intellisense
+- Merge branch 'swarm-services-c8d99bb3' into feat/recent-projects
+- Merge branch 'swarm-ui-menu-2c7d5a02' into feat/recent-projects
+- Merge branch 'swarm-platform-menu-037f0196' into feat/recent-projects
+
+### Testing
+
+- add app and ui integration tests for edit tools, search, and intellisense
+- *(app)* satisfy clippy cloned_ref_to_slice_refs in app_tests
+- add app and ui integration tests for recent projects
+
 ## [0.0.0](https://github.com/azocloud/azo-type/releases/tag/v0.0.0) - 2026-11-14
 
 ### Added
