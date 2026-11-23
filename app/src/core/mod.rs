@@ -56,7 +56,7 @@ pub use outline::{
     DocumentOutlineItem, OutlineTreeNode, SourceResolver,
 };
 pub use pdf::{PdfArchivalStandard, PdfExportConfig, PdfVersionChoice};
-pub use recent_projects::{RecentProjects, MAX_RECENT_PROJECTS};
+pub use recent_projects::{strip_windows_verbatim_prefix, RecentProjects, MAX_RECENT_PROJECTS};
 pub use search::{
     find_all_matches, find_next_match_index, replace_all_matches, replace_match_at, SearchMatch,
     SearchOptions,

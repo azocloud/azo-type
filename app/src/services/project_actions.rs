@@ -333,17 +333,7 @@ pub fn open_picked_folder(
     }
 }
 
-fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
-    if let Some(raw) = path.to_str() {
-        if let Some(rest) = raw.strip_prefix(r"\\?\") {
-            if rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(r"UNC\") {
-                return PathBuf::from(format!(r"\\{}", &rest[4..]));
-            }
-            return PathBuf::from(rest);
-        }
-    }
-    path
-}
+use crate::core::strip_windows_verbatim_prefix;
 
 /// Resolves `path` to its canonical filesystem path, falling back to `path` if canonicalization fails.
 ///

@@ -351,3 +351,16 @@ fn lexical_key(path: &Path) -> LexicalKey {
 
     LexicalKey::Os(normalize_os_components(path))
 }
+
+/// Strips Windows verbatim path prefixes (`\\?\` and `\\?\UNC\`) while leaving other paths intact.
+pub fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    if let Some(raw) = path.to_str() {
+        if let Some(rest) = raw.strip_prefix(r"\\?\") {
+            if rest.len() >= 4 && rest[..4].eq_ignore_ascii_case(r"UNC\") {
+                return PathBuf::from(format!(r"\\{}", &rest[4..]));
+            }
+            return PathBuf::from(rest);
+        }
+    }
+    path
+}

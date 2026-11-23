@@ -70,7 +70,9 @@ impl DiskProject {
     }
 
     pub fn open_folder(dir: &Path, show_hidden_files: bool) -> Result<Self, String> {
-        let canonical = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let canonical = crate::core::strip_windows_verbatim_prefix(
+            fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()),
+        );
         if !canonical.is_dir() {
             return Err(format!("'{}' is not a directory", canonical.display()));
         }

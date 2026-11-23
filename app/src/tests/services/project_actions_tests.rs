@@ -216,7 +216,11 @@ fn canonicalize_project_path_resolves_real_dir_and_falls_back_for_missing() {
     std::fs::create_dir_all(&nested).unwrap();
 
     let canonical = canonicalize_project_path(&nested);
-    assert_eq!(canonical, std::fs::canonicalize(&nested).unwrap());
+    assert_eq!(
+        canonical,
+        strip_windows_verbatim_prefix(std::fs::canonicalize(&nested).unwrap())
+    );
+    assert!(!canonical.to_string_lossy().starts_with(r"\\?\"));
 
     let missing = dir.join("does_not_exist");
     assert_eq!(canonicalize_project_path(&missing), missing);
@@ -251,7 +255,7 @@ fn resolve_startup_project_prioritizes_initial_folder_over_recent() {
     let project = resolve_startup_project(Some(cli_dir.clone()), true, &mut recent, false);
 
     assert!(project.has_disk_backing());
-    assert_eq!(project.root_dir, cli_dir);
+    assert_eq!(project.root_dir, canonicalize_project_path(&cli_dir));
     assert_eq!(
         recent.most_recent(),
         Some(canonicalize_project_path(&cli_dir).as_path())
