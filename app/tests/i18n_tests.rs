@@ -129,3 +129,123 @@ fn test_native_language_names() {
     assert_eq!(locale_native_name("fr"), "Français");
     assert_eq!(locale_native_name("unknown"), "English");
 }
+
+#[test]
+fn test_edit_tools_search_and_intellisense_keys_in_en_and_de() {
+    let _guard = LOCALE_LOCK.lock().unwrap();
+
+    rust_i18n::set_locale("en");
+    assert_eq!(t!("menu.find"), "Find...  (Ctrl+F)");
+    assert_eq!(t!("menu.find_replace"), "Find & Replace...  (Ctrl+H)");
+    assert_eq!(
+        t!("menu.toggle_line_comment"),
+        "Toggle Line Comment  (Ctrl+/)"
+    );
+    assert_eq!(
+        t!("menu.toggle_block_comment"),
+        "Toggle Block Comment  (Ctrl+Shift+/)"
+    );
+    assert_eq!(t!("menu.indent_lines"), "Indent Lines  (Ctrl+])");
+    assert_eq!(t!("menu.outdent_lines"), "Outdent Lines  (Ctrl+[)");
+    assert_eq!(t!("menu.duplicate_line"), "Duplicate Line  (Ctrl+D)");
+    assert_eq!(t!("menu.move_line_up"), "Move Line Up  (Alt+Up)");
+    assert_eq!(t!("menu.move_line_down"), "Move Line Down  (Alt+Down)");
+
+    assert_eq!(t!("bottom_panel.tab_search_replace"), "Search & Replace");
+    assert_eq!(t!("bottom_panel.search_label"), "Find:");
+    assert_eq!(
+        t!("bottom_panel.search_placeholder"),
+        "Search in active file..."
+    );
+    assert_eq!(t!("bottom_panel.replace_label"), "Replace:");
+    assert_eq!(
+        t!("bottom_panel.replace_placeholder"),
+        "Replacement text..."
+    );
+    assert_eq!(t!("bottom_panel.match_case"), "Match Case");
+    assert_eq!(t!("bottom_panel.prev_match_btn"), "Prev");
+    assert_eq!(t!("bottom_panel.next_match_btn"), "Next");
+    assert_eq!(t!("bottom_panel.replace_btn"), "Replace");
+    assert_eq!(t!("bottom_panel.replace_all_btn"), "Replace All");
+    assert_eq!(
+        t!("bottom_panel.matches_count", current = 2, total = 5),
+        "2 of 5"
+    );
+    assert_eq!(t!("bottom_panel.no_matches"), "No matches");
+    assert_eq!(
+        t!("bottom_panel.replaced_all_status", count = 3),
+        "Replaced 3 occurrence(s)"
+    );
+
+    assert_eq!(t!("intellisense.suggestions_header"), "Typst IntelliSense");
+    assert_eq!(t!("intellisense.no_docs"), "No documentation available.");
+    assert_eq!(
+        t!("intellisense.hint_accept"),
+        "Tab / Enter to accept  •  Esc to close"
+    );
+    assert_eq!(t!("intellisense.diagnostic_badge"), "HINT");
+    assert_eq!(
+        t!("intellisense.unresolved_ref", name = "sec-intro"),
+        "Unresolved reference '@sec-intro'"
+    );
+
+    rust_i18n::set_locale("de");
+    assert_eq!(t!("menu.find"), "Suchen...  (Strg+F)");
+    assert_eq!(t!("menu.find_replace"), "Suchen & Ersetzen...  (Strg+H)");
+    assert_eq!(
+        t!("menu.toggle_line_comment"),
+        "Zeilenkommentar umschalten  (Strg+/)"
+    );
+    assert_eq!(
+        t!("menu.toggle_block_comment"),
+        "Blockkommentar umschalten  (Strg+Umschalt+/)"
+    );
+    assert_eq!(t!("menu.indent_lines"), "Zeilen einrücken  (Strg+])");
+    assert_eq!(t!("menu.outdent_lines"), "Zeilen ausrücken  (Strg+[)");
+    assert_eq!(t!("menu.duplicate_line"), "Zeile duplizieren  (Strg+D)");
+    assert_eq!(
+        t!("menu.move_line_up"),
+        "Zeile nach oben verschieben  (Alt+Hoch)"
+    );
+    assert_eq!(
+        t!("menu.move_line_down"),
+        "Zeile nach unten verschieben  (Alt+Runter)"
+    );
+
+    assert_eq!(t!("bottom_panel.tab_search_replace"), "Suchen & Ersetzen");
+    assert_eq!(t!("bottom_panel.search_label"), "Suchen:");
+    assert_eq!(
+        t!("bottom_panel.search_placeholder"),
+        "In aktiver Datei suchen..."
+    );
+    assert_eq!(t!("bottom_panel.replace_label"), "Ersetzen:");
+    assert_eq!(t!("bottom_panel.replace_placeholder"), "Ersatztext...");
+    assert_eq!(t!("bottom_panel.match_case"), "Groß-/Kleinschreibung");
+    assert_eq!(t!("bottom_panel.prev_match_btn"), "Zurück");
+    assert_eq!(t!("bottom_panel.next_match_btn"), "Weiter");
+    assert_eq!(t!("bottom_panel.replace_btn"), "Ersetzen");
+    assert_eq!(t!("bottom_panel.replace_all_btn"), "Alle ersetzen");
+    assert_eq!(
+        t!("bottom_panel.matches_count", current = 2, total = 5),
+        "2 von 5"
+    );
+    assert_eq!(t!("bottom_panel.no_matches"), "Keine Treffer");
+    assert_eq!(
+        t!("bottom_panel.replaced_all_status", count = 3),
+        "3 Vorkommen ersetzt"
+    );
+
+    assert_eq!(t!("intellisense.suggestions_header"), "Typst-IntelliSense");
+    assert_eq!(t!("intellisense.no_docs"), "Keine Dokumentation verfügbar.");
+    assert_eq!(
+        t!("intellisense.hint_accept"),
+        "Tab / Eingabe zum Übernehmen  •  Esc zum Schließen"
+    );
+    assert_eq!(t!("intellisense.diagnostic_badge"), "HINWEIS");
+    assert_eq!(
+        t!("intellisense.unresolved_ref", name = "sec-intro"),
+        "Unaufgelöste Referenz '@sec-intro'"
+    );
+
+    rust_i18n::set_locale("en");
+}

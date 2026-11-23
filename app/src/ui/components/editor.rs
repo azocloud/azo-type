@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use egui::text::{CCursor, CCursorRange, LayoutJob};
 use egui::{
-    Align, Align2, Context, CornerRadius, FontFamily, FontId, Frame, Layout, Margin, Pos2, Rect,
-    RichText, ScrollArea, Stroke, TextEdit, Ui, Vec2,
+    Align, Context, CornerRadius, FontFamily, FontId, Frame, Layout, Margin, RichText, ScrollArea,
+    Stroke, TextEdit, Ui, Vec2,
 };
 use rust_i18n::t;
 
@@ -14,9 +14,21 @@ use crate::collab::ui::paint_remote_cursors_in_editor;
 use crate::core::diff::CharSelection;
 use crate::core::file_kind::FileKind;
 use crate::core::spellcheck::LanguageCheckDiagnostic;
+use crate::engine::DiagnosticItem;
 use crate::highlight::highlight_typst_code;
 use crate::project::DiskProject;
+use crate::ui::components::editor_actions::{
+    apply_editor_context_action, render_editor_context_menu,
+};
 use crate::ui::components::editor_diagnostics::paint_language_diagnostics;
+pub use crate::ui::components::editor_gutter::compute_gutter_width;
+use crate::ui::components::editor_gutter::{
+    paint_editor_gutter_and_active_line, paint_unfocused_search_highlight,
+};
+use crate::ui::components::editor_intellisense::{
+    handle_intellisense_keys_before_text_edit, update_and_render_intellisense,
+    EditorIntellisenseState, IntellisenseUpdateParams,
+};
 use crate::ui::components::menu_bar::EditorContextAction;
 use crate::ui::theme::ThemePalette;
 
@@ -45,10 +57,15 @@ pub struct EditorPaneParams<'a> {
     pub project: &'a mut DiskProject,
     pub pending_cursor_restore: Option<CharSelection>,
     pub pending_scroll_to_char: Option<usize>,
+    pub pending_focus_editor: bool,
+    pub search_highlight_range: Option<(usize, usize)>,
     pub last_editor_selection: Option<CharSelection>,
     pub pending_editor_context_action: Option<EditorContextAction>,
     pub peers_in_active_file: &'a [PeerPresence],
     pub language_diagnostics: &'a [LanguageCheckDiagnostic],
+    pub compiler_diagnostics: &'a [DiagnosticItem],
+    pub intellisense: &'a mut EditorIntellisenseState,
+    pub hover_hide_delay_ms: u64,
 }
 
 /// Quick Typst snippet definitions: `(label_key, tooltip_key, snippet_text)`.
@@ -76,15 +93,6 @@ const TYPST_TOOLBAR_SNIPPETS: &[(&str, &str, &str)] = &[
 /// Adjusts the editor font size by `delta` and clamps to `[10.0, 22.0]`.
 pub fn adjust_editor_font_size(current: f32, delta: f32) -> f32 {
     (current + delta).clamp(10.0, 22.0)
-}
-
-/// Computes the editor line-number gutter width in points (`0.0` when disabled).
-pub fn compute_gutter_width(line_count: usize, font_size: f32, show_line_numbers: bool) -> f32 {
-    if !show_line_numbers {
-        return 0.0;
-    }
-    let digits = line_count.max(1).to_string().len().max(3);
-    (digits as f32 * (font_size * 0.62) + 18.0).max(40.0)
 }
 
 /// Renders the code editor or asset inspection pane.
@@ -123,15 +131,15 @@ pub fn render_editor_pane(
                         .project
                         .buffers
                         .get(tab_path)
-                        .map(|b| b.dirty)
-                        .unwrap_or(false);
-                    let dirty_suffix = if dirty { " *" } else { "" };
-                    let tab_label = format!("{} {}{}", icon, short_name, dirty_suffix);
-                    let tab_text = RichText::new(tab_label).size(12.0).color(if is_active {
+                        .is_some_and(|b| b.dirty);
+                    let tab_label =
+                        format!("{} {}{}", icon, short_name, if dirty { " *" } else { "" });
+                    let tab_color = if is_active {
                         palette.text_primary
                     } else {
                         palette.text_muted
-                    });
+                    };
+                    let tab_text = RichText::new(tab_label).size(12.0).color(tab_color);
 
                     if ui
                         .selectable_label(is_active, tab_text)
@@ -191,21 +199,14 @@ pub fn render_editor_pane(
                 }
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui
-                        .small_button("A+")
-                        .on_hover_text(t!("editor.increase_font"))
-                        .clicked()
-                    {
-                        *params.editor_font_size =
-                            adjust_editor_font_size(*params.editor_font_size, 1.0);
-                    }
-                    if ui
-                        .small_button("A-")
-                        .on_hover_text(t!("editor.decrease_font"))
-                        .clicked()
-                    {
-                        *params.editor_font_size =
-                            adjust_editor_font_size(*params.editor_font_size, -1.0);
+                    for (label, tip_key, delta) in [
+                        ("A+", "editor.increase_font", 1.0_f32),
+                        ("A-", "editor.decrease_font", -1.0_f32),
+                    ] {
+                        if ui.small_button(label).on_hover_text(t!(tip_key)).clicked() {
+                            *params.editor_font_size =
+                                adjust_editor_font_size(*params.editor_font_size, delta);
+                        }
                     }
                     if ui
                         .selectable_label(*params.word_wrap, t!("editor.wrap_toggle"))
@@ -226,8 +227,10 @@ pub fn render_editor_pane(
     let inspect_asset_mode = *params.inspect_asset_mode;
     let restore_cursor = params.pending_cursor_restore;
     let scroll_to_char = params.pending_scroll_to_char;
+    params.intellisense.refresh_project_cache(params.project);
 
     let Some(file) = params.project.active_buffer_mut() else {
+        params.intellisense.active_hover = None;
         ui.centered_and_justified(|ui| {
             ui.label(t!("editor.no_file_selected"));
         });
@@ -235,6 +238,7 @@ pub fn render_editor_pane(
     };
 
     if file.text.is_none() || inspect_asset_mode {
+        params.intellisense.active_hover = None;
         let mut exit_inspect = false;
         Frame::new()
             .fill(palette.editor_canvas)
@@ -252,10 +256,8 @@ pub fn render_editor_pane(
                 ui.label(t!("editor.file_size", bytes = file.size_bytes));
                 ui.add_space(8.0);
                 ui.label(t!("editor.embed_hint"));
-                ui.code(format!(
-                    "#image(\"{}\", width: 80%)",
-                    file.rel_path.to_string_lossy().replace('\\', "/")
-                ));
+                let rel_norm = file.rel_path.to_string_lossy().replace('\\', "/");
+                ui.code(format!("#image(\"{rel_norm}\", width: 80%)"));
                 if file.text.is_some() {
                     ui.add_space(8.0);
                     if ui.button(t!("editor.switch_to_editor")).clicked() {
@@ -275,7 +277,6 @@ pub fn render_editor_pane(
     let prev_selection = params.last_editor_selection;
 
     let editor_bg = palette.editor_canvas;
-    let gutter_fg = palette.text_muted;
 
     Frame::new()
         .fill(editor_bg)
@@ -329,9 +330,36 @@ pub fn render_editor_pane(
                                 };
 
                                 let active_line_shape_idx = ui.painter().add(egui::Shape::Noop);
+                                let search_highlight_shape_idx =
+                                    ui.painter().add(egui::Shape::Noop);
+                                let editor_id = ui.make_persistent_id(egui::Id::new((
+                                    "typst_code_editor",
+                                    &active_path,
+                                )));
+                                let esc_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+                                let editor_has_focus = ctx.memory(|m| m.has_focus(editor_id))
+                                    || (params.intellisense.editor_had_focus && esc_pressed);
+                                let (isense_consumed, accepted_completion) =
+                                    if file_kind == FileKind::Typst {
+                                        handle_intellisense_keys_before_text_edit(
+                                            ctx,
+                                            editor_has_focus,
+                                            params.intellisense,
+                                        )
+                                    } else {
+                                        (false, None)
+                                    };
+                                if isense_consumed && !ctx.memory(|m| m.has_focus(editor_id)) {
+                                    ctx.memory_mut(|m| m.request_focus(editor_id));
+                                }
+                                if editor_has_focus && !isense_consumed && context_action.is_none()
+                                {
+                                    context_action = crate::platform::poll_editor_shortcuts(ctx)
+                                        .map(EditorContextAction::Menu);
+                                }
 
                                 let mut edit_output = TextEdit::multiline(text_ref)
-                                    .id_salt(("typst_code_editor", &active_path))
+                                    .id(editor_id)
                                     .code_editor()
                                     .desired_width(if word_wrap {
                                         avail_editor_size.x
@@ -345,7 +373,14 @@ pub fn render_editor_pane(
                                     .layouter(&mut layouter)
                                     .show(ui);
 
-                                if let Some(sel) = restore_cursor {
+                                let restored_sel = restore_cursor.or_else(|| {
+                                    (ctx.input(|i| i.pointer.secondary_pressed())
+                                        && edit_output.response.hovered())
+                                    .then_some(prev_selection)
+                                    .flatten()
+                                    .filter(|p| p.primary_char != p.secondary_char)
+                                });
+                                if let Some(sel) = restored_sel {
                                     edit_output.state.cursor.set_char_range(Some(
                                         CCursorRange::two(
                                             CCursor::new(sel.secondary_char),
@@ -356,32 +391,14 @@ pub fn render_editor_pane(
                                         .state
                                         .clone()
                                         .store(ctx, edit_output.response.id);
-                                } else if ctx.input(|i| i.pointer.secondary_pressed())
-                                    && edit_output.response.hovered()
-                                {
-                                    if let Some(prev) = prev_selection {
-                                        if prev.primary_char != prev.secondary_char {
-                                            let restored = CCursorRange::two(
-                                                CCursor::new(prev.secondary_char),
-                                                CCursor::new(prev.primary_char),
-                                            );
-                                            edit_output
-                                                .state
-                                                .cursor
-                                                .set_char_range(Some(restored));
-                                            edit_output
-                                                .state
-                                                .clone()
-                                                .store(ctx, edit_output.response.id);
-                                        }
-                                    }
                                 }
 
                                 if let Some(target_char) = scroll_to_char {
-                                    edit_output.response.request_focus();
-                                    let target_cursor = edit_output
-                                        .galley
-                                        .from_ccursor(CCursor::new(target_char));
+                                    if params.pending_focus_editor {
+                                        edit_output.response.request_focus();
+                                    }
+                                    let target_cursor =
+                                        edit_output.galley.from_ccursor(CCursor::new(target_char));
                                     let local_rect =
                                         edit_output.galley.pos_from_cursor(&target_cursor);
                                     let screen_rect =
@@ -393,122 +410,44 @@ pub fn render_editor_pane(
                                     ctx.request_repaint();
                                 }
 
-                                let total_rows = edit_output.galley.rows.len();
-                                let mut logical_line = 1usize;
-                                let mut is_wrapped_continuation = false;
-                                let gutter_font = FontId::new(font_size, FontFamily::Monospace);
-                                let cont_font =
-                                    FontId::new((font_size * 0.85).max(9.5), FontFamily::Monospace);
-                                let wrap_badge_font = FontId::new(
-                                    (font_size * 0.90).max(10.5),
-                                    FontFamily::Monospace,
-                                );
-
-                                for (row_idx, row) in edit_output.galley.rows.iter().enumerate() {
-                                    let row_top_y = edit_output.galley_pos.y + row.min_y();
-                                    let row_center_y =
-                                        edit_output.galley_pos.y + row.rect.center().y;
-
-                                    if show_line_numbers {
-                                        if !is_wrapped_continuation {
-                                            ui.painter().text(
-                                                Pos2::new(gutter_x_max - 8.0, row_top_y),
-                                                Align2::RIGHT_TOP,
-                                                logical_line.to_string(),
-                                                gutter_font.clone(),
-                                                gutter_fg,
-                                            );
-                                        } else {
-                                            ui.painter().text(
-                                                Pos2::new(gutter_x_max - 8.0, row_top_y),
-                                                Align2::RIGHT_TOP,
-                                                "↪",
-                                                cont_font.clone(),
-                                                gutter_fg.gamma_multiply(0.65),
-                                            );
-                                        }
-                                    }
-
-                                    let wrapped_to_next = word_wrap
-                                        && !row.ends_with_newline
-                                        && (row_idx + 1 < total_rows);
-                                    if wrapped_to_next {
-                                        let eol_x = (edit_output.galley_pos.x
-                                            + row.rect.max.x
-                                            + 4.0)
-                                            .min(edit_output.response.rect.max.x - 12.0);
-                                        ui.painter().text(
-                                            Pos2::new(eol_x, row_center_y),
-                                            Align2::LEFT_CENTER,
-                                            "↩",
-                                            wrap_badge_font.clone(),
-                                            palette.syn_keyword,
-                                        );
-                                    }
-
-                                    if row.ends_with_newline {
-                                        logical_line += 1;
-                                        is_wrapped_continuation = false;
-                                    } else {
-                                        is_wrapped_continuation = true;
-                                    }
-                                }
-
-                                if show_line_numbers {
-                                    ui.painter().line_segment(
-                                        [
-                                            Pos2::new(
-                                                gutter_x_max,
-                                                edit_output.response.rect.min.y - 8.0,
-                                            ),
-                                            Pos2::new(
-                                                gutter_x_max,
-                                                edit_output.response.rect.max.y + 8.0,
-                                            ),
-                                        ],
-                                        Stroke::new(1.0_f32, border_col),
-                                    );
-                                }
-
-                                let current_range = edit_output
-                                    .state
-                                    .cursor
-                                    .char_range()
-                                    .or_else(|| edit_output.cursor_range.map(|cr| cr.as_ccursor_range()));
-
+                                let current_range =
+                                    edit_output.state.cursor.char_range().or_else(|| {
+                                        edit_output.cursor_range.map(|cr| cr.as_ccursor_range())
+                                    });
                                 let active_ccursor = current_range
                                     .map(|r| r.primary)
                                     .unwrap_or_else(|| CCursor::new(0));
-                                let active_cursor_obj =
-                                    edit_output.galley.from_ccursor(active_ccursor);
-                                let cursor_local_rect =
-                                    edit_output.galley.pos_from_cursor(&active_cursor_obj);
-                                let line_min_y =
-                                    edit_output.galley_pos.y + cursor_local_rect.min.y;
-                                let line_max_y =
-                                    edit_output.galley_pos.y + cursor_local_rect.max.y;
-                                let full_line_rect = Rect::from_min_max(
-                                    Pos2::new(edit_output.response.rect.min.x - 10.0, line_min_y),
-                                    Pos2::new(edit_output.response.rect.max.x + 10.0, line_max_y),
-                                );
-                                ui.painter().set(
+                                paint_editor_gutter_and_active_line(
+                                    ui,
+                                    &edit_output,
                                     active_line_shape_idx,
-                                    egui::Shape::rect_filled(
-                                        full_line_rect,
-                                        CornerRadius::ZERO,
-                                        palette.active_line_highlight,
-                                    ),
+                                    active_ccursor,
+                                    gutter_x_max,
+                                    font_size,
+                                    show_line_numbers,
+                                    word_wrap,
+                                    &palette,
                                 );
+                                if !edit_output.response.has_focus() {
+                                    if let Some(hl_range) = params.search_highlight_range {
+                                        paint_unfocused_search_highlight(
+                                            ui,
+                                            &edit_output,
+                                            search_highlight_shape_idx,
+                                            hl_range,
+                                            &palette,
+                                        );
+                                    }
+                                }
                                 let has_selection = current_range
-                                    .map(|r| r.primary.index != r.secondary.index)
-                                    .unwrap_or(false);
+                                    .is_some_and(|r| r.primary.index != r.secondary.index);
                                 let cur_undo_state =
                                     (current_range.unwrap_or_default(), text_ref.clone());
                                 let can_undo = edit_output.state.undoer().has_undo(&cur_undo_state);
                                 let can_redo = edit_output.state.undoer().has_redo(&cur_undo_state);
 
                                 edit_output.response.context_menu(|ui| {
-                                    crate::ui::components::editor_actions::render_editor_context_menu(
+                                    render_editor_context_menu(
                                         ui,
                                         &active_path,
                                         file_kind,
@@ -520,7 +459,7 @@ pub fn render_editor_pane(
                                 });
 
                                 if let Some(ref act) = context_action {
-                                    crate::ui::components::editor_actions::apply_editor_context_action(
+                                    apply_editor_context_action(
                                         ctx,
                                         act,
                                         text_ref,
@@ -531,40 +470,57 @@ pub fn render_editor_pane(
                                     );
                                 }
 
-                                if let Some(range) = edit_output
-                                    .state
-                                    .cursor
-                                    .char_range()
-                                    .or_else(|| edit_output.cursor_range.map(|cr| cr.as_ccursor_range()))
-                                {
-                                    output.observed_cursor = Some(CharSelection {
-                                        primary_char: range.primary.index,
-                                        secondary_char: range.secondary.index,
-                                    });
-                                }
+                                let ime_in_progress = ctx.input(|i| {
+                                    i.events.iter().any(|ev| {
+                                        matches!(ev, egui::Event::Ime(egui::ImeEvent::Preedit(_)))
+                                    })
+                                });
 
                                 if !params.peers_in_active_file.is_empty() {
                                     let peer_refs: Vec<&PeerPresence> =
                                         params.peers_in_active_file.iter().collect();
                                     paint_remote_cursors_in_editor(ui, &edit_output, &peer_refs);
                                 }
-                                if file_kind == FileKind::Typst
-                                    && !params.language_diagnostics.is_empty()
-                                {
-                                    paint_language_diagnostics(
+                                if file_kind == FileKind::Typst {
+                                    if !params.language_diagnostics.is_empty() {
+                                        paint_language_diagnostics(
+                                            ui,
+                                            &edit_output,
+                                            params.language_diagnostics,
+                                            params.dark_mode,
+                                            text_ref.chars().count(),
+                                        );
+                                    }
+                                    update_and_render_intellisense(
+                                        ctx,
                                         ui,
-                                        &edit_output,
-                                        params.language_diagnostics,
-                                        params.dark_mode,
-                                        text_ref.chars().count(),
+                                        IntellisenseUpdateParams {
+                                            active_file: &active_path,
+                                            compiler_diagnostics: params.compiler_diagnostics,
+                                            dark_mode: params.dark_mode,
+                                            ime_in_progress,
+                                            accepted_completion,
+                                            hover_hide_delay_ms: params.hover_hide_delay_ms,
+                                        },
+                                        text_ref,
+                                        &mut edit_output,
+                                        params.intellisense,
+                                        &mut output,
                                     );
+                                } else {
+                                    params.intellisense.active_hover = None;
                                 }
 
-                                let ime_in_progress = ctx.input(|i| {
-                                    i.events.iter().any(|ev| {
-                                        matches!(ev, egui::Event::Ime(egui::ImeEvent::Preedit(_)))
+                                if let Some(range) =
+                                    edit_output.state.cursor.char_range().or_else(|| {
+                                        edit_output.cursor_range.map(|cr| cr.as_ccursor_range())
                                     })
-                                });
+                                {
+                                    output.observed_cursor = Some(CharSelection {
+                                        primary_char: range.primary.index,
+                                        secondary_char: range.secondary.index,
+                                    });
+                                }
 
                                 if edit_output.response.changed() && !ime_in_progress {
                                     output.text_changed = true;

@@ -14,6 +14,8 @@ use crate::engine::DiagnosticItem;
 use crate::language_check::LanguageCheckHost;
 use crate::project::DiskProject;
 use crate::ui::components::bottom_panel_autocorrect::render_autocorrect_tab;
+use crate::ui::components::bottom_panel_search::render_search_and_replace_tab;
+pub use crate::ui::components::bottom_panel_search::SearchAndReplaceState;
 use crate::ui::theme::ThemePalette;
 
 const MAX_CONSOLE_LOG_LINES: usize = 200;
@@ -26,12 +28,17 @@ pub enum BottomPanelTab {
     WarningsAndErrors,
     Console,
     AutoCorrection,
+    SearchAndReplace,
 }
 
 impl BottomPanelTab {
     /// Ordered list of tabs displayed in the bottom panel header bar.
-    pub const ALL: &'static [Self] =
-        &[Self::WarningsAndErrors, Self::Console, Self::AutoCorrection];
+    pub const ALL: &'static [Self] = &[
+        Self::WarningsAndErrors,
+        Self::Console,
+        Self::AutoCorrection,
+        Self::SearchAndReplace,
+    ];
 
     /// Localized title for each tab.
     pub fn label(self, diagnostics_count: usize) -> String {
@@ -43,6 +50,7 @@ impl BottomPanelTab {
             .to_string(),
             Self::Console => t!("bottom_panel.tab_console").to_string(),
             Self::AutoCorrection => t!("bottom_panel.tab_autocorrect").to_string(),
+            Self::SearchAndReplace => t!("bottom_panel.tab_search_replace").to_string(),
         }
     }
 }
@@ -55,6 +63,7 @@ pub struct BottomPanelState {
     pub active_tab: BottomPanelTab,
     pub console_logs: Vec<String>,
     pub expanded_diagnostics: HashSet<u64>,
+    pub search: SearchAndReplaceState,
 }
 
 impl Default for BottomPanelState {
@@ -65,6 +74,7 @@ impl Default for BottomPanelState {
             active_tab: BottomPanelTab::default(),
             console_logs: Vec::new(),
             expanded_diagnostics: HashSet::new(),
+            search: SearchAndReplaceState::default(),
         }
     }
 }
@@ -73,6 +83,29 @@ impl BottomPanelState {
     /// Toggles whether the bottom panel is visible in the content area.
     pub fn toggle_visible(&mut self) {
         self.visible = !self.visible;
+    }
+
+    /// Opens the bottom panel on the Search & Replace tab and focuses the search input.
+    pub fn open_search(&mut self) {
+        self.visible = true;
+        self.active_tab = BottomPanelTab::SearchAndReplace;
+        self.search.focus_search_requested = true;
+        self.search.focus_replace_requested = false;
+    }
+
+    /// Opens the bottom panel on the Search & Replace tab and focuses the replace input.
+    pub fn open_replace(&mut self) {
+        self.visible = true;
+        self.active_tab = BottomPanelTab::SearchAndReplace;
+        self.search.focus_search_requested = false;
+        self.search.focus_replace_requested = true;
+    }
+
+    /// Returns the active search match char range while the Search & Replace tab is visible.
+    pub fn active_search_match_range(&self) -> Option<(usize, usize)> {
+        (self.visible && self.active_tab == BottomPanelTab::SearchAndReplace)
+            .then_some(self.search.active_match_range)
+            .flatten()
     }
 
     /// Toggles expand/collapse state for a single diagnostic card by fingerprint.
@@ -126,6 +159,8 @@ pub struct BottomPanelParams<'a> {
     pub spell_check_enabled: &'a mut bool,
     pub auto_spell_check: &'a mut bool,
     pub language_check: &'a LanguageCheckHost,
+    pub active_text: &'a str,
+    pub active_cursor_char: usize,
 }
 
 /// User actions emitted by interactions inside the bottom panel.
@@ -137,6 +172,8 @@ pub struct BottomPanelOutput {
     pub download_dictionary_lang: Option<String>,
     pub open_spell_settings: bool,
     pub jump_to_char: Option<usize>,
+    pub jump_to_selection: Option<(usize, usize)>,
+    pub replace_in_active_text: Option<String>,
     pub apply_suggestion: Option<(usize, usize, String)>,
     pub ignore_word: Option<String>,
 }
@@ -264,6 +301,16 @@ pub fn render_bottom_panel(ui: &mut Ui, params: BottomPanelParams<'_>) -> Bottom
                                     params.spell_check_enabled,
                                     params.auto_spell_check,
                                     params.language_check,
+                                    &mut output,
+                                );
+                            }
+                            BottomPanelTab::SearchAndReplace => {
+                                render_search_and_replace_tab(
+                                    ui,
+                                    &palette,
+                                    &mut params.state.search,
+                                    params.active_text,
+                                    params.active_cursor_char,
                                     &mut output,
                                 );
                             }

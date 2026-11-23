@@ -14,12 +14,21 @@ use crate::compiler::{
     upload_page_textures, CompileSnapshot, CompiledOutlineItem, DiagnosticItem, PdfExportConfig,
     RenderedPageData, RenderedPageTexture,
 };
+use crate::core::recent_projects::RecentProjects;
 use crate::core::spellcheck::UserDictionaryEntry;
 use crate::engine::EngineHost;
 use crate::highlight::ThemePalette;
 use crate::language_check::LanguageCheckHost;
 use crate::project::{DiskProject, FileKind};
-use crate::ui::components::PreviewSelectionState;
+use crate::services::{bottom_panel_actions, language_actions, project_actions};
+use crate::ui::components::{
+    compute_horizontal_split, compute_vertical_split, diagnostic_char_offset, render_editor_pane,
+    render_horizontal_split_divider, render_preview_pane, render_sidebar, render_status_bar,
+    render_vertical_split_divider, BottomPanelState, EditorIntellisenseState, EditorPaneParams,
+    PreviewPaneParams, PreviewSelectionState, SidebarParams, StatusBarBufferInfo, StatusBarParams,
+};
+#[cfg(not(target_os = "macos"))]
+use crate::ui::components::{render_desktop_menu_bar, MenuBarParams};
 use crate::ui::theme::apply_theme;
 use crate::world::SharedWorldResources;
 
@@ -49,7 +58,7 @@ pub struct AzoTypeApp {
     pub show_sidebar: bool,
     pub sidebar_split_ratio: f32,
     pub editor_split_ratio: f32,
-    pub bottom_panel: crate::ui::components::BottomPanelState,
+    pub bottom_panel: BottomPanelState,
     pub zoom: PreviewZoom,
     pub show_settings_window: bool,
     pub settings_tab: SettingsTab,
@@ -60,6 +69,7 @@ pub struct AzoTypeApp {
     pub collab_session: CollabSessionHandle,
     pub pending_cursor_restore: Option<CharSelection>,
     pub pending_scroll_to_char: Option<usize>,
+    pub pending_focus_editor: bool,
     pub last_sent_cursor: Option<(PathBuf, CharSelection)>,
     pub last_compiled_revision: u64,
     pub last_compiled_dpi: f32,
@@ -80,6 +90,7 @@ pub struct AzoTypeApp {
     pub preview_selection: PreviewSelectionState,
     pub clipboard_fallback: String,
     pub pending_editor_context_action: Option<EditorContextAction>,
+    pub editor_intellisense: EditorIntellisenseState,
     pub status_notice: String,
 
     // Channels for native file dialogs & background compilation
@@ -96,6 +107,7 @@ pub struct AzoTypeApp {
     pub screenshot_path: Option<PathBuf>,
     pub frame_count: u32,
     pub screenshot_requested: bool,
+    pub recent_projects: RecentProjects,
     pub last_persisted_state: crate::services::PersistedAppState,
 }
 
@@ -115,6 +127,9 @@ impl AzoTypeApp {
             let mut app =
                 Self::new_headless(&cc.egui_ctx, cc.storage, initial_folder, screenshot_path);
             app.macos_menu = MacOsMenuBar::init();
+            if let Some(m) = app.macos_menu.as_mut() {
+                m.update_recent_projects(app.recent_projects.entries());
+            }
             app
         }
     }
@@ -132,18 +147,19 @@ impl AzoTypeApp {
         persisted.settings.dark_mode =
             crate::platform::resolve_effective_dark_mode(ctx, persisted.settings.theme_preference);
         let last_persisted_state = persisted.clone();
-        let (language, settings, zoom) = (persisted.language, persisted.settings, persisted.zoom);
-        rust_i18n::set_locale(&language);
-        let project = initial_folder
-            .filter(|f| f.is_dir())
-            .and_then(|f| DiskProject::open_folder(&f, settings.show_hidden_files).ok())
-            .unwrap_or_default();
-        apply_theme(ctx, settings.dark_mode);
+        rust_i18n::set_locale(&persisted.language);
+        let project = crate::services::resolve_startup_project(
+            initial_folder,
+            persisted.settings.open_last_project_on_startup,
+            &mut persisted.recent_projects,
+            persisted.settings.show_hidden_files,
+        );
+        apply_theme(ctx, persisted.settings.dark_mode);
         let (engine_host, initial_snapshot) = EngineHost::init(
             resources,
             &project,
-            &settings.typst_version,
-            settings.render_dpi_scale,
+            &persisted.settings.typst_version,
+            persisted.settings.render_dpi_scale,
         );
         let page_textures = upload_page_textures(ctx, &initial_snapshot.pages);
         let (io_tx, io_rx) = mpsc::channel();
@@ -157,11 +173,11 @@ impl AzoTypeApp {
         );
 
         Self {
-            language,
+            language: persisted.language,
             engine_host,
             language_check,
             last_compiled_revision: initial_snapshot.revision,
-            last_compiled_dpi: settings.render_dpi_scale,
+            last_compiled_dpi: persisted.settings.render_dpi_scale,
             pending_compile: false,
             last_edit_time: 0.0,
             compile_in_progress: false,
@@ -171,12 +187,12 @@ impl AzoTypeApp {
             compiled_outline: initial_snapshot.outline,
             diagnostics: initial_snapshot.diagnostics,
             project,
-            settings,
+            settings: persisted.settings,
             show_sidebar: true,
             sidebar_split_ratio: 0.42,
             editor_split_ratio: 0.5,
-            bottom_panel: crate::ui::components::BottomPanelState::default(),
-            zoom,
+            bottom_panel: BottomPanelState::default(),
+            zoom: persisted.zoom,
             show_settings_window: false,
             settings_tab: SettingsTab::Appearance,
             show_export_pdf_dialog: false,
@@ -186,6 +202,7 @@ impl AzoTypeApp {
             collab_session,
             pending_cursor_restore: None,
             pending_scroll_to_char: None,
+            pending_focus_editor: false,
             last_sent_cursor: None,
             show_new_file_input: false,
             new_file_name: "chapters/appendix.typ".to_string(),
@@ -196,6 +213,7 @@ impl AzoTypeApp {
             preview_selection: PreviewSelectionState::default(),
             clipboard_fallback: String::new(),
             pending_editor_context_action: None,
+            editor_intellisense: EditorIntellisenseState::default(),
             status_notice,
             io_tx,
             io_rx,
@@ -206,6 +224,7 @@ impl AzoTypeApp {
             screenshot_path,
             frame_count: 0,
             screenshot_requested: false,
+            recent_projects: persisted.recent_projects,
             last_persisted_state,
         }
     }
@@ -218,22 +237,71 @@ impl AzoTypeApp {
         }
     }
 
+    fn finish_project_action(&mut self, ctx: &Context, ok: bool, notice: String) {
+        self.status_notice = notice;
+        if ok {
+            self.trigger_compile_now(ctx);
+        }
+    }
+
+    fn apply_optional_notice_and_compile(
+        &mut self,
+        ctx: &Context,
+        notice: Option<String>,
+        recompile: bool,
+    ) {
+        if let Some(msg) = notice {
+            self.status_notice = msg;
+        }
+        if recompile {
+            self.trigger_compile_now(ctx);
+        }
+    }
+
+    fn maybe_auto_compile(&mut self, ctx: &Context) {
+        if self.settings.auto_compile {
+            self.trigger_compile_now(ctx);
+        }
+    }
+
+    fn apply_folder_open(&mut self, ctx: &Context, path: &std::path::Path) {
+        let (opened, notice) = crate::services::open_folder_and_record(
+            path,
+            self.settings.show_hidden_files,
+            self.collab_ui.is_active,
+            &self.collab_session,
+            &mut self.project,
+            &mut self.recent_projects,
+        );
+        self.status_notice = notice;
+        if opened {
+            self.preview_selection.clear();
+            self.language_check.clear_results();
+            self.trigger_compile_now(ctx);
+        }
+    }
+
+    fn set_main_file_and_compile(&mut self, ctx: &Context, rel_path: PathBuf) {
+        self.project.set_main_file(rel_path.clone());
+        let p_str = rel_path.display().to_string();
+        let notice = rust_i18n::t!("app.status_set_main", path = p_str).to_string();
+        self.finish_project_action(ctx, true, notice);
+    }
+
     /// Dispatches a top-level menu or keyboard-shortcut action.
     pub fn dispatch_menu_action(&mut self, ctx: &Context, action: MenuAction) {
         match action {
             MenuAction::NewFile => self.show_new_file_input = true,
             MenuAction::OpenFolder => self.open_folder_dialog(ctx),
-            MenuAction::RescanFolder => {
-                if let Err(e) = self.project.rescan_tree() {
-                    self.status_notice =
-                        rust_i18n::t!("app.status_rescan_failed", error = e.to_string())
-                            .to_string();
-                } else {
-                    let p = self.project.root_dir.display().to_string();
-                    self.status_notice =
-                        rust_i18n::t!("app.status_rescanned", path = p).to_string();
-                    self.trigger_compile_now(ctx);
+            MenuAction::OpenRecentProject(idx) => {
+                if let Some(path) = self.recent_projects.entries().get(idx).cloned() {
+                    self.apply_folder_open(ctx, &path);
                 }
+            }
+            MenuAction::ClearRecentProjects => self.recent_projects.clear(),
+            MenuAction::RescanFolder => {
+                let (ok, notice) = crate::services::rescan_project_folder(&mut self.project);
+                self.finish_project_action(ctx, ok, notice);
             }
             MenuAction::SaveFile => {
                 if let Some((ok, notice)) = crate::services::save_active_or_prompt(
@@ -243,18 +311,12 @@ impl AzoTypeApp {
                     IoEvent::FileSavedAs,
                     IoEvent::StatusMessage,
                 ) {
-                    self.status_notice = notice;
-                    if ok {
-                        self.trigger_compile_now(ctx);
-                    }
+                    self.finish_project_action(ctx, ok, notice);
                 }
             }
             MenuAction::SaveAll => {
                 let (ok, notice) = crate::services::save_all_project_files(&mut self.project);
-                self.status_notice = notice;
-                if ok {
-                    self.trigger_compile_now(ctx);
-                }
+                self.finish_project_action(ctx, ok, notice);
             }
             MenuAction::ExportPdf => {
                 self.show_export_pdf_dialog = true;
@@ -262,6 +324,17 @@ impl AzoTypeApp {
             }
             MenuAction::OpenSettings => self.show_settings_window = true,
             MenuAction::OpenCollab => self.collab_ui.show_window = true,
+            MenuAction::Find => self.bottom_panel.open_search(),
+            MenuAction::FindAndReplace => self.bottom_panel.open_replace(),
+            act @ (MenuAction::ToggleLineComment
+            | MenuAction::ToggleBlockComment
+            | MenuAction::IndentLines
+            | MenuAction::OutdentLines
+            | MenuAction::DuplicateLine
+            | MenuAction::MoveLineUp
+            | MenuAction::MoveLineDown) => {
+                self.pending_editor_context_action = Some(EditorContextAction::Menu(act));
+            }
             MenuAction::ToggleSidebar => self.show_sidebar = !self.show_sidebar,
             MenuAction::ToggleBottomPanel => self.bottom_panel.toggle_visible(),
             MenuAction::ToggleWordWrap => self.settings.word_wrap = !self.settings.word_wrap,
@@ -334,12 +407,7 @@ impl AzoTypeApp {
         let (dl_notice, dl_recompile) = self
             .engine_host
             .poll_downloads(&mut self.settings.typst_version);
-        if let Some(notice) = dl_notice {
-            self.status_notice = notice;
-        }
-        if dl_recompile {
-            self.trigger_compile_now(ctx);
-        }
+        self.apply_optional_notice_and_compile(ctx, dl_notice, dl_recompile);
         if let Some(msg) =
             self.language_check
                 .poll(ctx, &self.settings, &self.project, &self.language)
@@ -349,37 +417,20 @@ impl AzoTypeApp {
 
         while let Ok(event) = self.io_rx.try_recv() {
             match event {
-                IoEvent::FolderPicked(path) => {
-                    let (opened, notice) = crate::services::open_picked_folder(
-                        &path,
-                        self.settings.show_hidden_files,
-                        self.collab_ui.is_active,
-                        &self.collab_session,
-                        &mut self.project,
-                    );
-                    self.status_notice = notice;
-                    if opened {
-                        self.preview_selection.clear();
-                        self.language_check.clear_results();
-                        self.trigger_compile_now(ctx);
-                    }
-                }
+                IoEvent::FolderPicked(path) => self.apply_folder_open(ctx, &path),
                 IoEvent::FileSavedAs(path) => {
-                    let _ = self.project.save_active_to_path(&path);
-                    self.status_notice =
-                        rust_i18n::t!("app.status_saved_file", path = path.display().to_string())
-                            .to_string();
-                    self.trigger_compile_now(ctx);
+                    let notice =
+                        crate::services::save_active_to_path_notice(&mut self.project, &path);
+                    self.finish_project_action(ctx, true, notice);
                 }
                 IoEvent::DictionaryPicked(res) => {
-                    self.status_notice =
-                        crate::services::language_actions::apply_picked_dictionary_result(
-                            res,
-                            &mut self.settings,
-                            &mut self.language_check,
-                            &self.project,
-                            &self.language,
-                        );
+                    self.status_notice = language_actions::apply_picked_dictionary_result(
+                        res,
+                        &mut self.settings,
+                        &mut self.language_check,
+                        &self.project,
+                        &self.language,
+                    );
                 }
                 IoEvent::StatusMessage(msg) => self.status_notice = msg,
                 IoEvent::PdfExportFinished { status, console } => {
@@ -396,25 +447,17 @@ impl AzoTypeApp {
             &mut self.project,
             &mut self.pending_cursor_restore,
         );
-        if let Some(msg) = collab_notice {
-            self.status_notice = msg;
-        }
-        if need_compile {
-            self.trigger_compile_now(ctx);
-        }
+        self.apply_optional_notice_and_compile(ctx, collab_notice, need_compile);
     }
 
     fn handle_keyboard_shortcuts(&mut self, ctx: &Context) {
         let outcome = crate::platform::poll_keyboard_shortcuts(ctx, self.collab_ui.is_active);
-        if outcome.collab_redo {
-            self.collab_session.send(UiToSessionCmd::LocalRedo {
-                rel_path: self.project.active_file.clone(),
-            });
-        } else if outcome.collab_undo {
-            self.collab_session.send(UiToSessionCmd::LocalUndo {
-                rel_path: self.project.active_file.clone(),
-            });
-        }
+        crate::services::send_collab_undo_redo(
+            &self.collab_session,
+            &self.project.active_file,
+            outcome.collab_undo,
+            outcome.collab_redo,
+        );
         if let Some(action) = outcome.menu_action {
             self.dispatch_menu_action(ctx, action);
         }
@@ -441,10 +484,9 @@ impl AzoTypeApp {
             self.io_tx.clone(),
             |status, console| IoEvent::PdfExportFinished { status, console },
         );
-        outcome
-            .console_logs
-            .into_iter()
-            .for_each(|line| self.bottom_panel.push_console_log(line));
+        for line in outcome.console_logs {
+            self.bottom_panel.push_console_log(line);
+        }
         self.export_pdf_error = outcome.export_pdf_error;
         self.status_notice = outcome.status_notice;
         self.engine_host.fallback_notice = outcome.fallback_notice;
@@ -497,15 +539,16 @@ impl AzoTypeApp {
     /// On macOS, the menu bar is part of the OS at the top of the screen via `muda` and is NOT rendered in-window.
     #[cfg(not(target_os = "macos"))]
     fn render_desktop_menu_bar(&mut self, ctx: &Context) {
-        let output = crate::ui::components::render_desktop_menu_bar(
+        let output = render_desktop_menu_bar(
             ctx,
-            crate::ui::components::MenuBarParams {
+            MenuBarParams {
                 dark_mode: self.settings.dark_mode,
                 show_sidebar: self.show_sidebar,
                 show_bottom_panel: self.bottom_panel.visible,
                 word_wrap: self.settings.word_wrap,
                 project_root: &self.project.root_dir,
                 active_file: &self.project.active_file,
+                recent_projects: self.recent_projects.entries(),
             },
         );
 
@@ -514,12 +557,8 @@ impl AzoTypeApp {
         }
 
         if let Some(snippet) = output.snippet_to_insert {
-            let updated = self.project.active_buffer_mut().and_then(|buf| {
-                buf.text.as_mut().map(|text| {
-                    text.push_str(snippet);
-                    text.clone()
-                })
-            });
+            let updated =
+                bottom_panel_actions::append_snippet_to_active_buffer(&mut self.project, snippet);
             self.on_active_text_modified(ctx, updated);
         }
 
@@ -542,10 +581,7 @@ impl AzoTypeApp {
                 &self.collab_session,
                 &new_file_str,
             );
-            self.status_notice = notice;
-            if ok {
-                self.trigger_compile_now(ctx);
-            }
+            self.finish_project_action(ctx, ok, notice);
         }
 
         if let Some((old_rel, new_str)) = crate::ui::dialogs::file_modals::render_rename_file_modal(
@@ -561,10 +597,7 @@ impl AzoTypeApp {
                 &old_rel,
                 &new_str,
             );
-            self.status_notice = notice;
-            if ok {
-                self.trigger_compile_now(ctx);
-            }
+            self.finish_project_action(ctx, ok, notice);
         }
     }
 
@@ -593,7 +626,7 @@ impl AzoTypeApp {
         if output.rescan_needed {
             let _ = self.project.rescan_tree();
         }
-        crate::services::language_actions::handle_settings_language_actions(
+        language_actions::handle_settings_language_actions(
             ctx,
             &output,
             &mut self.settings,
@@ -613,24 +646,20 @@ impl AzoTypeApp {
             &self.engine_host.tx,
             ctx,
         );
-        if let Some(msg) = eng_notice {
-            self.status_notice = msg;
-        }
-        if output.dpi_changed || eng_recompile {
-            self.trigger_compile_now(ctx);
-        }
+        self.apply_optional_notice_and_compile(
+            ctx,
+            eng_notice,
+            output.dpi_changed || eng_recompile,
+        );
     }
 
     fn render_bottom_status_bar(&mut self, ctx: &Context) {
-        let active_buf_info =
-            self.project
-                .active_buffer()
-                .map(|b| crate::ui::components::StatusBarBufferInfo {
-                    rel_path: &b.rel_path,
-                    dirty: b.dirty,
-                    line_count: b.text.as_ref().map(|t| t.lines().count()).unwrap_or(0),
-                    size_bytes: b.size_bytes,
-                });
+        let active_buf_info = self.project.active_buffer().map(|b| StatusBarBufferInfo {
+            rel_path: &b.rel_path,
+            dirty: b.dirty,
+            line_count: b.text.as_ref().map(|t| t.lines().count()).unwrap_or(0),
+            size_bytes: b.size_bytes,
+        });
 
         let error_count = self.diagnostics.iter().filter(|d| d.is_error).count();
         let warn_count = self.diagnostics.iter().filter(|d| !d.is_error).count();
@@ -645,9 +674,9 @@ impl AzoTypeApp {
             .as_deref()
             .unwrap_or(&self.status_notice);
 
-        let status_out = crate::ui::components::render_status_bar(
+        let status_out = render_status_bar(
             ctx,
-            crate::ui::components::StatusBarParams {
+            StatusBarParams {
                 dark_mode: self.settings.dark_mode,
                 compile_in_progress: self.compile_in_progress,
                 pending_compile: self.pending_compile,
@@ -673,9 +702,9 @@ impl AzoTypeApp {
     }
 
     fn render_left_file_panel(&mut self, ctx: &Context) {
-        let output = crate::ui::components::render_sidebar(
+        let output = render_sidebar(
             ctx,
-            crate::ui::components::SidebarParams {
+            SidebarParams {
                 dark_mode: self.settings.dark_mode,
                 show_sidebar: self.show_sidebar,
                 sidebar_split_ratio: &mut self.sidebar_split_ratio,
@@ -696,32 +725,19 @@ impl AzoTypeApp {
             self.preview_selection.clear();
             let sel = CharSelection::caret(target_item.char_offset);
             self.navigate_editor_to_source(ctx, &target_item.file, sel, target_item.char_offset);
-            self.status_notice = format!(
-                "Navigated to '{} {}' ({}:{})",
-                target_item.number_label,
-                target_item.title,
-                target_item.file.display(),
-                target_item.line_number
-            );
+            self.status_notice = crate::services::format_outline_nav_notice(&target_item);
         }
         if let Some(rel_path) = output.clicked_path {
-            if let Err(e) = self.project.open_file(&rel_path) {
-                self.status_notice = format!("Could not open file: {}", e);
-            } else {
-                if let Some(buf) = self.project.active_buffer() {
-                    self.inspect_asset_mode =
-                        matches!(buf.kind, FileKind::Image | FileKind::Binary);
+            match crate::services::open_sidebar_file(&mut self.project, &rel_path) {
+                Ok(is_asset) => {
+                    self.inspect_asset_mode = is_asset;
+                    self.maybe_auto_compile(ctx);
                 }
-                if self.settings.auto_compile {
-                    self.trigger_compile_now(ctx);
-                }
+                Err(msg) => self.status_notice = msg,
             }
         }
         if let Some(main_p) = output.new_main_path {
-            self.project.set_main_file(main_p.clone());
-            let path_s = main_p.display().to_string();
-            self.status_notice = rust_i18n::t!("app.status_set_main", path = path_s).to_string();
-            self.trigger_compile_now(ctx);
+            self.set_main_file_and_compile(ctx, main_p);
         }
         if let Some(rel_to_rename) = output.rename_req {
             self.rename_file_input = rel_to_rename.to_string_lossy().to_string();
@@ -734,10 +750,7 @@ impl AzoTypeApp {
                 &self.collab_session,
                 &rel_to_delete,
             );
-            self.status_notice = notice;
-            if ok {
-                self.trigger_compile_now(ctx);
-            }
+            self.finish_project_action(ctx, ok, notice);
         }
     }
 
@@ -750,10 +763,10 @@ impl AzoTypeApp {
             .cloned()
             .collect();
 
-        let output = crate::ui::components::render_editor_pane(
+        let output = render_editor_pane(
             ctx,
             ui,
-            crate::ui::components::EditorPaneParams {
+            EditorPaneParams {
                 dark_mode: self.settings.dark_mode,
                 editor_font_size: &mut self.settings.editor_font_size,
                 word_wrap: &mut self.settings.word_wrap,
@@ -764,6 +777,8 @@ impl AzoTypeApp {
                 project: &mut self.project,
                 pending_cursor_restore: self.pending_cursor_restore.take(),
                 pending_scroll_to_char: self.pending_scroll_to_char.take(),
+                pending_focus_editor: std::mem::take(&mut self.pending_focus_editor),
+                search_highlight_range: self.bottom_panel.active_search_match_range(),
                 last_editor_selection: self.last_editor_selection,
                 pending_editor_context_action: self.pending_editor_context_action.take(),
                 peers_in_active_file: &peers,
@@ -774,22 +789,21 @@ impl AzoTypeApp {
                 } else {
                     &[]
                 },
+                compiler_diagnostics: &self.diagnostics,
+                intellisense: &mut self.editor_intellisense,
+                hover_hide_delay_ms: self.settings.hover_hide_delay_ms,
             },
         );
 
         if let Some(tab) = output.select_tab {
             self.preview_selection.clear();
             let _ = self.project.open_file(&tab);
-            if self.settings.auto_compile {
-                self.trigger_compile_now(ctx);
-            }
+            self.maybe_auto_compile(ctx);
         }
         if let Some(tab) = output.close_tab {
             self.preview_selection.clear();
             self.project.close_tab(&tab);
-            if self.settings.auto_compile {
-                self.trigger_compile_now(ctx);
-            }
+            self.maybe_auto_compile(ctx);
         }
         if output.user_interacted {
             self.preview_selection.clear();
@@ -805,35 +819,27 @@ impl AzoTypeApp {
 
         if let Some(act) = output.context_action {
             match act {
-                crate::ui::components::EditorContextAction::Menu(menu_act) => {
+                EditorContextAction::Menu(menu_act)
+                    if !bottom_panel_actions::is_inline_editor_menu_action(menu_act) =>
+                {
                     self.dispatch_menu_action(ctx, menu_act);
                 }
-                crate::ui::components::EditorContextAction::SetActiveAsMain
+                EditorContextAction::SetActiveAsMain
                     if FileKind::from_path(&active_path) == FileKind::Typst =>
                 {
-                    self.project.set_main_file(active_path.clone());
-                    let p_str = active_path.display().to_string();
-                    self.status_notice =
-                        rust_i18n::t!("app.status_set_main", path = p_str).to_string();
-                    self.trigger_compile_now(ctx);
+                    self.set_main_file_and_compile(ctx, active_path.clone());
                 }
                 _ => {}
             }
         }
 
-        if self.collab_ui.is_active {
-            if let Some(sel) = output.observed_cursor {
-                let candidate = (active_path.clone(), sel);
-                if self.last_sent_cursor.as_ref() != Some(&candidate) {
-                    self.last_sent_cursor = Some(candidate);
-                    self.collab_session
-                        .send(UiToSessionCmd::LocalCursorUpdated {
-                            active_rel_path: Some(active_path),
-                            selection: Some(sel),
-                        });
-                }
-            }
-        }
+        crate::services::sync_collab_cursor(
+            self.collab_ui.is_active,
+            &self.collab_session,
+            &mut self.last_sent_cursor,
+            active_path,
+            output.observed_cursor,
+        );
     }
 
     fn navigate_editor_to_source(
@@ -843,26 +849,25 @@ impl AzoTypeApp {
         selection: CharSelection,
         scroll_to_char: usize,
     ) {
-        if let Some((clamped_sel, clamped_scroll)) =
-            crate::services::project_actions::open_and_clamp_source(
-                &mut self.project,
-                file,
-                selection,
-                scroll_to_char,
-            )
-        {
+        if let Some((clamped_sel, clamped_scroll)) = project_actions::open_and_clamp_source(
+            &mut self.project,
+            file,
+            selection,
+            scroll_to_char,
+        ) {
             self.inspect_asset_mode = false;
             self.pending_cursor_restore = Some(clamped_sel);
             self.pending_scroll_to_char = Some(clamped_scroll);
+            self.pending_focus_editor = true;
             self.last_editor_selection = Some(clamped_sel);
             ctx.request_repaint();
         }
     }
 
     fn render_preview_pane(&mut self, ctx: &Context, ui: &mut Ui) {
-        let output = crate::ui::components::render_preview_pane(
+        let output = render_preview_pane(
             ui,
-            crate::ui::components::PreviewPaneParams {
+            PreviewPaneParams {
                 dark_mode: self.settings.dark_mode,
                 zoom: &mut self.zoom,
                 sync_selection: &mut self.settings.preview_sync_selection,
@@ -887,13 +892,7 @@ impl AzoTypeApp {
     }
     fn render_editor_preview_split(&mut self, ctx: &Context, ui: &mut Ui) {
         let total_rect = ui.available_rect_before_wrap();
-        let split = crate::ui::components::compute_vertical_split(
-            total_rect,
-            4.0,
-            220.0,
-            340.0,
-            self.editor_split_ratio,
-        );
+        let split = compute_vertical_split(total_rect, 4.0, 220.0, 340.0, self.editor_split_ratio);
 
         let mut left_ui = ui.new_child(
             egui::UiBuilder::new()
@@ -909,7 +908,7 @@ impl AzoTypeApp {
         );
         self.render_preview_pane(ctx, &mut right_ui);
 
-        crate::ui::components::render_vertical_split_divider(
+        render_vertical_split_divider(
             ctx,
             ui,
             &ThemePalette::for_mode(self.settings.dark_mode),
@@ -919,8 +918,8 @@ impl AzoTypeApp {
         );
     }
 
-    fn jump_to_diagnostic(&mut self, ctx: &Context, diag: crate::engine::DiagnosticItem) {
-        let char_offset = crate::ui::components::diagnostic_char_offset(&self.project, &diag);
+    fn jump_to_diagnostic(&mut self, ctx: &Context, diag: DiagnosticItem) {
+        let char_offset = diagnostic_char_offset(&self.project, &diag);
         self.navigate_editor_to_source(
             ctx,
             &diag.file,
@@ -977,7 +976,7 @@ impl AzoTypeApp {
                     self.render_editor_preview_split(ctx, ui);
                 } else {
                     let total_rect = ui.available_rect_before_wrap();
-                    let content_split = crate::ui::components::compute_horizontal_split(
+                    let content_split = compute_horizontal_split(
                         total_rect,
                         6.0,
                         160.0,
@@ -997,45 +996,31 @@ impl AzoTypeApp {
                             .max_rect(content_split.second_rect)
                             .layout(Layout::top_down(Align::Min)),
                     );
-                    let panel_out = crate::ui::components::render_bottom_panel(
-                        &mut bottom_ui,
-                        crate::ui::components::BottomPanelParams {
-                            dark_mode: self.settings.dark_mode,
-                            state: &mut self.bottom_panel,
-                            diagnostics: &self.diagnostics,
-                            active_file: &self.project.active_file,
-                            is_active_typst: FileKind::from_path(&self.project.active_file)
-                                == FileKind::Typst,
-                            language: &self.language,
-                            spell_check_enabled: &mut self.settings.spell_check_enabled,
-                            auto_spell_check: &mut self.settings.auto_spell_check,
-                            language_check: &self.language_check,
-                        },
-                    );
-                    if panel_out.close_requested {
-                        self.bottom_panel.visible = false;
-                    }
-                    if let Some(diag) = panel_out.open_diagnostic.clone() {
-                        self.jump_to_diagnostic(ctx, diag);
-                    }
-                    if let Some(edited) =
-                        crate::services::language_actions::handle_bottom_panel_language_actions(
+                    let (open_diag, edited_text) =
+                        bottom_panel_actions::render_and_handle_bottom_panel(
                             ctx,
-                            &panel_out,
+                            &mut bottom_ui,
+                            &mut self.bottom_panel,
+                            &self.diagnostics,
                             &mut self.settings,
                             &mut self.language_check,
                             &mut self.project,
                             &self.language,
+                            self.last_editor_selection,
+                            &mut self.inspect_asset_mode,
                             &mut self.pending_cursor_restore,
                             &mut self.pending_scroll_to_char,
                             &mut self.show_settings_window,
                             &mut self.settings_tab,
-                        )
-                    {
+                        );
+                    if let Some(diag) = open_diag {
+                        self.jump_to_diagnostic(ctx, diag);
+                    }
+                    if let Some(edited) = edited_text {
                         self.on_active_text_modified(ctx, Some(edited));
                     }
 
-                    crate::ui::components::render_horizontal_split_divider(
+                    render_horizontal_split_divider(
                         ctx,
                         ui,
                         &palette,
@@ -1080,17 +1065,30 @@ impl AzoTypeApp {
 impl eframe::App for AzoTypeApp {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         self.render_ui(ctx);
+        #[cfg(target_os = "macos")]
+        if self.recent_projects != self.last_persisted_state.recent_projects {
+            if let Some(m) = self.macos_menu.as_mut() {
+                m.update_recent_projects(self.recent_projects.entries());
+            }
+        }
         crate::services::flush_if_changed(
             frame,
             &mut self.last_persisted_state,
             &self.language,
             &self.settings,
             self.zoom,
+            &self.recent_projects,
         );
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        crate::services::save_persisted_parts(storage, &self.language, &self.settings, self.zoom);
+        crate::services::save_persisted_parts(
+            storage,
+            &self.language,
+            &self.settings,
+            self.zoom,
+            &self.recent_projects,
+        );
     }
 }
 

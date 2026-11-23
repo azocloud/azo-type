@@ -2,15 +2,20 @@
 //!
 //! (On macOS, `muda` provides the native screen-top menu bar via `src/platform/menu.rs`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(not(target_os = "macos"))]
-use egui::{Align, Context, CornerRadius, Frame, Layout, Margin, RichText, Stroke, TopBottomPanel};
+use egui::{
+    Align, Button, Context, CornerRadius, Frame, Layout, Margin, RichText, Stroke, TopBottomPanel,
+    Ui,
+};
 #[cfg(not(target_os = "macos"))]
 use rust_i18n::t;
 
 #[cfg(not(target_os = "macos"))]
 use crate::core::file_kind::FileKind;
+#[cfg(not(target_os = "macos"))]
+use crate::core::recent_projects::{RecentProjects, MAX_RECENT_PROJECTS};
 use crate::platform::menu::MenuAction;
 #[cfg(not(target_os = "macos"))]
 use crate::ui::theme::ThemePalette;
@@ -47,6 +52,7 @@ pub struct MenuBarParams<'a> {
     pub word_wrap: bool,
     pub project_root: &'a Path,
     pub active_file: &'a Path,
+    pub recent_projects: &'a [PathBuf],
 }
 
 /// Renders the in-window menu bar for Windows and Linux.
@@ -81,6 +87,7 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                         output.pending_action = Some(MenuAction::OpenFolder);
                         ui.close_menu();
                     }
+                    render_recent_projects_submenu(ui, params.recent_projects, &mut output);
                     if ui.button(t!("menu.rescan_folder")).clicked() {
                         output.pending_action = Some(MenuAction::RescanFolder);
                         ui.close_menu();
@@ -112,7 +119,7 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
 
                 // EDIT MENU
                 ui.menu_button(RichText::new(t!("menu.edit")).strong(), |ui| {
-                    ui.set_min_width(210.0);
+                    ui.set_min_width(240.0);
                     if ui.button(t!("menu.undo")).clicked() {
                         output.editor_action = Some(EditorContextAction::Undo);
                         ui.close_menu();
@@ -138,6 +145,35 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                         output.editor_action = Some(EditorContextAction::SelectAll);
                         ui.close_menu();
                     }
+                    ui.separator();
+                    render_menu_action_items(
+                        ui,
+                        &mut output,
+                        &[
+                            (t!("menu.find").as_ref(), MenuAction::Find),
+                            (t!("menu.find_replace").as_ref(), MenuAction::FindAndReplace),
+                        ],
+                    );
+                    ui.separator();
+                    render_menu_action_items(
+                        ui,
+                        &mut output,
+                        &[
+                            (
+                                t!("menu.toggle_line_comment").as_ref(),
+                                MenuAction::ToggleLineComment,
+                            ),
+                            (
+                                t!("menu.toggle_block_comment").as_ref(),
+                                MenuAction::ToggleBlockComment,
+                            ),
+                            (t!("menu.indent_lines").as_ref(), MenuAction::IndentLines),
+                            (t!("menu.outdent_lines").as_ref(), MenuAction::OutdentLines),
+                            (t!("menu.duplicate_line").as_ref(), MenuAction::DuplicateLine),
+                            (t!("menu.move_line_up").as_ref(), MenuAction::MoveLineUp),
+                            (t!("menu.move_line_down").as_ref(), MenuAction::MoveLineDown),
+                        ],
+                    );
                     ui.separator();
                     if ui.button(t!("menu.insert_heading")).clicked() {
                         output.snippet_to_insert = Some("\n\n== New Section\n");
@@ -242,17 +278,6 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
                 });
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui
-                        .selectable_label(
-                            params.show_bottom_panel,
-                            RichText::new(t!("menu.bottom_panel_toggle")).small().strong(),
-                        )
-                        .on_hover_text(t!("menu.bottom_panel_tooltip"))
-                        .clicked()
-                    {
-                        output.pending_action = Some(MenuAction::ToggleBottomPanel);
-                    }
-                    ui.separator();
                     ui.label(
                         RichText::new(format!(
                             "{}: {}",
@@ -268,6 +293,47 @@ pub fn render_desktop_menu_bar(ctx: &Context, params: MenuBarParams<'_>) -> Menu
         });
 
     output
+}
+
+#[cfg(not(target_os = "macos"))]
+fn render_menu_action_items(ui: &mut Ui, output: &mut MenuBarOutput, items: &[(&str, MenuAction)]) {
+    for &(label, action) in items {
+        if ui.button(label).clicked() {
+            output.pending_action = Some(action);
+            ui.close_menu();
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn render_recent_projects_submenu(
+    ui: &mut Ui,
+    recent_projects: &[PathBuf],
+    output: &mut MenuBarOutput,
+) {
+    ui.menu_button(t!("menu.recent_projects"), |ui| {
+        ui.set_min_width(260.0);
+        if recent_projects.is_empty() {
+            ui.add_enabled(false, Button::new(t!("menu.recent_empty")));
+        } else {
+            for (idx, path) in recent_projects.iter().take(MAX_RECENT_PROJECTS).enumerate() {
+                let label = RecentProjects::format_entry_label(path);
+                if ui
+                    .button(label)
+                    .on_hover_text(path.display().to_string())
+                    .clicked()
+                {
+                    output.pending_action = Some(MenuAction::OpenRecentProject(idx));
+                    ui.close_menu();
+                }
+            }
+            ui.separator();
+            if ui.button(t!("menu.clear_recent")).clicked() {
+                output.pending_action = Some(MenuAction::ClearRecentProjects);
+                ui.close_menu();
+            }
+        }
+    });
 }
 
 #[cfg(test)]

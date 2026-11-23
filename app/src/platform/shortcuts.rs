@@ -22,6 +22,8 @@ pub fn poll_keyboard_shortcuts(ctx: &Context, collab_active: bool) -> KeyboardSh
             (Modifiers::COMMAND, Key::S, MenuAction::SaveFile),
             (Modifiers::COMMAND, Key::O, MenuAction::OpenFolder),
             (Modifiers::COMMAND, Key::N, MenuAction::NewFile),
+            (Modifiers::COMMAND, Key::F, MenuAction::Find),
+            (Modifiers::COMMAND, Key::H, MenuAction::FindAndReplace),
             (Modifiers::COMMAND, Key::B, MenuAction::ToggleSidebar),
             (Modifiers::COMMAND, Key::J, MenuAction::ToggleBottomPanel),
             (Modifiers::COMMAND, Key::E, MenuAction::ExportPdf),
@@ -45,6 +47,46 @@ pub fn poll_keyboard_shortcuts(ctx: &Context, collab_active: bool) -> KeyboardSh
     });
 
     outcome
+}
+
+/// Polls and consumes editor-scoped keyboard shortcuts on `ctx`.
+///
+/// Callers should invoke this only while the source code editor has focus so these bindings
+/// do not hijack inputs in search fields or modal dialogs.
+pub fn poll_editor_shortcuts(ctx: &Context) -> Option<MenuAction> {
+    ctx.input_mut(|i| {
+        let shortcuts = [
+            (
+                Modifiers::COMMAND | Modifiers::SHIFT,
+                Key::Slash,
+                MenuAction::ToggleBlockComment,
+            ),
+            (
+                Modifiers::COMMAND,
+                Key::Slash,
+                MenuAction::ToggleLineComment,
+            ),
+            (
+                Modifiers::COMMAND,
+                Key::CloseBracket,
+                MenuAction::IndentLines,
+            ),
+            (
+                Modifiers::COMMAND,
+                Key::OpenBracket,
+                MenuAction::OutdentLines,
+            ),
+            (Modifiers::COMMAND, Key::D, MenuAction::DuplicateLine),
+            (Modifiers::ALT, Key::ArrowUp, MenuAction::MoveLineUp),
+            (Modifiers::ALT, Key::ArrowDown, MenuAction::MoveLineDown),
+        ];
+        for (m, k, act) in shortcuts {
+            if i.consume_key(m, k) {
+                return Some(act);
+            }
+        }
+        None
+    })
 }
 
 #[cfg(test)]

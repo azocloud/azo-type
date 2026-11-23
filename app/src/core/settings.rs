@@ -23,6 +23,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_hover_hide_delay_ms() -> u64 {
+    400
+}
+
 /// Active tab within the Settings sub-window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {
@@ -80,10 +84,16 @@ pub struct IdeSettings {
     pub show_line_numbers: bool,
     /// Whether Typst syntax highlighting is enabled.
     pub syntax_highlighting: bool,
+    /// Grace delay (in milliseconds) before hiding the IntelliSense hover popup after leaving a token.
+    #[serde(default = "default_hover_hide_delay_ms")]
+    pub hover_hide_delay_ms: u64,
     /// Whether edits automatically save to disk.
     pub auto_save_on_edit: bool,
     /// Whether dotfiles and hidden directories are shown in the file tree.
     pub show_hidden_files: bool,
+    /// Whether to automatically reopen the most recent project folder on startup.
+    #[serde(default)]
+    pub open_last_project_on_startup: bool,
     /// Whether edits automatically trigger incremental compilation.
     pub auto_compile: bool,
     /// Debounce interval (in milliseconds) before auto-compilation runs.
@@ -134,8 +144,10 @@ impl Default for IdeSettings {
             word_wrap: true,
             show_line_numbers: true,
             syntax_highlighting: true,
+            hover_hide_delay_ms: default_hover_hide_delay_ms(),
             auto_save_on_edit: true,
             show_hidden_files: false,
+            open_last_project_on_startup: false,
             auto_compile: true,
             debounce_ms: 120,
             render_dpi_scale: 2.0,
@@ -165,6 +177,7 @@ impl IdeSettings {
             defaults.editor_font_size
         };
         self.debounce_ms = self.debounce_ms.clamp(50, 800);
+        self.hover_hide_delay_ms = self.hover_hide_delay_ms.min(3000);
         self.spell_check_debounce_ms = self.spell_check_debounce_ms.clamp(150, 2000);
         self.render_dpi_scale = if self.render_dpi_scale.is_finite() {
             self.render_dpi_scale.clamp(1.0, 4.0)

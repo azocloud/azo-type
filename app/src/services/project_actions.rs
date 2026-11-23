@@ -8,8 +8,35 @@ use egui::Context;
 use crate::collab::doc::CharSelection;
 use crate::collab::session::{CollabSessionHandle, SessionToUiEvent, UiToSessionCmd};
 use crate::collab::ui::{CollabUiState, CollabWindowAction};
+use crate::core::recent_projects::RecentProjects;
 use crate::platform::dialogs::{spawn_open_folder_dialog, spawn_save_file_dialog};
 use crate::project::DiskProject;
+
+/// Formats the status bar notice after jumping to an outline heading.
+pub fn format_outline_nav_notice(item: &crate::core::outline::DocumentOutlineItem) -> String {
+    format!(
+        "Navigated to '{} {}' ({}:{})",
+        item.number_label,
+        item.title,
+        item.file.display(),
+        item.line_number
+    )
+}
+
+/// Sends a collaborative undo or redo command when a keyboard shortcut fires.
+pub fn send_collab_undo_redo(
+    collab_session: &CollabSessionHandle,
+    active_file: &Path,
+    undo: bool,
+    redo: bool,
+) {
+    let rel_path = active_file.to_path_buf();
+    if redo {
+        collab_session.send(UiToSessionCmd::LocalRedo { rel_path });
+    } else if undo {
+        collab_session.send(UiToSessionCmd::LocalUndo { rel_path });
+    }
+}
 
 /// Opens `file` (if not already active/open) and clamps `(selection, scroll_to_char)` to its text length.
 pub fn open_and_clamp_source(
@@ -189,6 +216,25 @@ pub fn save_active_or_prompt<E: Send + 'static>(
     })
 }
 
+/// Saves the active buffer to `path` on disk and returns a formatted status notice.
+pub fn save_active_to_path_notice(project: &mut DiskProject, path: &Path) -> String {
+    let _ = project.save_active_to_path(path);
+    rust_i18n::t!("app.status_saved_file", path = path.display().to_string()).to_string()
+}
+
+/// Opens `rel_path` from the sidebar tree and returns whether it is an asset (`Image`/`Binary`).
+pub fn open_sidebar_file(project: &mut DiskProject, rel_path: &Path) -> Result<bool, String> {
+    project
+        .open_file(rel_path)
+        .map_err(|e| format!("Could not open file: {e}"))?;
+    Ok(project.active_buffer().is_some_and(|b| {
+        matches!(
+            b.kind,
+            crate::project::FileKind::Image | crate::project::FileKind::Binary
+        )
+    }))
+}
+
 /// Saves all modified project buffers to disk when the project has disk backing.
 pub fn save_all_project_files(project: &mut DiskProject) -> (bool, String) {
     if !project.has_disk_backing() {
@@ -209,6 +255,46 @@ pub fn save_all_project_files(project: &mut DiskProject) -> (bool, String) {
             false,
             rust_i18n::t!("app.status_save_error", error = e.to_string()).to_string(),
         ),
+    }
+}
+
+/// Rescans `project` on disk and returns `(succeeded, status_notice)`.
+pub fn rescan_project_folder(project: &mut DiskProject) -> (bool, String) {
+    match project.rescan_tree() {
+        Ok(()) => {
+            let p = project.root_dir.display().to_string();
+            (
+                true,
+                rust_i18n::t!("app.status_rescanned", path = p).to_string(),
+            )
+        }
+        Err(e) => (
+            false,
+            rust_i18n::t!("app.status_rescan_failed", error = e.to_string()).to_string(),
+        ),
+    }
+}
+
+/// Sends a `LocalCursorUpdated` command when P2P collab is active and the cursor moved.
+pub fn sync_collab_cursor(
+    collab_active: bool,
+    collab_session: &CollabSessionHandle,
+    last_sent_cursor: &mut Option<(PathBuf, CharSelection)>,
+    active_path: PathBuf,
+    observed_cursor: Option<CharSelection>,
+) {
+    if !collab_active {
+        return;
+    }
+    if let Some(sel) = observed_cursor {
+        let candidate = (active_path.clone(), sel);
+        if last_sent_cursor.as_ref() != Some(&candidate) {
+            *last_sent_cursor = Some(candidate);
+            collab_session.send(UiToSessionCmd::LocalCursorUpdated {
+                active_rel_path: Some(active_path),
+                selection: Some(sel),
+            });
+        }
     }
 }
 
@@ -245,6 +331,78 @@ pub fn open_picked_folder(
             rust_i18n::t!("app.status_cannot_open_folder", error = err.to_string()).to_string(),
         ),
     }
+}
+
+use crate::core::strip_windows_verbatim_prefix;
+
+/// Resolves `path` to its canonical filesystem path, falling back to `path` if canonicalization fails.
+///
+/// Strips Windows verbatim prefixes (`\\?\` and `\\?\UNC\`) so stored and displayed paths remain
+/// clean cross-platform.
+pub fn canonicalize_project_path(path: &Path) -> PathBuf {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    strip_windows_verbatim_prefix(resolved)
+}
+
+/// Resolves the initial project opened at application startup.
+///
+/// Prioritizes an explicit `initial_folder` launch argument, then falls back to the most recent
+/// project folder when `open_last_project_on_startup` is enabled, or a blank in-memory project
+/// otherwise. Successfully opened folders are recorded into `recent_projects`.
+pub fn resolve_startup_project(
+    initial_folder: Option<PathBuf>,
+    open_last_project_on_startup: bool,
+    recent_projects: &mut RecentProjects,
+    show_hidden_files: bool,
+) -> DiskProject {
+    if let Some(dir) = initial_folder.filter(|d| d.is_dir()) {
+        if let Ok(proj) = DiskProject::open_folder(&dir, show_hidden_files) {
+            recent_projects.record(canonicalize_project_path(&proj.root_dir));
+            return proj;
+        }
+    }
+
+    if open_last_project_on_startup {
+        if let Some(last) = recent_projects
+            .most_recent()
+            .map(Path::to_path_buf)
+            .filter(|p| p.is_dir())
+        {
+            if let Ok(proj) = DiskProject::open_folder(&last, show_hidden_files) {
+                recent_projects.record(canonicalize_project_path(&proj.root_dir));
+                return proj;
+            }
+        }
+    }
+
+    DiskProject::blank()
+}
+
+/// Opens `path` as the active project via [`open_picked_folder`] and updates `recent_projects`.
+///
+/// Records the canonicalized project root when opening succeeds, and removes `path` from
+/// `recent_projects` if opening fails because `path` no longer exists on disk.
+pub fn open_folder_and_record(
+    path: &Path,
+    show_hidden_files: bool,
+    collab_active: bool,
+    collab_session: &CollabSessionHandle,
+    project: &mut DiskProject,
+    recent_projects: &mut RecentProjects,
+) -> (bool, String) {
+    let (opened, notice) = open_picked_folder(
+        path,
+        show_hidden_files,
+        collab_active,
+        collab_session,
+        project,
+    );
+    if opened {
+        recent_projects.record(canonicalize_project_path(&project.root_dir));
+    } else if !path.exists() {
+        recent_projects.remove(path);
+    }
+    (opened, notice)
 }
 
 /// Applies a single `SessionToUiEvent` onto UI and project state.
